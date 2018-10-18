@@ -707,7 +707,7 @@ bool UnlockDevice(CRKImage *pImage,CRKLog *pLog,unsigned char *pKey,unsigned int
 		return false;
 }
 
-
+extern int sdBootUpdate;
 bool do_rk_firmware_upgrade(char *szFw,void *pCallback,void *pProgressCallback,char *szBootDev)
 {
 	bool bSuccess=false,bRet=false,bLock;
@@ -823,20 +823,25 @@ bool do_rk_firmware_upgrade(char *szFw,void *pCallback,void *pProgressCallback,c
 		goto EXIT_UPGRADE;
 	}
 
-	//pLog->Record("IDBlock Preparing...");
-	//iRet = pDevice->PrepareIDB();
-	//if (iRet!=ERR_SUCCESS)
-	//{
-	//	pLog->Record("ERROR:do_rk_firmware_upgrade-->PrepareIDB failed!");
-	//	goto EXIT_UPGRADE;
-	//}
-	//pLog->Record("IDBlock Writing...");
-	//iRet = pDevice->DownloadIDBlock();
-	//if (iRet!=ERR_SUCCESS)
-	//{
-	//	pLog->Record("ERROR:do_rk_firmware_upgrade-->DownloadIDBlock failed!");
-	//	goto EXIT_UPGRADE;
-	//}
+    printf("############### update boatloader start############\n");
+
+    pLog->Record("IDBlock Preparing...");
+    printf("\t\t ############### IDBlock Preparing...\n");
+    iRet = pDevice->PrepareIDB();
+    if (iRet!=ERR_SUCCESS)
+    {
+    	pLog->Record("ERROR:do_rk_firmware_upgrade-->PrepareIDB failed!");
+    	goto EXIT_UPGRADE;
+    }
+    pLog->Record("IDBlock Writing...");
+    printf("\t\t ############### IDBlock Writing...\n");
+    iRet = pDevice->DownloadIDBlock();
+    if (iRet!=ERR_SUCCESS)
+    {
+    	pLog->Record("ERROR:do_rk_firmware_upgrade-->DownloadIDBlock failed!");
+    	goto EXIT_UPGRADE;
+    }
+    printf("############### update boatloader Suceess############\n");
 
 	if (strFw.find(_T(".bin"))!=tstring::npos)
 	{

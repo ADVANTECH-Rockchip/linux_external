@@ -39,6 +39,8 @@
 #include "roots.h"
 #include "recovery_ui.h"
 #include "encryptedfs_provisioning.h"
+#include "rktools.h"
+#include "sdboot.h"
 
 static const struct option OPTIONS[] = {
   { "send_intent", required_argument, NULL, 's' },
@@ -59,6 +61,8 @@ static const char *TEMPORARY_LOG_FILE = "/tmp/recovery.log";
 static const char *SIDELOAD_TEMP_DIR = "/tmp/sideload";
 static const char *coldboot_done = "/dev/.coldboot_done";
 char systemFlag[256];
+bool bSDBootUpdate = false;
+
 /*
  * The recovery tool communicates with the main system through /cache files.
  *   /cache/recovery/command - INPUT - command line for tool, one arg per line
@@ -139,6 +143,9 @@ char systemFlag[256];
 
 static const int MAX_ARG_LENGTH = 4096;
 static const int MAX_ARGS = 100;
+extern size_t strlcpy(char *dst, const char *src, size_t dsize);
+extern size_t strlcat(char *dst, const char *src, size_t dsize);
+
 
 int read_encrypted_fs_info(encrypted_fs_info *encrypted_fs_data) {
     return ENCRYPTED_FS_ERROR;
@@ -429,12 +436,12 @@ prepend_title(const char** headers) {
     int count = 0;
     char** p;
     for (p = title; *p; ++p, ++count);
-    for (p = headers; *p; ++p, ++count);
+    for (p = (char** )headers; *p; ++p, ++count);
 
     char** new_headers = malloc((count+1) * sizeof(char*));
     char** h = new_headers;
     for (p = title; *p; ++p, ++h) *h = *p;
-    for (p = headers; *p; ++p, ++h) *h = *p;
+    for (p = (char** )headers; *p; ++p, ++h) *h = *p;
     *h = NULL;
 
     return new_headers;
@@ -700,8 +707,11 @@ print_property(const char *key, const char *name, void *cookie) {
     printf("%s=%s\n", key, name);
 }
 
+
 int
 main(int argc, char **argv) {
+    bool bSDBoot    = false;
+    const char *sdupdate_package = NULL;
 
     while(access(coldboot_done, F_OK) != 0){
         printf("coldboot not done, wait...\n");
@@ -714,7 +724,7 @@ main(int argc, char **argv) {
         freopen(TEMPORARY_LOG_FILE, "a", stdout); setbuf(stdout, NULL);
         freopen(TEMPORARY_LOG_FILE, "a", stderr); setbuf(stderr, NULL);
     } else {
-	printf("start debug recovery...\n");
+	    printf("start debug recovery...\n");
     }
     printf("Starting recovery on %s\n", ctime(&start));
 
@@ -722,7 +732,24 @@ main(int argc, char **argv) {
     ui_set_background(BACKGROUND_ICON_INSTALLING);
     load_volume_table();
     setFlashPoint();
-    get_args(&argc, &argv);
+
+    bSDBoot = is_boot_from_SD();
+    if(!bSDBoot) {
+        get_args(&argc, &argv);
+    } else {
+        if (is_sdcard_update()) {
+            char imageFile[64] = {0};
+            strlcpy(imageFile, EX_SDCARD_ROOT, sizeof(imageFile));
+            strlcat(imageFile, "/sdupdate.img", sizeof(imageFile));
+            if (access(imageFile, F_OK) == 0) {
+                sdupdate_package = strdup(imageFile);
+                bSDBootUpdate = true;
+                ui_show_text(1);
+                printf("sdupdate_package = %s \n",sdupdate_package);
+            }
+        }
+    }
+
     int previous_runs = 0;
     const char *send_intent = NULL;
     const char *update_package = NULL;
@@ -817,6 +844,16 @@ main(int argc, char **argv) {
             }
         }
     } else if (update_package != NULL) {
+        int fd = -1;
+        char* resutl_file = "/userdata/update_rst.txt";
+        char text[128] ;
+        memset(text, 0, sizeof(text));
+
+        fd = open(resutl_file, O_CREAT | O_WRONLY | O_TRUNC);
+        if (fd < 0) {
+            LOGE("open /userdata/update_rst.txt fail, errno = %d\n", errno);
+        }
+
         if (ensure_path_unmounted("/oem") != 0)
             LOGE("\n === umount oem fail === \n");
 
@@ -832,18 +869,48 @@ main(int argc, char **argv) {
             sleep(1);
             printf("mounted %s failed.\n", update_package);
         }
-        if(ret == 0)
+        if(ret == 0) {
+            printf(">>>rkflash will update from %s\n", update_package);
             status = do_rk_update(binary, update_package);
             if(status == INSTALL_SUCCESS){
                 strcpy(systemFlag, update_package);
 
-            if(strncmp(update_package,"/userdata", 9) != 0)
-                if (resize_volume("/userdata"))
-                    LOGE("\n ---resize_volume userdata error ---\n");
+                if(strncmp(update_package,"/userdata", 9) != 0) {
+                    if (resize_volume("/userdata"))
+                        LOGE("\n ---resize_volume userdata error ---\n");
+                } else {
+                    //update success, delete userdata/update.img and write result to file.
+                    if(access(update_package, F_OK) == 0)
+                        remove(update_package);
+                }
+                strlcpy(text, "update images success!", 127);
+	        } else {
+                strlcpy(text, "update images failed!", 127);
             }
+        } else {
+            strlcpy(text, "update images failed!", 127);
+        }
+
+        int w_len = write(fd, text, strlen(text));
+        if (w_len <= 0) {
+            LOGE("Write %s fail, errno = %d\n", resutl_file, errno);
+        }
+        close(fd);
+
         if (status != INSTALL_SUCCESS) ui_print("Installation aborted.\n");
-	ui_print("update.img Installation done.\n");
-	ui_show_text(0);
+        ui_print("update.img Installation done.\n");
+        ui_show_text(0);
+    }else if (sdupdate_package != NULL) {
+        // update image from sdcard
+        const char* binary = "/usr/bin/rkupdate";
+        printf(">>>sdboot update will update from %s\n", sdupdate_package);
+        status = do_rk_update(binary, sdupdate_package);
+        if(status == INSTALL_SUCCESS){
+            printf("update.img Installation success.\n");
+            ui_print("update.img Installation success.\n");
+            ui_show_text(0);
+        }
+
     } else if (wipe_data) {
         if (device_wipe_data()) status = INSTALL_ERROR;
         if (erase_volume("/userdata")) status = INSTALL_ERROR;
@@ -853,8 +920,11 @@ main(int argc, char **argv) {
         if (erase_volume("/userdata")) status = INSTALL_ERROR;
         if (status != INSTALL_SUCCESS) ui_print("Data wipe failed.\n");
 		ui_print("Data wipe done.\n");
-        if (resize_volume("/oem")) status = INSTALL_ERROR;
-        if (status != INSTALL_SUCCESS) ui_print("resize failed.\n");
+        if (access("/dev/block/by-name/oem", F_OK) == 0) {
+            if (resize_volume("/oem")) status = INSTALL_ERROR;
+            if (status != INSTALL_SUCCESS) ui_print("resize failed.\n");
+        }
+
 		ui_print("resize oem done.\n");
 		ui_show_text(0);
     } else {
@@ -864,6 +934,33 @@ main(int argc, char **argv) {
     if (status != INSTALL_SUCCESS) ui_set_background(BACKGROUND_ICON_ERROR);
     if (status != INSTALL_SUCCESS || ui_text_visible()) {
         prompt_and_wait();
+    }
+
+    if (sdupdate_package != NULL && bSDBootUpdate) {
+        if (status == INSTALL_SUCCESS){
+            int isSDout = 1;
+            char imageFile[64] = {0};
+            strlcpy(imageFile, EX_SDCARD_ROOT, sizeof(imageFile));
+            strlcat(imageFile, "/sdupdate.img", sizeof(imageFile));
+			isSDout = access(imageFile, F_OK);
+
+            ui_show_text(1);
+			if(isSDout == 0) {
+			    printf("Please remove the sdcard......\n");
+                ui_print("Please remove the sdcard......\n");
+			}
+
+            while (!isSDout) {
+                sleep(1);
+				isSDout = access(imageFile, F_OK);
+                if (isSDout == 0) {
+					//printf("Please remove the sdcard......\n");
+                    //ui_print("Please remove the sdcard......\n");
+                } else {
+                    break;
+                }
+            }
+        }
     }
 
     // Otherwise, get ready to boot the main system...
