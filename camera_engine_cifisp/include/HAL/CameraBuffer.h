@@ -82,6 +82,14 @@ class CameraBufferAllocator : public enable_shared_from_this<CameraBufferAllocat
       return ((width + 0xf) & ~0xf) * ((height + 0xf) & ~0xf) * 2;
     } else if (strcmp(camPixFmt, RK_HAL_FMT_STRING::HAL_FMT_STRING_Y12) == 0) {
       return ((width + 0xf) & ~0xf) * ((height + 0xf) & ~0xf) * 2;
+    } else if (strcmp(camPixFmt, RK_HAL_FMT_STRING::HAL_FMT_STRING_SBGGR12) == 0) {
+      return ((width + 0xf) & ~0xf) * ((height + 0xf) & ~0xf) * 2;
+    } else if (strcmp(camPixFmt, RK_HAL_FMT_STRING::HAL_FMT_STRING_SGBRG12) == 0) {
+      return ((width + 0xf) & ~0xf) * ((height + 0xf) & ~0xf) * 2;
+    } else if (strcmp(camPixFmt, RK_HAL_FMT_STRING::HAL_FMT_STRING_SGRBG12) == 0) {
+      return ((width + 0xf) & ~0xf) * ((height + 0xf) & ~0xf) * 2;
+    } else if (strcmp(camPixFmt, RK_HAL_FMT_STRING::HAL_FMT_STRING_SRGGB12) == 0) {
+      return ((width + 0xf) & ~0xf) * ((height + 0xf) & ~0xf) * 2;
     } else if (strcmp(camPixFmt, RK_HAL_FMT_STRING::HAL_FMT_STRING_SBGGR10) == 0) {
       return ((width + 0xf) & ~0xf) * ((height + 0xf) & ~0xf) * 2;
     } else if (strcmp(camPixFmt, RK_HAL_FMT_STRING::HAL_FMT_STRING_SGBRG10) == 0) {

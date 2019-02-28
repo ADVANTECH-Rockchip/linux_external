@@ -510,6 +510,9 @@ typedef char                        CamDpfProfileName_t[CAM_DPF_PROFILE_NAME];
 #define CAM_DSP_3DNR_PROFILE_NAME        ( 20U )
 typedef char                        CamDsp3dnrProfileName_t[CAM_DSP_3DNR_PROFILE_NAME];
 
+#define CAM_NEW_DSP_3DNR_PROFILE_NAME        ( 20U )
+typedef char                        CamNewDsp3dnrProfileName_t[CAM_NEW_DSP_3DNR_PROFILE_NAME];
+
 #define CAM_FILTER_PROFILE_NAME        ( 20U )
 typedef char                        CamFilterProfileName_t[CAM_FILTER_PROFILE_NAME];
 
@@ -972,6 +975,46 @@ typedef struct CamDsp3DNRSettingProfile_s {
 
 } CamDsp3DNRSettingProfile_t;
 
+typedef struct CamNewDsp3DNRYnrParams_s {
+	uint32_t enable_ynr;        // Set to 1 by default
+	uint32_t enable_tnr;        // Set to 1 by default, it will be disabled when enable_ynr=1
+	uint32_t enable_iir;        // Set to 0 by default, it will be disabled when enable_ynr=1
+	uint32_t *pynr_time_weight_level;        //Denoise weight of time, valid range: 1 - 4, default 3
+	uint32_t *pynr_spat_weight_level;        // Denoise weight of spatial, valid range: 0 - 28, default 16
+	uint32_t reserved[4];
+}CamNewDsp3DNRYnrParams_t;
+
+
+typedef struct CamNewDsp3DNRUvnrParams_s {
+	uint32_t enable_uvnr;       // Set to 1 by default
+	uint32_t *puvnr_weight_level;       // Denoise weight for uvnr, valid range: 4 - 16 default 12
+	uint32_t reserved[4];
+}CamNewDsp3DNRUvnrParams_t;
+
+
+typedef struct CamNewDsp3DNRSharpParams_s{
+	uint32_t enable_sharp;      // Set to 1 by default, enable DSP sharpness algorithm
+	uint32_t *psharp_weight_level;      // Sharpness weight, valid range: 0 - 4 defalut 2
+	uint32_t reserved[4];
+}CamNewDsp3DNRSharpParams_t;
+
+
+typedef struct CamNewDsp3DNRProfile_s {
+	void*                    p_next;
+	CamNewDsp3dnrProfileName_t name;
+	
+	CamNewDsp3DNRYnrParams_t ynr;
+	CamNewDsp3DNRUvnrParams_t uvnr;
+	CamNewDsp3DNRSharpParams_t sharp;
+	
+	uint32_t enable_dpc;        // Set to 1 by default, enable DSP dpc algorithm
+	uint32_t reserved[4];
+
+	uint32_t enable_3dnr;;			// whole 3dnr function enable bits;
+	int ArraySize;
+	float *pgain_Level;
+}CamNewDsp3DNRProfile_t;
+
 
 /*****************************************************************************/
 /**
@@ -997,6 +1040,7 @@ typedef struct CamDpfProfile_s {
 
   List FilterList;
   List Dsp3DNRSettingProfileList;
+  List newDsp3DNRProfileList;
 } CamDpfProfile_t;
 
 

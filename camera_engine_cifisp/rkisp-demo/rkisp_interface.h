@@ -106,6 +106,17 @@ enum HAL_DAYNIGHT_MODE {
   HAL_DAYNIGHT_NIGHT
 };
 
+enum CAMISP_CTRL_MODE
+{
+  CAMISP_CTRL_MASTER = 0,
+  CAMISP_CTRL_SLAVE = 1
+};
+
+enum HAL_AE_STATE {
+  HAL_AE_STATE_UNSTABLE = 0,
+  HAL_AE_STATE_STABLE
+};
+
 typedef struct HAL_FPS_INFO_s {
   unsigned int numerator;
   unsigned int denominator;
@@ -119,54 +130,58 @@ typedef struct HAL_Window {
 } HAL_Window_t;
 
 /* -------- CamIsp10CtrItf interface -----------*/
-int rkisp_start(void* &engine, int vidFd, const char* ispNode, const char* tuningFile);
-
+int rkisp_start(void* &engine, int vidFd, const char* ispNode,
+	const char* tuningFile, enum CAMISP_CTRL_MODE ctrl_mode = CAMISP_CTRL_MASTER);
 int rkisp_stop(void* &engine);
 
-int rkisp_getAeTime(float &time);
-int rkisp_getAeGain(float &gain);
-int rkisp_getAeMaxExposureTime(float &time);
-int rkisp_getAeMaxExposureGain(float &gain);
-int rkisp_setAeMaxExposureTime(float time);
-int rkisp_setAeMaxExposureGain(float gain);
-int rkisp_getAeMeanLuma(int &meanLuma);
-int rkisp_setWhiteBalance(HAL_WB_MODE wbMode);
-int rkisp_setAeMode(enum HAL_AE_OPERATION_MODE aeMode);
-int rkisp_setManualGainAndTime(float hal_gain, float hal_time);
-int rkisp_setAntiBandMode(enum HAL_AE_FLK_MODE flkMode);
-int rkisp_setAeBias(int aeBias);
-int rkisp_setFps(HAL_FPS_INFO_t fps);
-int rkisp_setAeWindow(int left_hoff, int top_voff, int right_width, int bottom_height);
-int rkisp_getAeWindow(int &left_hoff, int &top_voff, int &right_width, int &bottom_height);
-int rkisp_setExposureMeterMode(enum HAL_AE_METERING_MODE aeMeterMode);
-int rkisp_getExposureMeterMode(enum HAL_AE_METERING_MODE& aeMeterMode);
-int rkisp_setExposureMeterCoeff(unsigned char meter_coeff[]);
-int rkisp_getExposureMeterCoeff(unsigned char meter_coeff[]);
-int rkisp_setAeSetPoint(float set_point);
-int rkisp_getAeSetPoint(float &set_point);
-int rkisp_set3ALocks(int locks);
-int rkisp_get3ALocks(int& curLocks);
-int rkisp_setFocusMode(enum HAL_AF_MODE fcMode);
-int rkisp_getFocusMode(enum HAL_AF_MODE& fcMode);
-int rkisp_setFocusWin(HAL_Window_t afwin);
-int rkisp_getFocusWin(HAL_Window_t& afwin);
-int rkisp_trigggerAf(bool trigger);
-int rkisp_getBrightness(int& brightVal);
-int rkisp_getContrast(int& contrast);
-int rkisp_getSaturation(int& sat);
-int rkisp_getHue(int& hue);
-int rkisp_setBrightness(int brightVal);
-int rkisp_setContrast(int contrast);
-int rkisp_setSaturation(int sat);
-int rkisp_setHue(int hue);
-int rkisp_setFilterLevel(enum HAL_MODE_e mode,
-        enum HAL_FLT_DENOISE_LEVEL_e denoise, enum HAL_FLT_SHARPENING_LEVEL_e sharp);
-int rkisp_getFilterLevel(enum HAL_MODE_e& mode,
-        enum HAL_FLT_DENOISE_LEVEL_e& denoise, enum HAL_FLT_SHARPENING_LEVEL_e& sharp);
-int rkisp_setNightMode(bool night_mode);
-int rkisp_getNightMode(bool& night_mode);
-int rkisp_setDayNightSwitch(enum HAL_DAYNIGHT_MODE sw);
-int rkisp_getDayNightSwitch(enum HAL_DAYNIGHT_MODE& sw);
+int rkisp_getAeTime(void* &engine, float &time);
+int rkisp_getAeGain(void* &engine, float &gain);
+int rkisp_getAeMaxExposureTime(void* &engine, float &time);
+int rkisp_getAeMaxExposureGain(void* &engine, float &gain);
+int rkisp_setAeMaxExposureTime(void* &engine, float time);
+int rkisp_setAeMaxExposureGain(void* &engine, float gain);
+int rkisp_getAeState(void* &engine, enum HAL_AE_STATE &ae_state);
+int rkisp_getAeMeanLuma(void* &engine, int &meanLuma);
+int rkisp_setWhiteBalance(void* &engine, HAL_WB_MODE wbMode);
+int rkisp_setAeMode(void* &engine, enum HAL_AE_OPERATION_MODE aeMode);
+int rkisp_setManualGainAndTime(void* &engine, float hal_gain, float hal_time);
+int rkisp_setAntiBandMode(void* &engine, enum HAL_AE_FLK_MODE flkMode);
+int rkisp_setAeBias(void* &engine, int aeBias);
+int rkisp_setFps(void* &engine, HAL_FPS_INFO_t fps);
+int rkisp_getFps(void* &engine, HAL_FPS_INFO_t &fps);
+int rkisp_setAeWindow(void* &engine, int left_hoff, int top_voff, int right_width, int bottom_height);
+int rkisp_getAeWindow(void* &engine, int &left_hoff, int &top_voff, int &right_width, int &bottom_height);
+int rkisp_setExposureMeterMode(void* &engine, enum HAL_AE_METERING_MODE aeMeterMode);
+int rkisp_getExposureMeterMode(void* &engine, enum HAL_AE_METERING_MODE& aeMeterMode);
+int rkisp_setExposureMeterCoeff(void* &engine, unsigned char meter_coeff[]);
+int rkisp_getExposureMeterCoeff(void* &engine, unsigned char meter_coeff[]);
+int rkisp_setAeSetPoint(void* &engine, float set_point);
+int rkisp_getAeSetPoint(void* &engine, float &set_point);
+int rkisp_set3ALocks(void* &engine, int locks);
+int rkisp_get3ALocks(void* &engine, int& curLocks);
+int rkisp_setFocusMode(void* &engine, enum HAL_AF_MODE fcMode);
+int rkisp_getFocusMode(void* &engine, enum HAL_AF_MODE& fcMode);
+int rkisp_setFocusWin(void* &engine, HAL_Window_t afwin);
+int rkisp_getFocusWin(void* &engine, HAL_Window_t& afwin);
+int rkisp_trigggerAf(void* &engine, bool trigger);
+
+int rkisp_getBrightness(void* &engine, int& brightVal);
+int rkisp_getContrast(void* &engine, int& contrast);
+int rkisp_getSaturation(void* &engine, int& sat);
+int rkisp_getHue(void* &engine, int& hue);
+int rkisp_setBrightness(void* &engine, int brightVal);
+int rkisp_setContrast(void* &engine, int contrast);
+int rkisp_setSaturation(void* &engine, int sat);
+int rkisp_setHue(void* &engine, int hue);
+int rkisp_setFilterLevel(void* &engine, enum HAL_MODE_e mode,
+	enum HAL_FLT_DENOISE_LEVEL_e denoise, enum HAL_FLT_SHARPENING_LEVEL_e sharp);
+int rkisp_getFilterLevel(void* &engine, enum HAL_MODE_e& mode,
+	enum HAL_FLT_DENOISE_LEVEL_e& denoise, enum HAL_FLT_SHARPENING_LEVEL_e& sharp);
+
+int rkisp_setNightMode(void* &engine, bool night_mode);
+int rkisp_getNightMode(void* &engine, bool& night_mode);
+int rkisp_setDayNightSwitch(void* &engine, enum HAL_DAYNIGHT_MODE sw);
+int rkisp_getDayNightSwitch(void* &engine, enum HAL_DAYNIGHT_MODE& sw);
 
 #ifdef __cplusplus
 }

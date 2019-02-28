@@ -63,7 +63,7 @@ CamIsp1xCtrItf::~CamIsp1xCtrItf() {
 }
 
 bool CamIsp1xCtrItf::init(const char* tuningFile,
-                          const char* ispDev) {
+                          const char* ispDev, enum CAMISP_CTRL_MODE ctrl_mode) {
   return true;
 }
 
@@ -71,7 +71,6 @@ bool CamIsp1xCtrItf::deInit() {
   //ALOGD("%s: E", __func__);
 
   osMutexLock(&mApiLock);
-
   if (mIspFd >= 0) {
     int ret;
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -376,6 +375,33 @@ bool CamIsp1xCtrItf::configure(const Configuration& config) {
     mCamIA_DyCfg.dsp3dnr_param = config.dsp3dnr_param;
     osMutexUnlock(&mApiLock);
     configureISP(&cfg);
+  } else
+    osMutexUnlock(&mApiLock);
+
+  osMutexLock(&mApiLock);
+  if ((config.newDsp3dnr_mode != mCamIA_DyCfg.newDsp3dnr_mode) ||
+    (memcmp(&config.newDsp3dnr_cfg, &mCamIA_DyCfg.newDsp3dnr_cfg, sizeof(config.newDsp3dnr_cfg)) != 0 )){
+	struct HAL_ISP_cfg_s cfg;
+    struct HAL_New3DnrCfg_s newDsp3dnr_cfg;
+
+    cfg.updated_mask = 0;
+    cfg.newDsp3DNR_cfg = NULL;
+    cfg.updated_mask |= HAL_ISP_NEW_3DNR_MASK;
+
+    if (config.newDsp3dnr_mode == HAL_MODE_OFF) {
+      cfg.enabled[HAL_ISP_NEW_3DNR_ID] = HAL_ISP_ACTIVE_FALSE;
+    } else if (config.newDsp3dnr_mode == HAL_MODE_AUTO) {
+      cfg.enabled[HAL_ISP_NEW_3DNR_ID] = HAL_ISP_ACTIVE_DEFAULT;
+    } else {
+      cfg.enabled[HAL_ISP_NEW_3DNR_ID] = HAL_ISP_ACTIVE_SETTING;
+      cfg.newDsp3DNR_cfg = &newDsp3dnr_cfg;  
+    }
+
+	mCamIA_DyCfg.newDsp3dnr_mode = config.newDsp3dnr_mode;
+	mCamIA_DyCfg.newDsp3dnr_cfg = config.newDsp3dnr_cfg;
+	osMutexUnlock(&mApiLock);
+    configureISP(&cfg);
+	
   } else
     osMutexUnlock(&mApiLock);
 
@@ -1053,6 +1079,23 @@ bool CamIsp1xCtrItf::configureISP(const void* config) {
     }
   }
 
+  if (cfg->updated_mask & HAL_ISP_NEW_3DNR_MASK) {
+    if (cfg->enabled[HAL_ISP_NEW_3DNR_ID] && cfg->newDsp3DNR_cfg) {
+      mNew3DnrNeededUpdate = BOOL_TRUE;
+      mNew3DnrEnabled = HAL_ISP_ACTIVE_SETTING;
+      new_dsp_3dnr_cfg = *cfg->newDsp3DNR_cfg;
+    } else if (!cfg->enabled[HAL_ISP_NEW_3DNR_ID]) {
+      mNew3DnrNeededUpdate = BOOL_TRUE;
+      mNew3DnrEnabled = HAL_ISP_ACTIVE_FALSE;
+    } else if (cfg->enabled[HAL_ISP_NEW_3DNR_ID]) {
+      mNew3DnrNeededUpdate = BOOL_TRUE;
+      mNew3DnrEnabled = HAL_ISP_ACTIVE_DEFAULT;
+    } else {
+      mNew3DnrNeededUpdate = BOOL_FALSE;
+      ALOGE("%s:can't config new dsp 3dnr!", __func__);
+    }
+  }
+
   if (cfg->updated_mask & HAL_ISP_AWB_LSC_MASK) {
     if (cfg->enabled[HAL_ISP_AWB_LSC_ID] && cfg->awb_lsc_pfl) {
       mAwbLscNeededUpdate = BOOL_TRUE;
@@ -1252,7 +1295,7 @@ bool CamIsp1xCtrItf::getIspConfig(enum HAL_ISP_SUB_MODULE_ID_e mod_id,
   return true;
 }
 
-bool CamIsp1xCtrItf::start() {
+bool CamIsp1xCtrItf::start(bool run_3a_thd) {
   bool ret = true;
   //should call this after camera stream on, or driver will return error
   if (mCamHwItf) {
@@ -1274,12 +1317,18 @@ bool CamIsp1xCtrItf::start() {
 
   mLenPos = -1;
   mAeStableCnt = 0;
+  mRun3AThd = false;
 
-  if (RET_SUCCESS != mISP3AThread->run("ISP3ATh", OSLAYER_THREAD_PRIO_HIGH)) {
-    ALOGE("%s: ISP3ATh thread start failed", __func__);
-    stopMeasurements();
-    --mStartCnt;
-    ret = false;
+  if (run_3a_thd) {
+    if (RET_SUCCESS != mISP3AThread->run("ISP3ATh", OSLAYER_THREAD_PRIO_HIGH)) {
+      ALOGE("%s: ISP3ATh thread start failed", __func__);
+      stopMeasurements();
+      --mStartCnt;
+      ret = false;
+    }
+
+    if (ret)
+      mRun3AThd = true;
   }
 end:
   osMutexUnlock(&mApiLock);
@@ -1294,7 +1343,8 @@ bool CamIsp1xCtrItf::stop() {
   if ((!mStartCnt) || ((mStartCnt > 0) && (--mStartCnt)))
     goto end;
   osMutexUnlock(&mApiLock);
-  mISP3AThread->requestExitAndWait();
+  if (mRun3AThd)
+    mISP3AThread->requestExitAndWait();
   osMutexLock(&mApiLock);
   stopMeasurements();
 
@@ -1658,6 +1708,14 @@ bool CamIsp1xCtrItf::runISPManual(struct CamIA10_Results* ia_results, bool_t loc
     m3DnrNeededUpdate = BOOL_FALSE;
   }
 
+  /*new 3dnr */
+  if (mNew3DnrNeededUpdate) {
+    manCfg.newDsp3DNR_cfg = &new_dsp_3dnr_cfg;
+    manCfg.updated_mask |= HAL_ISP_NEW_3DNR_MASK;
+    manCfg.enabled[HAL_ISP_NEW_3DNR_ID] = mNew3DnrEnabled;
+    mNew3DnrNeededUpdate = BOOL_FALSE;
+  }
+
   if (mAwbLscNeededUpdate) {
     manCfg.awb_lsc_pfl = &awb_lsc_pfl;
     manCfg.updated_mask |= HAL_ISP_AWB_LSC_MASK;
@@ -1995,6 +2053,10 @@ bool CamIsp1xCtrItf::runIA(struct CamIA10_DyCfg* ia_dcfg,
         ia_results->active |= CAMIA10_DSP_3DNR_MASK;
       }
 
+	  if ((ia_results->adpf.actives & ADPF_NEW_DSP_3DNR_MASK) &&
+        (mNew3DnrEnabled == HAL_ISP_ACTIVE_DEFAULT)) {
+        ia_results->active |= CAMIA10_NEW_DSP_3DNR_MASK;
+      }
     }
 
     if (mCamIAEngine->getAWDRResults(&ia_results->awdr) == RET_SUCCESS) {
@@ -2023,5 +2085,4 @@ void CamIsp1xCtrItf::mapHalExpToSensor(float hal_gain, float hal_time, int& sens
       mCamIAEngine->mapHalExpToSensor(hal_gain, hal_time, sensor_gain, sensor_time);
   return;
 }
-
 

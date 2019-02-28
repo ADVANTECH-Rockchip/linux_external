@@ -118,6 +118,7 @@ public:
     // virtual functions from AeHandler
     virtual XCamFlickerMode get_flicker_mode ();
     virtual int64_t get_current_exposure_time ();
+    virtual float get_current_exposure_time_us ();
     virtual double get_current_analog_gain ();
     virtual double get_max_analog_gain ();
 
@@ -233,7 +234,7 @@ public:
     explicit AiqAfHandler (SmartPtr<RKiqCompositor> &aiq_compositor);
     ~AiqAfHandler () {}
 
-    XCamReturn processAfMetaResults(CamIA10_AFC_Result_t af_results, X3aResultList &output);
+    XCamReturn processAfMetaResults(XCam3aResultFocus af_results, X3aResultList &output);
     virtual XCamReturn analyze (X3aResultList &output, bool first = false);
 
 private:
@@ -251,7 +252,7 @@ class AiqCommonHandler
     friend class RKiqCompositor;
 public:
     explicit AiqCommonHandler (SmartPtr<RKiqCompositor> &aiq_compositor);
-    ~AiqCommonHandler () {}
+    ~AiqCommonHandler ();
 
     virtual XCamReturn analyze (X3aResultList &output, bool first = false);
     ia_aiq_gbce_results *get_gbce_result () {
@@ -260,9 +261,17 @@ public:
     XCamColorEffect get_color_effect() {
         return _params.color_effect;
     }
+    XCamReturn processToneMapsMetaResults(CamerIcIspGocConfig_t goc, X3aResultList &output);
 
 private:
+    XCamReturn initTonemaps();
+    XCamReturn fillTonemapCurve(CamerIcIspGocConfig_t goc, AiqInputParams* inputParams, CameraMetadata* metadata);
     XCAM_DEAD_COPY (AiqCommonHandler);
+    // for tonemaps result
+    uint32_t mMaxCurvePoints; /*!< Cache for max curve points for tonemap */
+    float   *mRGammaLut;      /*!< [(P_IN, P_OUT), (P_IN, P_OUT), ..] */
+    float   *mGGammaLut;      /*!< [(P_IN, P_OUT), (P_IN, P_OUT), ..] */
+    float   *mBGammaLut;      /*!< [(P_IN, P_OUT), (P_IN, P_OUT), ..] */
 
 protected:
     SmartPtr<RKiqCompositor>     _aiq_compositor;
@@ -303,6 +312,8 @@ public:
     bool set_sensor_mode_data (struct isp_supplemental_sensor_mode_data *sensor_mode);
     struct CamIA10_SensorModeData &get_sensor_mode_data() { return _ia_stat.sensor_mode; };
     bool set_3a_stats (SmartPtr<X3aIspStatistics> &stats);
+    bool set_vcm_time (struct rk_cam_vcm_tim *vcm_tim);
+    bool set_frame_softime (int64_t sof_tim);
 
     ia_aiq  * get_handle () {
         return _ia_handle;

@@ -42,6 +42,7 @@ extern "C"
 #define ADPF_DENOISE_SHARP_LEVEL_MASK (1 << 2)
 #define ADPF_DSP_3DNR_MASK (1 << 3)
 #define ADPF_DEMOSAIC_TH_MASK (1 << 4)
+#define ADPF_NEW_DSP_3DNR_MASK (1 << 5)
 
 
 
@@ -201,6 +202,28 @@ typedef struct AdpfConfig_s {
 
 } AdpfConfig_t;
 
+typedef struct NewDsp3DnrResult_s{
+	uint32_t enable_3dnr;
+	uint32_t enable_dpc;        // Set to 1 by default, enable DSP dpc algorithm
+	uint32_t reserved[4];
+
+	uint32_t enable_ynr;        // Set to 1 by default
+	uint32_t enable_tnr;        // Set to 1 by default, it will be disabled when enable_ynr=0
+	uint32_t enable_iir;        // Set to 0 by default, it will be disabled when enable_ynr=0
+	uint32_t ynr_time_weight;        // Denoise weight of time, valid range: 1 - 4, default 3
+	uint32_t ynr_spat_weight;        // Denoise weight of spatial, valid range: 0 - 28, default 16
+	uint32_t ynr_reserved[4];
+
+	uint32_t enable_uvnr;       // Set to 1 by default
+	uint32_t uvnr_weight;       // Denoise weight for uvnr, valid range: 4 - 16, default 12
+	uint32_t uvnr_reserved[4];
+	
+	uint32_t enable_sharp;      // Set to 1 by default, enable DSP sharpness algorithm
+	uint32_t sharp_weight;      // Sharpness weight, valid range: 0 - 4, defalut 2
+	uint32_t sharp_reserved[4];
+	
+}NewDsp3DnrResult_t;
+
 typedef struct Dsp3DnrResult_s{
 	unsigned char Enable;
 	uint16_t noise_coef_num;
@@ -273,6 +296,8 @@ typedef struct AdpfResult_s {
   bool_t FltEnable;
 
   Dsp3DnrResult_t Dsp3DnrResult;
+  NewDsp3DnrResult_t NewDsp3DnrResult;
+  
 } AdpfResult_t;
 
 /*****************************************************************************/

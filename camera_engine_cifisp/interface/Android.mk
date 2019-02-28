@@ -51,7 +51,6 @@ endif
 
 LOCAL_SRC_FILES += \
 	source/rkisp_interface.cpp \
-	source/af_ctrl.cpp \
 	source/isp_ctrl.cpp \
 	source/intel_ia_ctrl.cpp \
 	source/arc_rkisp_interface.cpp \

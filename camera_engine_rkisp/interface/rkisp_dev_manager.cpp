@@ -92,7 +92,8 @@ RkispDeviceManager::x3a_calculation_done (XAnalyzer *analyzer, X3aResultList &re
             goto done;
         }
     }
-    LOGI("@%s %d: meta_result:%p, id:%d", __FUNCTION__, __LINE__, meta_result.ptr(), id);
+    LOGI("@%s %d: result %d has %d metadata entries", __FUNCTION__, __LINE__,
+         id, meta_result->get_metadata_result()->entryCount());
 
     rkisp_cl_frame_metadata_s cb_result;
     cb_result.id = id;
@@ -113,6 +114,7 @@ RkispDeviceManager::set_control_params(const int request_frame_id,
     XCam::SmartPtr<AiqInputParams> inputParams = new AiqInputParams();
     inputParams->reqId = request_frame_id;
     inputParams->settings = metas;
+    inputParams->staticMeta = &RkispDeviceManager::staticMeta;
     if(_settingsProcessor) {
         _settingsProcessor->processRequestSettings(inputParams->settings, *inputParams.ptr());
     } else {

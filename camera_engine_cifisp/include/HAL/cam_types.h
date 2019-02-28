@@ -41,6 +41,8 @@
 #define HAL_ISP_AWB_WP_SET_MASK (1 << 26)
 #define HAL_ISP_CALIBDB_GOC_MASK (1 << 27)
 #define HAL_ISP_CALIBDB_CPROC_MASK (1 << 28)
+#define HAL_ISP_NEW_3DNR_MASK  (1 << 29)
+
 
 #define HAL_ISP_ALL_MASK  (0xffffffff)
 
@@ -64,6 +66,7 @@ enum HAL_ISP_SUB_MODULE_ID_e {
   HAL_ISP_DPF_ID,
   HAL_ISP_DPF_STRENGTH_ID,
   HAL_ISP_3DNR_ID,
+  HAL_ISP_NEW_3DNR_ID,
   HAL_ISP_AWB_LSC_ID,
   HAL_ISP_ADPF_DPF_ID,
   HAL_ISP_ADPF_FLT_ID,
@@ -78,6 +81,11 @@ enum HAL_ISP_SUB_MODULE_ID_e {
   HAL_ISP_MODULE_MAX_ID_ID,
 };
 
+enum CAMISP_CTRL_MODE
+{
+    CAMISP_CTRL_MASTER = 0,
+    CAMISP_CTRL_SLAVE = 1
+};
 
 typedef struct frm_size_s {
   unsigned int width;
@@ -100,6 +108,10 @@ typedef enum RK_FRMAE_FORMAT_e {
   HAL_FRMAE_FMT_Y10,
   HAL_FRMAE_FMT_Y12,
   //RAW fmts
+  HAL_FRMAE_FMT_SBGGR12,
+  HAL_FRMAE_FMT_SGBRG12,
+  HAL_FRMAE_FMT_SGRBG12,
+  HAL_FRMAE_FMT_SRGGB12,
   HAL_FRMAE_FMT_SBGGR10,
   HAL_FRMAE_FMT_SGBRG10,
   HAL_FRMAE_FMT_SGRBG10,
@@ -144,6 +156,10 @@ class RK_HAL_FMT_STRING {
   static const char HAL_FMT_STRING_Y8[];
   static const char HAL_FMT_STRING_Y10[];
   static const char HAL_FMT_STRING_Y12[];
+  static const char HAL_FMT_STRING_SBGGR12[];
+  static const char HAL_FMT_STRING_SGBRG12[];
+  static const char HAL_FMT_STRING_SGRBG12[];
+  static const char HAL_FMT_STRING_SRGGB12[];
   static const char HAL_FMT_STRING_SBGGR10[];
   static const char HAL_FMT_STRING_SGBRG10[];
   static const char HAL_FMT_STRING_SGRBG10[];
@@ -885,6 +901,41 @@ struct HAL_3DnrCfg{
   struct HAL_3DnrParamCfg param_cfg;
 };
 
+
+struct HAL_New3Dnr_ynr_params_s {
+	uint32_t enable_ynr;        // Set to 1 by default
+	uint32_t enable_tnr;        // Set to 1 by default, it will be disabled when enable_ynr=0
+	uint32_t enable_iir;        // Set to 0 by default, it will be disabled when enable_ynr=0
+	uint32_t ynr_time_weight;        // Denoise weight of time, valid range: 1 - 4, default 3
+	uint32_t ynr_spat_weight;        // Denoise weight of spatial, valid range: 0 - 28, default 16
+	uint32_t reserved[4];
+};
+
+struct HAL_New3Dnr_uvnr_params_s {
+	uint32_t enable_uvnr;       // Set to 1 by default
+	uint32_t uvnr_weight;       // Denoise weight for uvnr, valid range: 4 - 16, default 12
+	uint32_t reserved[4];
+};
+
+struct HAL_New3Dnr_sharp_params_s {
+	uint32_t enable_sharp;      // Set to 1 by default, enable DSP sharpness algorithm
+	uint32_t sharp_weight;      // Sharpness weight, valid range: 0 - 4, defalut 2
+	uint32_t reserved[4];
+};
+
+struct HAL_New3DnrCfg_s {
+	uint32_t enable_3dnr;
+	
+	struct HAL_New3Dnr_ynr_params_s ynr;
+	struct HAL_New3Dnr_uvnr_params_s uvnr;
+	struct HAL_New3Dnr_sharp_params_s sharp;
+	
+	uint32_t enable_dpc;        // Set to 1 by default, enable DSP dpc algorithm
+	uint32_t reserved[4];
+};
+
+
+
 enum HAL_FLT_DENOISE_LEVEL_e {
   HAL_FLT_DENOISE_LEVEL_0,
   HAL_FLT_DENOISE_LEVEL_1,
@@ -920,6 +971,7 @@ struct HAL_Buffer_MetaData {
   struct HAL_ISP_dpf_strength_cfg_s dpf_strength;
   struct HAL_ISP_dpf_cfg_s dpf;
   struct HAL_ISP_DSP3DNR_cfg_s dsp_3DNR;
+  struct HAL_New3DnrCfg_s newDsp3DNR;
   struct HAL_ISP_ctk_cfg_s ctk;
   struct HAL_ISP_lsc_cfg_s lsc;
   struct HAL_ISP_goc_cfg_s goc;
@@ -1251,6 +1303,8 @@ struct HAL_ISP_cfg_s {
   struct HAL_ISP_bdm_cfg_s* bdm_cfg;
   /* 3dnr */
   struct HAL_3DnrCfg* dsp_3dnr_cfg;
+  /*new 3dnr */
+  struct HAL_New3DnrCfg_s* newDsp3DNR_cfg;
   /* awb lsc profile */
   struct HAL_ISP_Lsc_Profile_s* awb_lsc_pfl;
   /* adpf dpf */

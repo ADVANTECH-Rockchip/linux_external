@@ -305,6 +305,11 @@ unsigned int CamHwItf::PathBase::getNumQueuedBuffers(void) const {
   return numBuf;
 }
 
+bool CamHwItf::PathBase::getFmtInfo(frm_info_t *frm_info) const {
+  *frm_info = mFmtInfo;
+  return true;
+}
+
 CamHwItf::CamHwItf(void): m_flag_init(false) {
   //ALOGD("%s: E", __func__);
   //ALOGD("%s: X", __func__);

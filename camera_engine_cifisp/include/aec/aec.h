@@ -57,6 +57,8 @@ extern "C"
 #define CIFISP_AE_MEAN_MAX 25
 #define CIFISP_HIST_BIN_N_MAX 16
 
+typedef struct AecContext_s* AeHandle_t;     /**< handle to AEC context */
+
 typedef enum AecMeasuringMode_e {
   AEC_MEASURING_MODE_INVALID    = 0,    /**< invalid histogram measuring mode   */
   AEC_MEASURING_MODE_1          = 1,    /**< Y = (R + G + B) x (85/256)         */
@@ -109,20 +111,28 @@ typedef enum AecEcmFlickerPeriod_e {
   AEC_EXPOSURE_CONVERSION_FLICKER_120HZ = 0x02
 } AecEcmFlickerPeriod_t;
 
-
 typedef struct Aec_daynight_th_s {
   float         fac_th;
   uint8_t         holdon_times_th;
 } Aec_daynight_th_t;
 
-
 typedef struct AecInterAdjust_s{
 	uint8_t enable;
 	float	dluma_high_th;
 	float	dluma_low_th;
-	uint32_t	trigger_frame;
+	uint32_t  trigger_frame;
 }AecInterAdjust_t;
 
+/*****************************************************************************/
+/**
+ *          AeInstanceConfig_t
+ *
+ * @brief   AF Module instance configuration structure
+ *
+ *****************************************************************************/
+typedef struct AeInstanceConfig_s {
+  AeHandle_t              hAe;            /**< handle returned by AeInit() */
+} AeInstanceConfig_t;
 
 /*****************************************************************************/
 /**
@@ -147,8 +157,8 @@ typedef struct AecConfig_s {
   Cam6x1FloatMatrix_t         EcmTimeDot;
   Cam6x1FloatMatrix_t         EcmGainDot;
   Cam6x1FloatMatrix_t         FpsFixTimeDot;
-  uint8_t				  	  isFpsFix;
-  uint8_t				  	  FpsSetEnable;
+  uint8_t				      isFpsFix;
+  uint8_t				      FpsSetEnable;
   AecDampingMode_t            DampingMode;              /**< damping mode */
   AecSemMode_t                SemMode;                  /**< scene evaluation mode */
   AecEcmFlickerPeriod_t       EcmFlickerSelect;         /**< flicker period selection */
@@ -160,8 +170,9 @@ typedef struct AecConfig_s {
   float                           PixelPeriodsPerLine;
   float                           ApiSetFps;
   /* gain range */
+
   uint32_t				  GainRange_size;
-  float               *pGainRange;  
+  float               *pGainRange;
   float               TimeFactor[4];
 
   float         AOE_Enable;
@@ -171,7 +182,7 @@ typedef struct AecConfig_s {
   float         AOE_Y_Min_th;
   float         AOE_Step_Inc;
   float         AOE_Step_Dec;
-
+  
   uint8_t       DON_Night_Trigger;
   uint8_t       DON_Night_Mode;
   float         DON_Day2Night_Fac_th; // yamasaki
@@ -185,11 +196,13 @@ typedef struct AecConfig_s {
   CamCalibAecNLSC_t NLSC_config;
   CamCalibAecBacklight_t backLightConf;
   CamCalibAecHist2Hal_t hist2Hal;
+
   enum LIGHT_MODE LightMode;
   
   int ae_bias;
   float ApiSetMaxExpTime;
   float ApiSetMaxGain;
+
 } AecConfig_t;
 
 /*****************************************************************************/
@@ -210,6 +223,15 @@ struct AecDyCfg {
   struct Cam_Win win;
 };
 
+typedef struct ExpSet_s {
+  int vts;
+  int regTime;
+  int regGain;
+  float Exposure;
+  float Gain;
+  float Time;
+} ExpSet_t;
+
 /*****************************************************************************/
 /**
 *     AecResult_t
@@ -221,6 +243,13 @@ typedef struct AecResult_s {
   float analog_gain_code_global;
   int regIntegrationTime;
   int regGain;
+  float InputExposure;
+  float Exposure;
+  int regAssistTime[2];
+  int regAssistGain[2];
+  float AssistExposure[2];
+  float AssistGain[2];
+  float AssistIntegrationTime[2];
   float PixelClockFreqMHZ;
   float PixelPeriodsPerLine;
   float LinePeriodsPerField;
@@ -247,6 +276,9 @@ typedef struct AecResult_s {
   float MaxGain;
   float MinIntegrationTime;
   float MaxIntegrationTime;
+
+  ExpSet_t exp_set[3];
+  int exp_set_cnt;
 } AecResult_t;
 
 /*****************************************************************************/
@@ -263,20 +295,24 @@ typedef struct AecResult_s {
  *****************************************************************************/
 RESULT AecInit
 (
+    AeInstanceConfig_t* pInstConfig,
     AecConfig_t* AecConfig
 );
 
 RESULT AecUpdateConfig
 (
+    AeHandle_t           pAecCtx,
     AecConfig_t*         pConfig
 );
 
 RESULT AecStart
 (
+    AeHandle_t pAecCtx
 );
 
 RESULT AecStop
 (
+    AeHandle_t pAecCtx
 );
 
 /*****************************************************************************/
@@ -293,8 +329,10 @@ RESULT AecStop
  *****************************************************************************/
 RESULT AecRun
 (
+    AeHandle_t pAecCtx,
+    float Exposure,
     AecStat_t* ae_stat,
-	AwbMeasuringResult_t *pAwbMesureResult,
+    AwbMeasuringResult_t *pAwbMesureResult,
     AecResult_t* AecResult
 );
 
@@ -312,6 +350,7 @@ RESULT AecRun
  *****************************************************************************/
 RESULT AecGetResults
 (
+    AeHandle_t pAecCtx,
     AecResult_t* AecResult
 );
 
@@ -330,8 +369,8 @@ RESULT AecGetResults
  *****************************************************************************/
 RESULT AecRelease
 (
+    AeHandle_t pAecCtx
 );
-
 
 #ifdef __cplusplus
 }

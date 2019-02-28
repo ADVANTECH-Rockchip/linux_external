@@ -105,6 +105,19 @@ int anlyMeta(char *fname)
     printf("src_shp_l = %d\n", meta.dsp_3DNR.src_shp_l);
     printf("src_shp_c = %d\n", meta.dsp_3DNR.src_shp_c);
 
+	printf("\nnew_dsp_3DNR\n");
+	printf("enable_3dnr = %d\n", meta.newDsp3DNR.enable_3dnr);
+    printf("enable_dpc = %d\n", meta.newDsp3DNR.enable_dpc);
+    printf("enable_ynr = %d\n", meta.newDsp3DNR.ynr.enable_ynr);
+    printf("enable_tnr = %d\n", meta.newDsp3DNR.ynr.enable_tnr);
+	printf("enable_iir = %d\n", meta.newDsp3DNR.ynr.enable_iir);
+	printf("ynr_time_weight = %d\n", meta.newDsp3DNR.ynr.ynr_time_weight);
+	printf("ynr_spat_weight = %d\n", meta.newDsp3DNR.ynr.ynr_spat_weight);
+	printf("enable_uvnr = %d\n", meta.newDsp3DNR.uvnr.enable_uvnr);
+	printf("uvnr_weight = %d\n", meta.newDsp3DNR.uvnr.uvnr_weight);
+	printf("enable_sharp = %d\n", meta.newDsp3DNR.sharp.enable_sharp);
+	printf("sharp_weight = %d\n", meta.newDsp3DNR.sharp.sharp_weight);
+
     printf("\nctk\n");
     printf("coeff0 = %f\n", meta.ctk.coeff0);
     printf("coeff1 = %f\n", meta.ctk.coeff1);

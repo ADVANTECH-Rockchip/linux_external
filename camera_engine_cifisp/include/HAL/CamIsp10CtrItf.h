@@ -39,11 +39,17 @@ struct CamIsp10ConfigSet {
 
 class CamIsp10CtrItf: public CamIsp1xCtrItf {
  public:
+  static bool mSlaveInit;
+  static bool mSlaveSync;
+  static V4l2Isp10Ioctl* mSlaveIspIoctl;
+  static int mSlaveDevFd;
+
   CamIsp10CtrItf(CamHwItf* camHwItf, int devFd);
   ~CamIsp10CtrItf();
 
   virtual bool init(const char* tuningFile,
-                    const char* ispDev);
+                    const char* ispDev,
+                    enum CAMISP_CTRL_MODE ctrl_mode = CAMISP_CTRL_MASTER);
   virtual bool deInit();
   virtual void transDrvMetaDataToHal(const void* drvMeta, struct HAL_Buffer_MetaData* halMeta);
   virtual bool configureISP(const void* config);
@@ -67,7 +73,9 @@ class CamIsp10CtrItf: public CamIsp1xCtrItf {
       CamIA10_SensorModeData* iaCfg
   );
   virtual bool applySubDevConfig(struct CamIA10_Results* results);
+  virtual bool __applyIspConfig(V4l2Isp10Ioctl* ispIoctl, struct CamIsp10ConfigSet* isp_cfg);
   virtual bool applyIspConfig(struct CamIsp10ConfigSet* isp_cfg);
+  virtual void syncSlaveIsp();
   virtual bool convertIspStats(struct cifisp_stat_buffer* isp_stats,
                                struct CamIA10_Stats* ia_stats);
   virtual bool convertIAResults(

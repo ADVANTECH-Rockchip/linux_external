@@ -23,10 +23,11 @@ class CamIsp1xCtrItf: public CamIspCtrItf {
   CamIsp1xCtrItf(CamHwItf* camHwItf, int devFd);
   virtual ~CamIsp1xCtrItf();
   virtual bool init(const char* tuningFile,
-                    const char* ispDev);
+                    const char* ispDev,
+                    enum CAMISP_CTRL_MODE ctrl_mode = CAMISP_CTRL_MASTER);
   virtual bool deInit();
   virtual bool configure(const Configuration& config);
-  virtual bool start();
+  virtual bool start(bool run_3a_thd);
   virtual bool stop();
   /* control ISP module directly*/
   virtual bool configureISP(const void* config);
@@ -79,6 +80,7 @@ class CamIsp1xCtrItf: public CamIspCtrItf {
   osMutex mApiLock;
   CamHwItf* mCamHwItf;
   int mDevFd;
+  enum CAMISP_CTRL_MODE mCtrlMode;
   bool mStreaming;
   unsigned short mFramesToDrop;
   int mInitialized;
@@ -164,6 +166,11 @@ class CamIsp1xCtrItf: public CamIspCtrItf {
   struct HAL_3DnrCfg dsp_3dnr_cfg;
   bool_t m3DnrNeededUpdate;
   enum HAL_ISP_ACTIVE_MODE  m3DnrEnabled;
+
+  struct HAL_New3DnrCfg_s new_dsp_3dnr_cfg;
+  bool_t mNew3DnrNeededUpdate;
+  enum HAL_ISP_ACTIVE_MODE  mNew3DnrEnabled;
+  
   /* awb lsc */
   struct HAL_ISP_Lsc_Profile_s awb_lsc_pfl;
   bool_t mAwbLscNeededUpdate;
@@ -211,6 +218,7 @@ class CamIsp1xCtrItf: public CamIspCtrItf {
   unsigned int mRefHeight;
   /* ae stable count */
   unsigned int mAeStableCnt;
+  bool mRun3AThd;
  private:
 
 };

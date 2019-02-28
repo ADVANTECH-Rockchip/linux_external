@@ -17,6 +17,8 @@
 
 #define CAMERIC_MI_DATAMODE_RAW12 0
 #define CAMERIC_MI_DATAMODE_YUV422 1
+#define CAMERIC_MI_DATAMODE_RAW8 2
+#define CAMERIC_MI_DATAMODE_RAW10 3
 
 #define TUNNING_MAX_GAIN (128.0f)
 #define TUNNING_MAX_INTEGRATION_TIME (0.1f)
@@ -146,8 +148,10 @@ CameraIspTunning* CameraIspTunning::createInstance(CamHwItf* camHw, struct HAL_I
     pCamTuneTaskInfo->mWhiteBalance.whiteBalanceMode = WHITEBALANCE_MODE_INVALID;
     pCamTuneTaskInfo->mExpose.exposuseMode  =   EXPOSUSE_MODE_INVALID;
     //get capture info
-    if (cap_req->cap_format == HAL_ISP_FMT_RAW10 || cap_req->cap_format == HAL_ISP_FMT_RAW12) {
+    if (cap_req->cap_format == HAL_ISP_FMT_RAW12) {
       pCamTuneTaskInfo->mTuneFmt = CAMERIC_MI_DATAMODE_RAW12;
+    } else if (cap_req->cap_format == HAL_ISP_FMT_RAW10) {
+      pCamTuneTaskInfo->mTuneFmt = CAMERIC_MI_DATAMODE_RAW10;
     } else if (cap_req->cap_format == HAL_ISP_FMT_YUV420 || cap_req->cap_format == HAL_ISP_FMT_YUV422) {
       pCamTuneTaskInfo->mTuneFmt = CAMERIC_MI_DATAMODE_YUV422;
     } else {
@@ -313,7 +317,19 @@ bool CameraIspTunning::taskThLoop() {
     mCurCapIdx = 0;
     if (curTuneTask->mTuneFmt == CAMERIC_MI_DATAMODE_RAW12) {
       //TODO: may  try fomat
+      fmt.frmFmt = HAL_FRMAE_FMT_SBGGR12;
+      fmt.frmSize.width = curPreW;
+      fmt.frmSize.height = curPreH;
+      curTuneTask->mForceRGBOut = false;
+    } else if (curTuneTask->mTuneFmt == CAMERIC_MI_DATAMODE_RAW10) {
+      //TODO: may  try fomat
       fmt.frmFmt = HAL_FRMAE_FMT_SBGGR10;
+      fmt.frmSize.width = curPreW;
+      fmt.frmSize.height = curPreH;
+      curTuneTask->mForceRGBOut = false;
+    } else if (curTuneTask->mTuneFmt == CAMERIC_MI_DATAMODE_RAW8) {
+      //TODO: may  try fomat
+      fmt.frmFmt = HAL_FRMAE_FMT_SBGGR8;
       fmt.frmSize.width = curPreW;
       fmt.frmSize.height = curPreH;
       curTuneTask->mForceRGBOut = false;
@@ -335,7 +351,9 @@ bool CameraIspTunning::taskThLoop() {
     //1. ae setting
     struct HAL_ISP_aec_cfg_s aec_cfg = {0};
     if (curTuneTask->mExpose.exposuseMode == EXPOSUSE_MODE_AUTO) {
-      if (curTuneTask->mTuneFmt == CAMERIC_MI_DATAMODE_RAW12) {
+      if (curTuneTask->mTuneFmt == CAMERIC_MI_DATAMODE_RAW12 ||
+          curTuneTask->mTuneFmt == CAMERIC_MI_DATAMODE_RAW10 ||
+          curTuneTask->mTuneFmt == CAMERIC_MI_DATAMODE_RAW8) {
         //get tune task res ae value
         RK_FRMAE_FORMAT taskFmt = fmt.frmFmt;
         fmt.frmFmt = HAL_FRMAE_FMT_NV12;
@@ -646,7 +664,9 @@ bool CameraIspTunning::processFrame(shared_ptr<BufferBase> inBuf, shared_ptr<Buf
       goto PROCESS_OVER;
     }
     //set different exposure parameter ?
-    if (curTuneTask->mTuneFmt == CAMERIC_MI_DATAMODE_RAW12) {
+    if (curTuneTask->mTuneFmt == CAMERIC_MI_DATAMODE_RAW12 ||
+        curTuneTask->mTuneFmt == CAMERIC_MI_DATAMODE_RAW10 ||
+        curTuneTask->mTuneFmt == CAMERIC_MI_DATAMODE_RAW8) {
       //TODO:get maxtime an maxgain
       if ((curTuneTask->mExpose.integrationTimeStep != 0) || (curTuneTask->mExpose.gainStep != 0)) {
         newtime = mCurIntegrationTime + curTuneTask->mExpose.integrationTimeStep;
@@ -767,6 +787,10 @@ void CameraIspTunning::StartElementHandler(void* userData, const char* name, con
       //get capture info
       if (strcmp(atts[1], "CamSys_Fmt_Raw_12b") == 0)
         pCamTuneTaskInfo->mTuneFmt = CAMERIC_MI_DATAMODE_RAW12;
+      else if (strcmp(atts[1], "CamSys_Fmt_Raw_8b") == 0)
+        pCamTuneTaskInfo->mTuneFmt = CAMERIC_MI_DATAMODE_RAW8;
+      else if (strcmp(atts[1], "CamSys_Fmt_Raw_10b") == 0)
+        pCamTuneTaskInfo->mTuneFmt = CAMERIC_MI_DATAMODE_RAW10;
       else if (strcmp(atts[1], "CamSys_Fmt_Yuv422_8b") == 0)
         pCamTuneTaskInfo->mTuneFmt = CAMERIC_MI_DATAMODE_YUV422;
       else
@@ -1102,6 +1126,18 @@ int CameraIspTunning::ispTuneStoreBuffer
     } else if (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SRGGB10) == 0) {
       szFileExt  = ".pgm";
       szTypeLayout = "_raw16_RGGB";
+    } else if (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SBGGR12) == 0) {
+      szFileExt  = ".pgm";
+      szTypeLayout = "_raw16_BGGR";
+    } else if (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SGBRG12) == 0) {
+      szFileExt  = ".pgm";
+      szTypeLayout = "_raw16_GBRG";
+    } else if (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SGRBG12) == 0) {
+      szFileExt  = ".pgm";
+      szTypeLayout = "_raw16_GRBG";
+    } else if (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SRGGB12) == 0) {
+      szFileExt  = ".pgm";
+      szTypeLayout = "_raw16_RGGB";
     } else {
       result = -1;
     }
@@ -1186,6 +1222,10 @@ int CameraIspTunning::ispTuneStoreBuffer
              || (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SGBRG10) == 0)
              || (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SGRBG10) == 0)
              || (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SRGGB10) == 0)
+             || (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SBGGR12) == 0)
+             || (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SGBRG12) == 0)
+             || (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SGRBG12) == 0)
+             || (strcmp(pBuffer->getFormat(), RK_HAL_FMT_STRING::HAL_FMT_STRING_SRGGB12) == 0)
             ) {
     result = ispTuneStoreBufferRAW(pIspTuneTaskInfo, pStoreFile, pBuffer, isNewFile, true);
 

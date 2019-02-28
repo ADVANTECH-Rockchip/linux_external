@@ -292,8 +292,10 @@ bool IspEngine::configure(const Configuration& config)
     if ((mCamIA_DyCfg.aec_cfg.win.right_width == 0) ||
             (mCamIA_DyCfg.aec_cfg.win.bottom_height == 0))
     {
-        mCamIA_DyCfg.aec_cfg.win.right_width = 2048;
-        mCamIA_DyCfg.aec_cfg.win.bottom_height = 2048;
+        mCamIA_DyCfg.aec_cfg.win.right_width =
+            config.sensor_mode.isp_input_width;
+        mCamIA_DyCfg.aec_cfg.win.bottom_height =
+            config.sensor_mode.isp_input_height;
         mCamIA_DyCfg.aec_cfg.win.left_hoff = 0;
         mCamIA_DyCfg.aec_cfg.win.top_voff = 0;
     }
@@ -307,8 +309,10 @@ bool IspEngine::configure(const Configuration& config)
             int width, height, x, y;
             int outWidth, outHeight;
 
-            outWidth = 2048;
-            outHeight = 2048;
+            outWidth =
+                config.sensor_mode.isp_input_width;
+            outHeight =
+                config.sensor_mode.isp_input_height;
             width  = outWidth * 0.15;
             height = outHeight * 0.15;
             x = ( outWidth  >> 1 ) - ( width  >> 1 );
@@ -319,7 +323,7 @@ bool IspEngine::configure(const Configuration& config)
             mCamIA_DyCfg.afc_cfg.win_a.right_width = x + width;
             mCamIA_DyCfg.afc_cfg.win_a.bottom_height = y + height;
             mCamIA_DyCfg.afc_cfg.win_num = 1;
-            mCamIA_DyCfg.afc_cfg.mode == HAL_AF_MODE_CONTINUOUS_VIDEO;
+            mCamIA_DyCfg.afc_cfg.mode = HAL_AF_MODE_CONTINUOUS_VIDEO;
 
             LOGD("%s: af default win %d, %d, %d, %d", __func__, x, y, width, height);
         }
@@ -1022,7 +1026,7 @@ bool IspEngine::initISPStream(const char* ispDev)
 
     v4l2_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     v4l2_buf.memory = V4L2_MEMORY_MMAP;
-    for (int i = 0; i < req.count; i++)
+    for (unsigned int i = 0; i < req.count; i++)
     {
         v4l2_buf.index = i;
         if (ioctl(mIspFd, VIDIOC_QUERYBUF, &v4l2_buf) < 0)
@@ -1140,7 +1144,7 @@ bool IspEngine::startMeasurements()
     //LOGD("%s: mIspFd: %d",
     //  __func__,
     //  mIspFd);
-    if (ret = ioctl(mIspFd, VIDIOC_STREAMON, &type) < 0)
+    if ((ret = ioctl(mIspFd, VIDIOC_STREAMON, &type)) < 0)
     {
         ALOGE("%s: VIDIOC_STREAMON failed, %s\n", __func__,
               strerror(ret));
@@ -1153,8 +1157,9 @@ bool IspEngine::startMeasurements()
 
 bool IspEngine::runISPManual(struct CamIA10_Results* ia_results, bool_t lock)
 {
-    struct HAL_ISP_cfg_s  manCfg = {0};
+    struct HAL_ISP_cfg_s  manCfg;
 
+    memset(&manCfg, 0, sizeof(struct HAL_ISP_cfg_s));
     if (lock)
         osMutexLock(&mApiLock);
 

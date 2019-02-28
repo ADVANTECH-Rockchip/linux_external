@@ -244,5 +244,18 @@ v2.0.7.0
 v2.0.8.0
   1. Update for IQ new tool.
   2. Add AWB1.1.
+v2.0.9.0
+  1. fix the ae lib can not support to run two sensors at the same time and remove af_ctrl.cpp
+  2. add example: rkisp-demo.
+  3. support 3A information synchronize in master and slave sensor.
+  4. support new 3dnr params in IQ file and transfer to Hal metadata.
+  5. remove error log of "open laser ranging device failed!".
+  6. isp11 not stop if loop fail.
+  7. support adjust exposure by each frame.
+  8. add api itf: rkisp_getAeState.
+  9. af: modify quick research code.
+ 10. af: fix crash issue when using af.
+ 11. change log of camera-ia version.
+ 12. add support rgb bayer12 (SBGGR12/SGBRG12/SGRBG12/SRGGB12).
 ***********************************************/
-#define CAMHALVERSION "2.0.8.0"
+#define CAMHALVERSION "2.0.9.0"

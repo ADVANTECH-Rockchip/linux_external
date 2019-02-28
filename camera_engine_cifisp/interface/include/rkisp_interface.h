@@ -81,6 +81,13 @@ typedef struct AecResult_s {
   float analog_gain_code_global;
   int regIntegrationTime;
   int regGain;
+  float InputExposure;
+  float Exposure;
+  int regAssistTime[2];
+  int regAssistGain[2];
+  float AssistExposure[2];
+  float AssistGain[2];
+  float AssistIntegrationTime[2];
   float PixelClockFreqMHZ;
   float PixelPeriodsPerLine;
   float LinePeriodsPerField;
@@ -180,7 +187,8 @@ typedef struct CamIA10_AWB_Result_s {
 
 /* -------- CamIsp10CtrItf interface -----------*/
 int
-rkisp_start(void* &engine, int vidFd, const char* ispNode, const char* tuningFile);
+rkisp_start(void* &engine, int vidFd, const char* ispNode,
+	const char* tuningFile, enum CAMISP_CTRL_MODE ctrl_mode = CAMISP_CTRL_MASTER);
 
 int
 rkisp_stop(void* &engine);
@@ -219,6 +227,7 @@ int rkisp_getAeMaxExposureTime(void* &engine, float &time);
 int rkisp_getAeMaxExposureGain(void* &engine, float &gain);
 int rkisp_setAeMaxExposureTime(void* &engine, float time);
 int rkisp_setAeMaxExposureGain(void* &engine, float gain);
+int rkisp_getAeState(void* &engine, enum HAL_AE_STATE &ae_state);
 int rkisp_getAeMeanLuma(void* &engine, int &meanLuma);
 int rkisp_setWhiteBalance(void* &engine, HAL_WB_MODE wbMode);
 int rkisp_setAeMode(void* &engine, enum HAL_AE_OPERATION_MODE aeMode);
@@ -226,6 +235,7 @@ int rkisp_setManualGainAndTime(void* &engine, float hal_gain, float hal_time);
 int rkisp_setAntiBandMode(void* &engine, enum HAL_AE_FLK_MODE flkMode);
 int rkisp_setAeBias(void* &engine, int aeBias);
 int rkisp_setFps(void* &engine, HAL_FPS_INFO_t fps);
+int rkisp_getFps(void* &engine, HAL_FPS_INFO_t &fps);
 int rkisp_setAeWindow(void* &engine, int left_hoff, int top_voff, int right_width, int bottom_height);
 int rkisp_getAeWindow(void* &engine, int &left_hoff, int &top_voff, int &right_width, int &bottom_height);
 int rkisp_setExposureMeterMode(void* &engine, enum HAL_AE_METERING_MODE aeMeterMode);
@@ -252,7 +262,7 @@ int rkisp_setSaturation(void* &engine, int sat);
 int rkisp_setHue(void* &engine, int hue);
 int rkisp_setFilterLevel(void* &engine, enum HAL_MODE_e mode,
 	enum HAL_FLT_DENOISE_LEVEL_e denoise, enum HAL_FLT_SHARPENING_LEVEL_e sharp);
-int rkisp_getFilterLevel(enum HAL_MODE_e& mode,
+int rkisp_getFilterLevel(void* &engine, enum HAL_MODE_e& mode,
 	enum HAL_FLT_DENOISE_LEVEL_e& denoise, enum HAL_FLT_SHARPENING_LEVEL_e& sharp);
 
 int rkisp_setNightMode(void* &engine, bool night_mode);

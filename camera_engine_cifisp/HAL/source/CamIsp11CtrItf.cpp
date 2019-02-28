@@ -86,6 +86,10 @@ CamIsp11CtrItf::CamIsp11CtrItf(CamHwItf* camHwItf, int devFd):
 
   m3DnrNeededUpdate = BOOL_TRUE;
   m3DnrEnabled = HAL_ISP_ACTIVE_DEFAULT;
+
+  mNew3DnrNeededUpdate = BOOL_TRUE;
+  mNew3DnrEnabled = HAL_ISP_ACTIVE_DEFAULT;
+  
   mAwbLscNeededUpdate = BOOL_TRUE;
   mAwbLscEnabled = HAL_ISP_ACTIVE_DEFAULT;
 
@@ -120,7 +124,7 @@ CamIsp11CtrItf::~CamIsp11CtrItf() {
 }
 
 bool CamIsp11CtrItf::init(const char* tuningFile,
-                          const char* ispDev) {
+                          const char* ispDev, enum CAMISP_CTRL_MODE ctrl_mode) {
   int i;
   bool ret = false;
   struct CamIA10_Results ia_results = {0};
@@ -166,6 +170,7 @@ bool CamIsp11CtrItf::init(const char* tuningFile,
       mIspStats[i] = (struct cifisp_stat_buffer*)mIspStatBuf[i];
     }
     mIspIoctl = new V4l2Isp11Ioctl(mIspFd);
+    mCtrlMode = ctrl_mode;
 
     runIA(&mCamIA_DyCfg, NULL, &ia_results);
     runISPManual(&ia_results, BOOL_FALSE);
@@ -174,9 +179,7 @@ bool CamIsp11CtrItf::init(const char* tuningFile,
     applySubDevConfig(&ia_results);
 
     mLaserFd = open("/dev/stmvl6180_ranging", O_RDWR | O_SYNC);
-    if (mLaserFd <= 0) {
-      ALOGE("%s: open laser ranging device failed!", __func__);
-    } else {
+    if (mLaserFd > 0) {
       //make sure it's not started
   	  if (ioctl(mLaserFd, VL6180_IOCTL_STOP , NULL) < 0) {
   	    ALOGE("%s: Could not perform VL6180_IOCTL_STOP : %s\n", __func__, strerror(errno));
@@ -776,6 +779,10 @@ bool CamIsp11CtrItf::applyIspConfig(struct CamIsp11ConfigSet* isp_cfg) {
   if (isp_cfg->active_configs & ISP_DSP_3DNR_MASK) {
     mIspCfg.Dsp3DnrSetConfig = isp_cfg->configs.Dsp3DnrSetConfig;
   }
+  
+  if (isp_cfg->active_configs & ISP_NEW_DSP_3DNR_MASK) {
+    mIspCfg.NewDsp3DnrSetConfig = isp_cfg->configs.NewDsp3DnrSetConfig;
+  }
 
   if (isp_cfg->active_configs & ISP_DSP_AWB_LSC_MASK) {
     if (isp_cfg->enabled[HAL_ISP_AWB_LSC_ID] == BOOL_FALSE) {
@@ -990,6 +997,9 @@ bool CamIsp11CtrItf::convertIAResults(
   unsigned int i;
   unsigned int isp_ref_width;
   unsigned int isp_ref_height;
+  int newTime;
+  int newGain;
+  int newVts;
 
   if (isp_cfg == NULL)
     return false;
@@ -1015,18 +1025,32 @@ bool CamIsp11CtrItf::convertIAResults(
         || (ia_results->active & CAMIA10_AEC_AFPS_MASK)) {
       if (ia_results->aec.actives & CAMIA10_AEC_MASK) {
         /*ae enable or manual exposure*/
-        if ((ia_results->aec_enabled) ||
-            ((ia_results->aec.regIntegrationTime > 0) ||
-             (ia_results->aec.regGain > 0))) {
-          int newTime = ia_results->aec.regIntegrationTime;
-          int newGain = ia_results->aec.regGain;
-          int newVts = ia_results->aec.LinePeriodsPerField;
+        if (ia_results->aec_enabled) {
+          for (i = 0; i < ia_results->aec.exp_set_cnt; i++) {
+            newTime = ia_results->aec.exp_set[i].regTime;
+            newGain = ia_results->aec.exp_set[i].regGain;
+            newVts = ia_results->aec.exp_set[i].vts;
 
-          //TRACE_D(0,"set exposure regtime: %d, reggain: %d, time:%f gain:%f pcf: %f, pppl: %d",
-          //  newTime, newGain, ia_results->aec.coarse_integration_time, ia_results->aec.analog_gain_code_global, mCamIA_DyCfg.sensor_mode.pixel_clock_freq_mhz,
-          //  mCamIA_DyCfg.sensor_mode.pixel_periods_per_line);
-          if ((newTime != 0) || (newGain != 0))
+            //ALOGD("set auto exposure regtime: %d, reggain: %d, time:%f gain:%f pcf: %f, pppl: %d",
+            //      newTime, newGain, ia_results->aec.coarse_integration_time,
+            //      ia_results->aec.analog_gain_code_global,
+            //      mCamIA_DyCfg.sensor_mode.pixel_clock_freq_mhz,
+            //      mCamIA_DyCfg.sensor_mode.pixel_periods_per_line);
             mCamHwItf->setExposure(newVts, newTime, newGain, 100);
+          }
+        } else if (((ia_results->aec.regIntegrationTime > 0) ||
+             (ia_results->aec.regGain > 0))) {
+            newTime = ia_results->aec.regIntegrationTime;
+            newGain = ia_results->aec.regGain;
+            newVts = ia_results->aec.LinePeriodsPerField;
+
+            //ALOGD("set manual exposure regtime: %d, reggain: %d, time:%f gain:%f pcf: %f, pppl: %d",
+            //      newTime, newGain, ia_results->aec.coarse_integration_time,
+            //      ia_results->aec.analog_gain_code_global,
+            //      mCamIA_DyCfg.sensor_mode.pixel_clock_freq_mhz,
+            //      mCamIA_DyCfg.sensor_mode.pixel_periods_per_line);
+            mCamHwItf->setExposure(newVts, newTime, newGain, 100);
+            ia_results->aec_enabled = BOOL_TRUE;
         }
 
         AecMeasuringMode_to_cifisp_exp_meas_mode(
@@ -1829,6 +1853,27 @@ bool CamIsp11CtrItf::convertIAResults(
               isp_cfg->configs.Dsp3DnrSetConfig.src_shp_w2);
     }
 
+	if (ia_results->active & CAMIA10_NEW_DSP_3DNR_MASK) {
+	  isp_cfg->active_configs |= ISP_NEW_DSP_3DNR_MASK;
+	  isp_cfg->configs.NewDsp3DnrSetConfig = ia_results->adpf.NewDsp3DnrResult;
+
+	  TRACE_D(1, "ConvertIA setting 3dnr_en:%d dpc_en:%d ynr_en:%d tnr_en:%d iir_en:%d uvnr_en:%d shrp_en:%d",
+			  isp_cfg->configs.NewDsp3DnrSetConfig.enable_3dnr,
+			  isp_cfg->configs.NewDsp3DnrSetConfig.enable_dpc,
+			  isp_cfg->configs.NewDsp3DnrSetConfig.enable_ynr,
+			  isp_cfg->configs.NewDsp3DnrSetConfig.enable_tnr,
+			  isp_cfg->configs.NewDsp3DnrSetConfig.enable_iir,
+			  isp_cfg->configs.NewDsp3DnrSetConfig.enable_uvnr,
+			  isp_cfg->configs.NewDsp3DnrSetConfig.enable_sharp);
+		  
+	  TRACE_D(1, "ConvertIA setting ynr_time_weight:%d ynr_spat_weight:%d uvnr:%d sharp:%d ",
+			  isp_cfg->configs.NewDsp3DnrSetConfig.ynr_time_weight,
+			  isp_cfg->configs.NewDsp3DnrSetConfig.ynr_spat_weight,
+			  isp_cfg->configs.NewDsp3DnrSetConfig.uvnr_weight,
+			  isp_cfg->configs.NewDsp3DnrSetConfig.sharp_weight,
+			  isp_cfg->configs.NewDsp3DnrSetConfig.enable_dpc);
+	}
+
     /*  TODOS */
     if (ia_results->active & CAMIA10_AFC_MASK) {
       isp_cfg->active_configs |= ISP_AFC_MASK;
@@ -2117,6 +2162,34 @@ void CamIsp11CtrItf::transDrvMetaDataToHal
               halMeta->dsp_3DNR.shp_default,
               halMeta->dsp_3DNR.src_shp_w2);
 	#endif
+
+	//new dsp 3dnr para
+	halMeta->newDsp3DNR.enable_3dnr = mIspCfg.NewDsp3DnrSetConfig.enable_3dnr;
+	halMeta->newDsp3DNR.enable_dpc = mIspCfg.NewDsp3DnrSetConfig.enable_dpc;
+	halMeta->newDsp3DNR.ynr.enable_ynr = mIspCfg.NewDsp3DnrSetConfig.enable_ynr;
+	halMeta->newDsp3DNR.ynr.enable_tnr = mIspCfg.NewDsp3DnrSetConfig.enable_tnr;
+	halMeta->newDsp3DNR.ynr.enable_iir = mIspCfg.NewDsp3DnrSetConfig.enable_iir;
+	halMeta->newDsp3DNR.ynr.ynr_time_weight = mIspCfg.NewDsp3DnrSetConfig.ynr_time_weight;
+	halMeta->newDsp3DNR.ynr.ynr_spat_weight = mIspCfg.NewDsp3DnrSetConfig.ynr_spat_weight;
+	halMeta->newDsp3DNR.uvnr.enable_uvnr = mIspCfg.NewDsp3DnrSetConfig.enable_uvnr;
+	halMeta->newDsp3DNR.uvnr.uvnr_weight = mIspCfg.NewDsp3DnrSetConfig.uvnr_weight;
+	halMeta->newDsp3DNR.sharp.enable_sharp = mIspCfg.NewDsp3DnrSetConfig.enable_sharp;
+	halMeta->newDsp3DNR.sharp.sharp_weight = mIspCfg.NewDsp3DnrSetConfig.sharp_weight;
+
+	TRACE_D(1, "metadatoHal New3dnr: en:%d dpc_en:%d ynr_en:%d tnr_en:%d iir_en:%d, uvnr_en:%d shp_en:%d",
+              halMeta->newDsp3DNR.enable_3dnr,
+              halMeta->newDsp3DNR.enable_dpc,
+              halMeta->newDsp3DNR.ynr.enable_ynr,
+              halMeta->newDsp3DNR.ynr.enable_tnr,
+              halMeta->newDsp3DNR.ynr.enable_iir,
+              halMeta->newDsp3DNR.uvnr.enable_uvnr,
+              halMeta->newDsp3DNR.sharp.enable_sharp);
+
+	TRACE_D(1, "metadatoHal new3dnr y_time_level:%d y_spat_level:%d uv_level:%d sharp_level:%d",
+              halMeta->newDsp3DNR.ynr.ynr_time_weight,
+              halMeta->newDsp3DNR.ynr.ynr_spat_weight,
+              halMeta->newDsp3DNR.uvnr.uvnr_weight,
+              halMeta->newDsp3DNR.sharp.sharp_weight);
 	
     memcpy(halMeta->enabled, mIspCfg.enabled, sizeof(mIspCfg.enabled));
     //map wdr info
@@ -2271,20 +2344,21 @@ bool CamIsp11CtrItf::threadLoop() {
 
   if (!getMeasurement(v4l2_buf)) {
     ALOGE("%s: getMeasurement failed", __func__);
-    return false;
+    return true;
   }
 
   if (v4l2_buf.index >= CAM_ISP_NUM_OF_STAT_BUFS) {
     ALOGE("%s: v4l2_buf index: %d is invalidate!", __func__);
-    return false;
+    return true;
   }
 
   convertIspStats(mIspStats[v4l2_buf.index], &ia_stat);
 
   //get sensor mode data
-  buffer = (struct cifisp_stat_buffer*)(mIspStats[v4l2_buf.index]);
-  getSensorModedata(&(buffer->sensor_mode), &(mCamIA_DyCfg.sensor_mode));
-
+  if (ia_stat.meas_type & CAMIA10_AEC_MASK) {
+    buffer = (struct cifisp_stat_buffer*)(mIspStats[v4l2_buf.index]);
+    getSensorModedata(&(buffer->sensor_mode), &(mCamIA_DyCfg.sensor_mode));
+  }
   releaseMeasurement(&v4l2_buf);
 
 

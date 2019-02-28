@@ -22,7 +22,7 @@ CamIsp11DevHwItf::Path::Path(CamIsp11DevHwItf* camIsp,
                              unsigned long dequeueTimeout):
   mCamIsp(camIsp),
   PathBase(camIsp, camDev, pathID, dequeueTimeout) {
-
+  mFmtInfo.frmFmt = HAL_FRMAE_FMT_NV12;
 }
 
 CamIsp11DevHwItf::Path::~Path() {
@@ -412,6 +412,7 @@ void CamIsp11DevHwItf::Path::stop(void) {
     osMutexUnlock(&mNumBuffersQueuedLock);
     mCamDev->streamOff();
     mNumBuffersQueued = 0;
+    mFmtInfo.frmFmt = HAL_FRMAE_FMT_NV12;
   } else
     osMutexUnlock(&mNumBuffersQueuedLock);
 
@@ -739,8 +740,10 @@ int CamIsp11DevHwItf::configIsp(
     struct isp_supplemental_sensor_mode_data* sensor,
     struct sensor_config_info_s* sensor_config,
     bool enable) {
+  frm_info_t frm_info;
 
   osMutexLock(&mApiLock);
+  mMp->getFmtInfo(&frm_info);
   if (enable) {
     char  dev_name[15];
     const char* dev_name_p;
@@ -765,7 +768,10 @@ int CamIsp11DevHwItf::configIsp(
     } else
       dev_name_p = CAMERA_ISP_DEV_NAME;
     mISPDev->init(mIqPath, dev_name_p);
-    mISPDev->start();
+    if (frm_info.frmFmt < HAL_FRMAE_FMT_SBGGR12)
+      mISPDev->start(true);
+    else
+      mISPDev->start(false);
   } else {
     mISPDev->stop();
     mISPDev->deInit();
@@ -910,7 +916,7 @@ void CamIsp11DevHwItf::transDrvMetaDataToHal
 ) {
   /* IS raw format */
   if ((V4L2DevIoctr::V4l2FmtToHalFmt(mMpDev->getCurFmt())
-       >= HAL_FRMAE_FMT_SBGGR10) &&
+       >= HAL_FRMAE_FMT_SBGGR12) &&
       (V4L2DevIoctr::V4l2FmtToHalFmt(mMpDev->getCurFmt())
        <= HAL_FRMAE_FMT_SRGGB8)) {
     struct v4l2_buffer_metadata_s* v4l2Meta =

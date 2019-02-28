@@ -18,6 +18,7 @@
  * limitations under the License.
  */
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -27,7 +28,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
-#include <netinet/in.h>
 #include <errno.h>
 #include <signal.h>
 #include <dirent.h>
@@ -35,16 +35,34 @@
 
 #include <sys/ioctl.h>
 #include <net/if.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 
 #define LOG_TAG "pcbatest_server"
 #include "common.h"
 #include "pcbatest_server.h"
-#include "cJSON.h"
+#include "cJSON/cJSON.h"
 
 #define PARENT_EXIT 0
 #define CHILD_EXIT 1
 #define FORK_FAIL -1
+
+#ifdef PCBA_PX3SE
+#define SN_NODE     "/sys/devices/2005a000.i2c/i2c-2/2-0054/snread"
+#else
+#define SN_NODE     ""
+#endif
+
+#ifdef PCBA_PX3SE
+#warning  "---------------------define PCBA_PX3SE-----------------------"
+#elif (defined PCBA_3308)
+#warning  "---------------------define PCBA_3308------------------------"
+#elif (defined PCBA_3229GVA)
+#warning  "---------------------define PCBA_3229GVA---------------------"
+#else
+#error "====================not define any pcba macro========================="
+#endif
 
 static void sig_child_handle(int sig)
 {
@@ -94,13 +112,13 @@ static int run_cmd_to_shell(char* cmd)
 
 static int run_cmd_to_shell_duplex(char *cmd, char *w_buf, char *r_buf, char *match_str)
 {
-	int ret = 0;
+	int ret = 0, t;
 	int read_len = 0;
 	FILE *fp;
 	char buf[COMMAND_VALUESIZE] = {0};
 	char cmd_msg[COMMAND_VALUESIZE] = {0};
 
-	snprintf(cmd_msg, sizeof(cmd_msg),"%s  %s\0", cmd, w_buf);
+	snprintf(cmd_msg, sizeof(cmd_msg),"%s  %s", cmd, w_buf);
 	log_info("========cmd_msg is : %s\n",cmd_msg);
 
 	fp = popen(cmd_msg, "r");
@@ -114,12 +132,12 @@ static int run_cmd_to_shell_duplex(char *cmd, char *w_buf, char *r_buf, char *ma
 		if (read_len <= 0)
 			ret = -1;
 	} else {
-		while (fgets(buf, sizeof(buf), fp)) {
+		while (fgets(buf, sizeof(buf) - 1, fp)) {
 			if (strstr(buf, match_str)) {
 			    log_info("====================================\n");
                 log_info("strstr(buf, match_str) is : %s\n",buf);
 				strcpy(r_buf, buf);
-				break;   //* Êñ∞Ê∑ªÂä†
+				break;
 			} else {
 				puts(buf);
 			}
@@ -127,7 +145,9 @@ static int run_cmd_to_shell_duplex(char *cmd, char *w_buf, char *r_buf, char *ma
 	}
 
 EXIT:
-	pclose(fp);
+	t = pclose(fp);
+    if (WIFEXITED(t))
+        log_info("exit status:%d\n", WEXITSTATUS(t));
 	return ret;
 }
 
@@ -137,7 +157,7 @@ static int process_is_exists(char *process_name)
 	char cmd[COMMAND_VALUESIZE] = {0};
 	char buf[COMMAND_VALUESIZE] = {0};
 
-	snprintf(cmd, sizeof(cmd), "ps | grep %s | grep -v grep\0", process_name);
+	snprintf(cmd, sizeof(cmd), "ps | grep %s | grep -v grep", process_name);
 	fp = popen(cmd, "r");
 	if (!fp) {
 		log_err("popen ps | grep %s fail\n", process_name);
@@ -160,7 +180,7 @@ static int pcba_test_result_rw(PCBA_SINGLE_PARA *recv_paras, char *w_buf, char *
 	char pcbatest_result_filename[COMMAND_VALUESIZE] = {0};
 
 	snprintf(pcbatest_result_filename, sizeof(pcbatest_result_filename),
-		"%s/%s_result\0", TEST_RESULT_SAVE_PATH,
+		"%s/%s_result", TEST_RESULT_SAVE_PATH,
 		recv_paras[INDEX_TEST_ITEM].valuestr);
 
 	if (rw) {
@@ -168,28 +188,43 @@ static int pcba_test_result_rw(PCBA_SINGLE_PARA *recv_paras, char *w_buf, char *
 		log_info("write result ** pcbatest_result_filename is :%s\n",pcbatest_result_filename);
         if(w_buf[0]!='\0'){
             fd = open(pcbatest_result_filename, O_CREAT | O_WRONLY	| O_TRUNC);
-            if (fd < 0)
-            {
+            if (fd < 0) {
                 log_err("open %s fail, errno = %d\n", pcbatest_result_filename, errno);
-                return -1;
+                return errno;
             }
-            write(fd, w_buf, COMMAND_VALUESIZE);
-        }
-        else {
+            assert(strlen(w_buf) < COMMAND_VALUESIZE);
+            int w_len = write(fd, w_buf, strlen(w_buf));
+
+            if (w_len <= 0) {
+                log_err("Write %s fail, errno = %d\n", pcbatest_result_filename, errno);
+                ret = errno;
+            }
+        } else {
             log_info("w_buf is NUll, do nothing\n");
         }
 	} else {
-		fd = open(pcbatest_result_filename, O_RDONLY);
+		fd = open(pcbatest_result_filename, O_RDWR);
 		if (fd < 0) {
 			log_info("can't open %s, errno = %d\n", pcbatest_result_filename, errno);
 			return 1;
 		}
-		ret = read(fd, r_buf, COMMAND_VALUESIZE);
-		if (ret <= 0) {
+		int r_len = read(fd, r_buf, COMMAND_VALUESIZE);
+		if (r_len <= 0) {
 			log_err("read %s fail, errno = %d\n", pcbatest_result_filename, errno);
-			ret = -1;
+			ret = errno;
 		}
-		log_info("\n**********Read file: %s; Result is %s\t*****\n",pcbatest_result_filename,r_buf);
+
+        log_dbg("%s Result File:%s, Result is: %s\n",
+                __func__, pcbatest_result_filename, r_buf);
+
+        if (strstr(r_buf, TESTITEM_SEND_HEAD) == NULL) {
+            //means this key press info. need to clear file content.
+            close(fd);
+            remove(pcbatest_result_filename);
+            log_info(" XXXXXXXXXX delete file: %s XXXXXXXXXXXXXXX\n", pcbatest_result_filename);
+            return ret;
+        }
+        log_info("**********Read file: %s; Result is: %s**********\n", pcbatest_result_filename, r_buf);
 	}
 	close(fd);
 
@@ -221,10 +256,49 @@ static int pcba_start_process(char *process, char *str)
 	return 0;
 }
 
+static int sn_load(char* sn_buff)
+{
+    int i, ret = 0;
+    FILE *fp=NULL;
+    char buff[512];
+    char cmd[COMMAND_VALUESIZE] = {0};
+
+    memset(buff,0,sizeof(buff));
+
+    if(sn_buff == NULL)
+        return -1;
+
+    snprintf(cmd, sizeof(cmd), "cat %s", SN_NODE);
+    if(NULL ==(fp = popen(cmd,"r")))
+    {
+        fprintf(stderr,"execute command failed: %s",strerror(errno));
+        return -1;
+    }
+
+    while (fgets(buff, sizeof(buff), fp)) {
+        char* pstr;
+        pstr = strstr(buff, "sn:");
+        if (pstr) {
+            pstr += strlen("sn:");
+            memcpy(sn_buff, pstr, strlen(buff) - strlen("sn:"));
+            fclose(fp);
+            log_info("xx--------->>>>> SN = %s \n", sn_buff);
+            return 0;
+        }
+    }
+
+    fclose(fp);
+
+    log_info("--------->>>>> SN = %s \n", sn_buff);
+
+    return ret;
+}
+
 static int enter_pcba_test_mode(char *msg, char *test_flag)
 {
 	struct ifreq ifr;
     char local_mac[18] = {0};
+    char local_sn[32] = {0};
 	int len = 0;
 	char *start = NULL;
 	int sockfd = -1;
@@ -252,11 +326,32 @@ static int enter_pcba_test_mode(char *msg, char *test_flag)
 				 (unsigned char)ifr.ifr_hwaddr.sa_data[4],
 				 (unsigned char)ifr.ifr_hwaddr.sa_data[5]);
 	}
+
+#ifdef PCBA_PX3SE
+    int ret = sn_load(local_sn);
+#endif
+
 	start = msg;
-	len = strlen("echo;");
-	memcpy(start, "echo;", len);
+	len = strlen(PCBA_TEST_PLATFORM";");
+	memcpy(start, PCBA_TEST_PLATFORM";", len);
 	start += len;
-	memcpy(start, local_mac, 18);
+    len = strlen(local_mac);
+	memcpy(start, local_mac, len);
+
+#ifdef PCBA_PX3SE
+    if (!ret) {
+        start += len;
+        *start++ = ';';
+        len = strlen(local_sn);
+
+        if (len >= 32) {
+            local_sn[31] = '0';
+            len = 32;
+        }
+        strcat(start, local_sn);
+    }
+#endif
+
 	return 0;
 }
 
@@ -264,23 +359,46 @@ static int exit_pcba_test_mode(PCBA_SINGLE_PARA *recv_paras, char *test_flag)
 {
 	DIR *dir = NULL;
 	struct dirent *dir_ptr = NULL;
-	char pcbatest_result_filename[COMMAND_VALUESIZE] = {0};
+	char result_filename[COMMAND_VALUESIZE] = {0};
+    int ret = 0;
 
 	if ((dir = opendir(TEST_RESULT_SAVE_PATH)) == NULL) {
 		log_err("exit test mode opendir fail\n");
-		return EXIT_TEST_ERR;
+		ret = EXIT_TEST_ERR;
 	}
 	while ((dir_ptr = readdir(dir)) != NULL) {
 		if (strstr(dir_ptr->d_name, "_result")) {
-			snprintf(pcbatest_result_filename, COMMAND_VALUESIZE, "%s/%s",
+			snprintf(result_filename, COMMAND_VALUESIZE, "%s/%s",
 				TEST_RESULT_SAVE_PATH, dir_ptr->d_name);
-			remove(pcbatest_result_filename);
+			remove(result_filename);
 		}
 	}
 	closedir(dir);
 	*test_flag = 0;
 
-	return 0;
+    if (*recv_paras[INDEX_MSG].valuestr == '1') {
+        log_info("##########################################################\n");
+        log_info("############# recive exit cmd, will reboot!!! ############\n");
+        log_info("##########################################################\n");
+    }
+
+#if PCBA_3229GVA
+    /* If the EXIT type command has a "1" message, indicating
+     * that the test is complete, the system will be switched.
+     * If it carries a "0" message, it indicates that the current
+     * test has failed entries.
+     *
+     * Set current system(slot A) unbootable, then reboot.
+     * system in slot B will boot up.
+     */
+    if (*recv_paras[INDEX_MSG].valuestr == '1') {
+        log_info("Set current system unbootable!\n");
+        setSlotAsUnbootable(0);
+        system("busybox reboot");
+    }
+#endif
+
+    return ret;
 }
 
 static int pcba_test_item_process(PCBA_SINGLE_PARA *recv_paras)
@@ -290,19 +408,14 @@ static int pcba_test_item_process(PCBA_SINGLE_PARA *recv_paras)
 	char buf[COMMAND_VALUESIZE] = {0};
 	char pcba_test_filename[COMMAND_VALUESIZE] = {0};
 
-	/*snprintf(pcba_test_filename, sizeof(pcba_test_filename),
-		"%s/%s\0", PCBA_TEST_PATH,
-		recv_paras[INDEX_TEST_ITEM].valuestr);
-		*/
-    /*snprintf(pcba_test_filename, sizeof(pcba_test_filename),
-		"%s\0",recv_paras[INDEX_TEST_ITEM].valuestr);*/
-
     strcpy(pcba_test_filename,recv_paras[INDEX_TEST_ITEM].valuestr);
 
 	chmod(pcba_test_filename, S_IRUSR|S_IWUSR|S_IXUSR);
 
 	ret = run_cmd_to_shell_duplex(pcba_test_filename,
-		recv_paras[INDEX_MSG].valuestr, buf, TESTITEM_SEND_HEAD);
+                                  recv_paras[INDEX_MSG].valuestr,
+                                  buf,
+                                  TESTITEM_SEND_HEAD);
 	if (ret) {
 		log_err("run_cmd_to_shell_duplex fail, ret=%d \n", ret);
 		return TEST_FORK_ERR;
@@ -326,7 +439,6 @@ static int start_pcba_test_proccess(PCBA_SINGLE_PARA *recv_paras, int *err_code)
 		log_err("fork send_command error\n");
 		return FORK_FAIL;
 	} else if (0 == pid) {
-	    log_info(" ********I am child :%d\t**********\n",getpid());
 		if (ret = pcba_test_item_process(recv_paras))
 			log_err("test item process fail, ret=%d\n", ret);
 		*err_code = ret;
@@ -339,17 +451,17 @@ static int start_pcba_test_proccess(PCBA_SINGLE_PARA *recv_paras, int *err_code)
 static int start_pcba_test_preproccess(PCBA_SINGLE_PARA *recv_paras, int test_flag)
 {
 	int ret = 0;
-	char pcbatest_result_filename[COMMAND_VALUESIZE] = {0};
+	char result_filename[COMMAND_VALUESIZE] = {0};
 
 	if (!test_flag) {
 		log_err("not enter pcba test mode \n");
 		ret = TEST_MODE_ERR;
 	}
 
-	snprintf(pcbatest_result_filename, sizeof(pcbatest_result_filename),
-		"%s/%s_result\0", TEST_RESULT_SAVE_PATH,
+	snprintf(result_filename, sizeof(result_filename),
+		"%s/%s_result", TEST_RESULT_SAVE_PATH,
 		recv_paras[INDEX_TEST_ITEM].valuestr);
-	if (access(pcbatest_result_filename, F_OK) == 0)
+	if (access(result_filename, F_OK) == 0)
 		return TEST_RESULT_EXIST;
 
 	if (process_is_exists(recv_paras[INDEX_TEST_ITEM].valuestr)) {
@@ -364,20 +476,45 @@ static int start_pcba_test_preproccess(PCBA_SINGLE_PARA *recv_paras, int test_fl
 static int stop_pcba_test(PCBA_SINGLE_PARA *recv_paras)
 {
 	int count = 0;
-	char pcbatest_result_filename[COMMAND_VALUESIZE] = {0};
+	char result_filename[COMMAND_VALUESIZE] = {0};
 	char test_item_process[COMMAND_VALUESIZE] = {0};
 
-	snprintf(pcbatest_result_filename, sizeof(pcbatest_result_filename),
-		"%s/%s_result\0", TEST_RESULT_SAVE_PATH,
+	snprintf(result_filename, sizeof(result_filename),
+		"%s/%s_result", TEST_RESULT_SAVE_PATH,
 		recv_paras[INDEX_TEST_ITEM].valuestr);
-	if (access(pcbatest_result_filename, F_OK) == 0){
-            //remove(pcbatest_result_filename);
-	}
+	if (access(result_filename, F_OK) == 0)
+        remove(result_filename);
 
+    if (*recv_paras[INDEX_MSG].valuestr == '1') {
+       int fd = -1;
+       char buf[2];
+
+       log_info("stop_pcba_test: msg = %s\n", recv_paras[INDEX_MSG].valuestr);
+
+       memset(result_filename, 0,sizeof(result_filename));
+       snprintf(result_filename, sizeof(result_filename),
+             "%s/stop_result", TEST_RESULT_SAVE_PATH);
+
+       strncpy(buf,recv_paras[INDEX_MSG].valuestr,sizeof(buf));
+
+       fd = open(result_filename, O_CREAT | O_WRONLY | O_TRUNC);
+       if (fd < 0) {
+           log_err("open %s fail, errno = %d\n", result_filename, errno);
+           //ret = errno;
+       }
+
+       int w_len = write(fd, buf, strlen(buf)); //write to buf '1'
+       if (w_len <= 0) {
+           log_err("Write %s fail, errno = %d\n", result_filename, errno);
+       }
+
+       close(fd);
+       sleep(2);
+    }
 	while (process_is_exists(recv_paras[INDEX_TEST_ITEM].valuestr) > 0) {
 		log_info("kill %s ...\n", recv_paras[INDEX_TEST_ITEM].valuestr);
 		snprintf(test_item_process, sizeof(test_item_process),
-			"busybox killall %s\0", recv_paras[INDEX_TEST_ITEM].valuestr);
+			"busybox killall %s", recv_paras[INDEX_TEST_ITEM].valuestr);
 		run_cmd_to_shell(test_item_process);
 		sleep(1);
 		count++;
@@ -398,7 +535,7 @@ static int query_test_result(PCBA_SINGLE_PARA *recv_paras, char *msg, char *resu
 	*err_code =  0;
 	ret = pcba_test_result_rw(recv_paras, NULL, buf, 0);
 
-    //Ê∑ªÂä†Âæ™ÁéØÊü•ËØ¢ÊµãËØïÁªìÊûú‰ΩøÁî®
+    //ÃÌº”—≠ª∑≤È—Ø≤‚ ‘Ω·π˚ π”√
     //ret = 1;
 
 	if (ret == 1) {
@@ -409,15 +546,19 @@ static int query_test_result(PCBA_SINGLE_PARA *recv_paras, char *msg, char *resu
 		return QUERY_RESULT_ERR;
 	}
 	ret = sscanf(buf, TESTITEM_SEND_PARSE, msg, result, &err);
-	log_info("***************ret= is: %d\n",ret);
+    log_info("@@@ buf :%s. ret = %d @@@\n", buf, ret);
+    log_info("@@@ msg :%s @@@\n", msg);
+    log_info("@@@ result :%s @@@\n", result);
+    log_info("@@@ err :%d @@@\n", err);
+    log_info("***************ret = : %d\n", ret);
+    assert(strlen(buf) < COMMAND_VALUESIZE);
+    assert(strlen(msg) < COMMAND_VALUESIZE);
 	if (ret != 3) {
 		ret = sscanf(buf, TESTITEM_SEND_PARSE_NOMSG, result, &err);
 		if (ret != 2) {
 			log_err("pcbatest result query fail, msg:%s, result:%s, err_code:%d, ret=%d\n",
 				msg, result, err, ret);
-//            log_info("==========function :\t %s==line :\t%d====\n",__func__,__LINE__);
-//            strcpy(result, RESULT_TESTING);
-//            return 0;
+
 			return QUERY_RESULT_ERR;
 		}
 	}
@@ -515,7 +656,7 @@ static void tcp_command_fill(PCBA_COMMAND_PARA *cmd_paras, char *status, char *m
 		strcpy(send_paras[INDEX_RESULT].valuestr, result);
 
 	if (!send_paras[INDEX_ERRCODE].opt) {
-		snprintf(str_err_code, sizeof(str_err_code), "%d\0", err_code);
+		snprintf(str_err_code, sizeof(str_err_code), "%d", err_code);
 		strcpy(send_paras[INDEX_ERRCODE].valuestr, str_err_code);
 	}
 }
@@ -620,7 +761,8 @@ static int tcp_command_parse(char *recv_buf, PCBA_SINGLE_PARA *recv_paras)
 				}
 				if (strlen(sub_JSON->valuestring) > sizeof(recv_paras[num].valuestr)) {
 					log_err("recv string length is %d exceed %d \n",
-						strlen(sub_JSON->valuestring), sizeof(recv_paras[num].valuestr));
+							strlen(sub_JSON->valuestring),
+							sizeof(recv_paras[num].valuestr));
 					ret = CMD_OVERLONG;
 					goto ERR_EXIT;
 				}
@@ -639,6 +781,7 @@ static int tcp_command_parse(char *recv_buf, PCBA_SINGLE_PARA *recv_paras)
 			}
 		}
 	}
+
 ERR_EXIT:
 	cJSON_Delete(recvJSON);
 
@@ -663,9 +806,11 @@ static int tcp_command_process(int stock_fd, int err_code, PCBA_COMMAND_PARA *cm
 	if (!strcmp(recv_paras[INDEX_CMD].valuestr, recv_cmd_type[ENTER_CMD].name)) {
 		err_code = enter_pcba_test_mode(msg, &test_flag);
 	} else if (!strcmp(recv_paras[INDEX_CMD].valuestr, recv_cmd_type[EXIT_CMD].name)) {
-	    usleep(2000);  //‰ºëÁú†2msËÆ©PCÁ´ØÊúâÊó∂Èó¥ËØªÂèñÁªìÊûú
+	    usleep(2000);  //–›√ﬂ2ms»√PC∂À”– ±º‰∂¡»°Ω·π˚
 		err_code = exit_pcba_test_mode(recv_paras, &test_flag);
-	} else if (!strcmp(recv_paras[INDEX_CMD].valuestr, recv_cmd_type[START_CMD].name)) {
+    } else if (!strcmp(recv_paras[INDEX_CMD].valuestr, recv_cmd_type[START_CMD].name) ||
+               !strcmp(recv_paras[INDEX_CMD].valuestr, recv_cmd_type[CAPTURE_CMD].name)) {
+        log_info("[dragon] %s \n", recv_paras[INDEX_CMD].valuestr);
 		err_code = start_pcba_test_preproccess(recv_paras, test_flag);
 		if ((!err_code) && !strcmp(recv_paras[INDEX_TEST_ITEM].valuestr, STORAGE_TESTITEM)) {
 			fork_status = start_pcba_test_proccess(recv_paras, &err_code);
@@ -710,9 +855,15 @@ SEND_CMD:
 	}
 
 	if (!item_busy_or_result_exist &&
-	    !strcmp(recv_paras[INDEX_CMD].valuestr, recv_cmd_type[START_CMD].name) &&
-	    strcmp(recv_paras[INDEX_TEST_ITEM].valuestr, STORAGE_TESTITEM))
-        	fork_status = start_pcba_test_proccess(recv_paras, &err_code);
+        (!strcmp(recv_paras[INDEX_CMD].valuestr, recv_cmd_type[START_CMD].name) ||
+         !strcmp(recv_paras[INDEX_CMD].valuestr, recv_cmd_type[CAPTURE_CMD].name)) &&
+        strcmp(recv_paras[INDEX_TEST_ITEM].valuestr, STORAGE_TESTITEM)) {
+
+        if (!strcmp(recv_paras[INDEX_CMD].valuestr, recv_cmd_type[CAPTURE_CMD].name))
+            log_info("[dragon] camera capture cmd run.....\n" , recv_paras[INDEX_CMD].valuestr);
+
+        fork_status = start_pcba_test_proccess(recv_paras, &err_code);
+    }
 
 EXIT:
 
@@ -728,19 +879,15 @@ static void tcp_client_process(int stock_fd)
 	int proc_ret = 0;
 	char recv_buf[RECV_BUFFER_SIZE] = {0};
 
-	//cmd_paras = (PCBA_COMMAND_PARA *)malloc(sizeof(PCBA_COMMAND_PARA));
-//	if (!cmd_paras) {
-//		log_err("malloc cmd_paras faild\n");
-//		goto ERR_EXIT;
-//	}
-
 	while(1) {
 		log_info("waiting for client...\n");
 		recv_num = recv(stock_fd, recv_buf, sizeof(recv_buf), 0);
 		log_info("recv_buf is :%s \n",recv_buf);
 		if (recv_num <= 0) {
-			log_err("recv error:%s\n", strerror(errno));
+			log_err("recv error:%s.  goto exit\n", strerror(errno));
 			goto ERR_EXIT;
+            //goto EXIT;  //chad.ma modified, recv_num < 0 means host disconnect socket
+                          //here we exit normal.
 		}
 		recv_buf[recv_num]='\0';
 
@@ -762,9 +909,11 @@ static void tcp_client_process(int stock_fd)
 	//free(cmd_paras);
 ERR_EXIT:
 	close(stock_fd);
+    log_info("-------- exit pcbatest server--------\n");
 	exit(-1);
 EXIT:
 	//free(cmd_paras);
+	log_info("-------- quit pcbatest server--------\n");
 	exit(0);
 }
 
@@ -829,6 +978,7 @@ int main(int argc, char **argv)
 		log_err("tcp server init fail\n");
 
 	while(1) {
+    //{
 		/* accept a connection */
 		client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_addr, &client_addr_len);
 		if (client_sockfd < 0) {
@@ -849,13 +999,20 @@ int main(int argc, char **argv)
 		} else if (0 == pid) {
 			close(server_sockfd);
 			tcp_client_process(client_sockfd);
-
-			//_exit(0);  //new added to exit child process
 		} else if (pid > 0) {
 			close(client_sockfd);
 		}
 	}
 	close(server_sockfd);
 
+#if 0
+    int status;
+    waitpid(pid, &status, 0);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        log_err("Error in (Status %d)\n", WEXITSTATUS(status));
+        return -1;
+    }
+#endif
+    log_info("======Will exit pcba test server & end test ======\n");
 	return 0;
 }

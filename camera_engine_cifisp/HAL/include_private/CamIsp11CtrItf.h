@@ -43,6 +43,7 @@ struct CamIsp11Config {
   int flt_sharp_level;
   //struct CamIsp11_DSP_3DNR_config dsp_3Dnr_config;
   Dsp3DnrResult_t Dsp3DnrSetConfig;
+  NewDsp3DnrResult_t NewDsp3DnrSetConfig;
 };
 
 struct CamIsp11ConfigSet {
@@ -57,7 +58,8 @@ class CamIsp11CtrItf: public CamIsp1xCtrItf {
   ~CamIsp11CtrItf();
 
   virtual bool init(const char* tuningFile,
-                    const char* ispDev);
+                    const char* ispDev,
+                    enum CAMISP_CTRL_MODE ctrl_mode = CAMISP_CTRL_MASTER);
   virtual bool deInit();
   virtual void transDrvMetaDataToHal(const void* drvMeta, struct HAL_Buffer_MetaData* halMeta);
   virtual bool configureISP(const void* config);

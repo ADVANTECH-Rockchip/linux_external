@@ -50,6 +50,8 @@ using google::protobuf::internal::weak_ptr;
 #define CAMIA10_AWB_CCM_MASK  (1<<23)
 #define CAMIA10_AWB_CURVE_MASK  (1<<24)
 #define CAMIA10_AWB_WP_MASK  (1<<25)
+#define CAMIA10_NEW_DSP_3DNR_MASK (1 << 26)
+
 
 #define CAMIA10_ALL_MASK  (0xffffffff)
 
@@ -93,6 +95,8 @@ struct CamIA10_DyCfg {
   enum HAL_MODE_e dsp3dnr_mode;
   struct HAL_3DnrLevelCfg dsp3dnr_level;
   struct HAL_3DnrParamCfg dsp3dnr_param;
+  enum HAL_MODE_e newDsp3dnr_mode;
+  struct HAL_New3DnrCfg_s newDsp3dnr_cfg;
   enum HAL_MODE_e flt_mode;
   enum HAL_FLT_DENOISE_LEVEL_e flt_denoise;
   enum HAL_FLT_SHARPENING_LEVEL_e flt_sharp;

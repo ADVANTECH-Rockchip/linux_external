@@ -125,6 +125,7 @@ class CamHwItf : public CamApiItf, virtual public enable_shared_from_this<CamHwI
     virtual void stop(void) = 0;
     virtual unsigned int getMinNumUndequeueableBuffers(void) const;
     virtual unsigned int getNumQueuedBuffers(void) const;
+    virtual bool getFmtInfo(frm_info_t *frm_info) const;
     virtual bool releaseBufToOwener(weak_ptr<BufferBase> camBuf) = 0;
     virtual ~PathBase(void);
    protected:

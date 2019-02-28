@@ -89,12 +89,17 @@ void SettingsProcessor::parseMeteringRegion(const CameraMetadata *settings,
     }
 
     meteringWindow->init(topLeft, bottomRight, weight);
-    if (meteringWindow->isValid()) {
+    if (meteringWindow->isValid() && croppingRegion.isValid()) {
         // Clip the region to the crop rectangle
-        if (croppingRegion.isValid())
-            meteringWindow->clip(croppingRegion);
+        meteringWindow->clip(croppingRegion);
+        if (meteringWindow->isValid()){
+            LOGI("%s(%d,%d,%d,%d) + cropRegion(%d,%d,%d,%d) --> window:(%d,%d,%d,%d)",
+                 tagId == ANDROID_CONTROL_AE_REGIONS ? "AeRegion" : "AfRegion",
+                 topLeft.x, topLeft.y, bottomRight.x, bottomRight.y,
+                 croppingRegion.left(), croppingRegion.top(), croppingRegion.width(), croppingRegion.height(),
+                 meteringWindow->left(), meteringWindow->top(), meteringWindow->width(), meteringWindow->height());
+        }
     }
-
 }
 
 /**
@@ -221,11 +226,11 @@ SettingsProcessor::fillAeInputParams(const CameraMetadata *settings,
             }
         }
 
-        uint64_t iso_min, iso_max;
+        int32_t iso_min, iso_max;
         rw_entry = staticMeta.find(ANDROID_SENSOR_INFO_SENSITIVITY_RANGE);
         if (rw_entry.count == 2) {
-            iso_min = rw_entry.data.i64[0];
-            iso_max = rw_entry.data.i64[1];
+            iso_min = rw_entry.data.i32[0];
+            iso_max = rw_entry.data.i32[1];
         }
         aeParams->max_analog_gain = (double)iso_max;
         // ******** manual_iso
@@ -263,11 +268,11 @@ SettingsProcessor::fillAeInputParams(const CameraMetadata *settings,
             stepEV = (float)aeCompStep->numerator / aeCompStep->denominator;
         }
 
-        uint64_t compensation_min, compensation_max;
+        int32_t compensation_min, compensation_max;
         rw_entry = staticMeta.find(ANDROID_CONTROL_AE_COMPENSATION_RANGE);
         if (rw_entry.count == 2) {
-            compensation_min = rw_entry.data.i64[0];
-            compensation_max = rw_entry.data.i64[1];
+            compensation_min = rw_entry.data.i32[0];
+            compensation_max = rw_entry.data.i32[1];
         }
         entry = settings->find(ANDROID_CONTROL_AE_EXPOSURE_COMPENSATION);
         if (entry.count == 1) {

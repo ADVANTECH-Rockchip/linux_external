@@ -97,6 +97,7 @@ class CamIA10Engine: public CamIA10EngineItf {
   struct CamIA10_DyCfg  dCfgShd;
 
   AfHandle_t  hAf;
+  AeHandle_t  hAe;
   AdpfHandle_t  hAdpf;
   AwdrHandle_t  hAwdr;
   AwbHandle_t hAwb;

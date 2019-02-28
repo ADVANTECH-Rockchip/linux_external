@@ -396,6 +396,17 @@ int CamApiItf::setFps(HAL_FPS_INFO_t fps) {
   return 0;
 }
 
+int CamApiItf::getFps(HAL_FPS_INFO_t &fps) {
+  if (m_fps.numerator && m_fps.denominator) {
+    fps = m_fps;
+  } else {
+    fps.numerator = 0;
+    fps.denominator = 0;
+  }
+
+  return 0;
+}
+
 int CamApiItf::setAeWindow(int left_hoff, int top_voff, int right_width, int bottom_height) {
   mAeWin.left_hoff = left_hoff;
   mAeWin.top_voff = top_voff;

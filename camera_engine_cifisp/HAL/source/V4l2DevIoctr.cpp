@@ -656,6 +656,14 @@ RK_FRMAE_FORMAT V4L2DevIoctr::V4l2FmtToHalFmt(unsigned int v4l2fmt) {
       return HAL_FRMAE_FMT_Y10;
     case V4L2_PIX_FMT_Y12:
       return HAL_FRMAE_FMT_Y12;
+    case V4L2_PIX_FMT_SBGGR12:
+      return HAL_FRMAE_FMT_SBGGR12;
+    case V4L2_PIX_FMT_SGBRG12:
+      return HAL_FRMAE_FMT_SGBRG12;
+    case V4L2_PIX_FMT_SGRBG12:
+      return HAL_FRMAE_FMT_SGRBG12;
+    case V4L2_PIX_FMT_SRGGB12:
+      return HAL_FRMAE_FMT_SRGGB12;
     case V4L2_PIX_FMT_SBGGR10:
       return HAL_FRMAE_FMT_SBGGR10;
     case V4L2_PIX_FMT_SGBRG10:
@@ -708,6 +716,14 @@ unsigned int V4L2DevIoctr::halFmtToV4l2Fmt(unsigned int halFmt) {
       return V4L2_PIX_FMT_Y10;
     case HAL_FRMAE_FMT_Y12 :
       return V4L2_PIX_FMT_Y12;
+    case HAL_FRMAE_FMT_SBGGR12 :
+      return V4L2_PIX_FMT_SBGGR12;
+    case HAL_FRMAE_FMT_SGBRG12 :
+      return V4L2_PIX_FMT_SGBRG12;
+    case HAL_FRMAE_FMT_SGRBG12 :
+      return V4L2_PIX_FMT_SGRBG12;
+    case HAL_FRMAE_FMT_SRGGB12 :
+      return V4L2_PIX_FMT_SRGGB12;
     case HAL_FRMAE_FMT_SBGGR10 :
       return V4L2_PIX_FMT_SBGGR10;
     case HAL_FRMAE_FMT_SGBRG10 :
@@ -774,6 +790,10 @@ unsigned int V4L2DevIoctr::bytesPerLine(unsigned int v4l2PixFmt, unsigned int wi
     case V4L2_PIX_FMT_SGBRG10:
     case V4L2_PIX_FMT_SGRBG10:
     case V4L2_PIX_FMT_SRGGB10:
+    case V4L2_PIX_FMT_SBGGR12:
+    case V4L2_PIX_FMT_SGBRG12:
+    case V4L2_PIX_FMT_SGRBG12:
+    case V4L2_PIX_FMT_SRGGB12:
       bpl = width * 2;
       break;
     case V4L2_PIX_FMT_SBGGR8:
@@ -826,6 +846,10 @@ unsigned int V4L2DevIoctr::bpp(unsigned int v4l2PixFmt) {
     case V4L2_PIX_FMT_SGBRG10:
     case V4L2_PIX_FMT_SGRBG10:
     case V4L2_PIX_FMT_SRGGB10:
+    case V4L2_PIX_FMT_SBGGR12:
+    case V4L2_PIX_FMT_SGBRG12:
+    case V4L2_PIX_FMT_SGRBG12:
+    case V4L2_PIX_FMT_SRGGB12:
       depth = 16;
       break;
     case V4L2_PIX_FMT_SBGGR8:

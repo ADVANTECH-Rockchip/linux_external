@@ -22,11 +22,10 @@ typedef struct rkisp_inf_s {
 	CamApiItf* apiItf;
 } rkisp_inf_t;
 
-int mVideoFd = -1;
-
 /* -------- CamIsp10CtrItf interface -----------*/
 int
-rkisp_start(void* &engine, int vidFd, const char* ispNode, const char* tuningFile) {
+rkisp_start(void* &engine, int vidFd, const char* ispNode,
+	const char* tuningFile, enum CAMISP_CTRL_MODE ctrl_mode) {
 	int ret;
 	struct isp_supplemental_sensor_mode_data sensor_mode_data;
 
@@ -35,16 +34,15 @@ rkisp_start(void* &engine, int vidFd, const char* ispNode, const char* tuningFil
 	rkisp_inf->apiItf = new CamApiItf();
 
 	//init
-	mVideoFd = vidFd;
 	rkisp_inf->apiItf->initApiItf(rkisp_inf->ispDev);
 
 	//config
-	ret = getSensorModeData(mVideoFd, &sensor_mode_data);
+	ret = getSensorModeData(vidFd, &sensor_mode_data);
 	rkisp_inf->apiItf->configIsp_l(&sensor_mode_data);
 
 	//init ispDev
-	rkisp_inf->ispDev->init(tuningFile, ispNode/*"/dev/video1"*/);
-	rkisp_inf->ispDev->start();
+	rkisp_inf->ispDev->init(tuningFile, ispNode/*"/dev/video1"*/, ctrl_mode);
+	rkisp_inf->ispDev->start(true);
 	engine = rkisp_inf;
 	ALOGD("%s: interface isp dev started", __func__);
 }
@@ -122,6 +120,16 @@ int rkisp_setAeMaxExposureGain(void* &engine, float gain)
 	}
 }
 
+int rkisp_getAeState(void* &engine, enum HAL_AE_STATE &ae_state)
+{
+	if (engine != NULL) {
+		rkisp_inf_t* rkisp_inf = (rkisp_inf_t*)engine;
+		return rkisp_inf->apiItf->getAeState(&ae_state);
+	} else {
+		return -1;
+	}
+}
+
 int rkisp_getAeMeanLuma(void* &engine, float &meanLuma)
 {
 	if (engine != NULL) {
@@ -187,6 +195,16 @@ int rkisp_setFps(void* &engine, HAL_FPS_INFO_t fps)
 	if (engine != NULL) {
 		rkisp_inf_t* rkisp_inf = (rkisp_inf_t*)engine;
 		return rkisp_inf->apiItf->setFps(fps);
+	} else {
+		return -1;
+	}
+}
+
+int rkisp_getFps(void* &engine, HAL_FPS_INFO_t &fps)
+{
+	if (engine != NULL) {
+		rkisp_inf_t* rkisp_inf = (rkisp_inf_t*)engine;
+		return rkisp_inf->apiItf->getFps(fps);
 	} else {
 		return -1;
 	}

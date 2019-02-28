@@ -134,6 +134,9 @@ class CalibDb {
 
   // parse Sensor-3dnr
   bool parseEntry3DNR(const XMLElement* , void* param = NULL);
+
+  //parse new 3ndr para
+  bool parseEntryNew3DNR(const XMLElement* plement, void* param = NULL) ;
   
   // parse Sensor-DPF
   bool parseEntryDpf(const XMLElement*, void* param = NULL);

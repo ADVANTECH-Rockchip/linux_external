@@ -34,11 +34,14 @@ using namespace std;
 #define ISP_AWB_CCM_MASK (1<<22)
 #define ISP_AWB_CURVE_MASK (1<<23)
 #define ISP_AWB_WP_SET_MASK (1<<24)
+#define ISP_NEW_DSP_3DNR_MASK (1<<25)
+
 
 #define ISP_ALL_MASK  (0xffffffff)
 
 #define SUBDEV_IRCUT_MASK (1 << 0)
 #define SUBDEV_FLASHLIGHT_MASK (1 << 1)
+
 class CamIspCtrItf {
  public:
   struct Configuration {
@@ -54,6 +57,8 @@ class CamIspCtrItf {
     enum HAL_MODE_e dsp3dnr_mode;
     struct HAL_3DnrLevelCfg dsp3dnr_level;
     struct HAL_3DnrParamCfg dsp3dnr_param;
+	enum HAL_MODE_e newDsp3dnr_mode;
+	struct HAL_New3DnrCfg_s newDsp3dnr_cfg;
     enum HAL_MODE_e flt_mode;
     enum HAL_FLT_DENOISE_LEVEL_e flt_denoise;
     enum HAL_FLT_SHARPENING_LEVEL_e flt_sharp;
@@ -83,12 +88,13 @@ class CamIspCtrItf {
   CamIspCtrItf(): mISP3AThread(new ISP3AThread(this)) {};
   virtual ~CamIspCtrItf() {};
   virtual bool init(const char* tuningFile,
-                    const char* ispDev) = 0;
+                    const char* ispDev,
+                    enum CAMISP_CTRL_MODE ctrl_mode = CAMISP_CTRL_MASTER) = 0;
   virtual bool deInit() = 0;
   virtual bool configure(const Configuration& config) = 0;
   /* control ISP module directly*/
   virtual bool configureISP(const void* config) = 0;
-  virtual bool start() = 0;
+  virtual bool start(bool run_3a_thd) = 0;
   virtual bool stop() = 0;
   virtual void mapHalExpToSensor(float hal_gain, float hal_time, int& sensor_gain, int& sensor_time) = 0;
   

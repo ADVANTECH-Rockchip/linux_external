@@ -100,6 +100,12 @@ CamIsp10CtrItf::CamIsp10CtrItf(CamHwItf* camHwItf, int devFd):
   mCalibdbGocNeededUpdate = BOOL_TRUE;
   mCalibdbGocEnabled = HAL_ISP_ACTIVE_DEFAULT;
 
+  mWdrNeededUpdate = BOOL_FALSE;
+  mWdrEnabled = HAL_ISP_ACTIVE_FALSE;
+
+  m3DnrNeededUpdate = BOOL_FALSE;
+  m3DnrEnabled = HAL_ISP_ACTIVE_FALSE;
+
   mSupportedSubDevs = 0;
   mRefWidth = 0;
   mRefHeight = 0;
@@ -114,8 +120,12 @@ CamIsp10CtrItf::~CamIsp10CtrItf() {
 
 }
 
+bool CamIsp10CtrItf::mSlaveInit = false;
+bool CamIsp10CtrItf::mSlaveSync = false;
+V4l2Isp10Ioctl* CamIsp10CtrItf::mSlaveIspIoctl = NULL;
+int CamIsp10CtrItf::mSlaveDevFd = -1;
 bool CamIsp10CtrItf::init(const char* tuningFile,
-                          const char* ispDev) {
+                          const char* ispDev, enum CAMISP_CTRL_MODE ctrl_mode) {
   int i;
   bool ret = false;
   struct CamIA10_Results ia_results = {0};
@@ -160,6 +170,8 @@ bool CamIsp10CtrItf::init(const char* tuningFile,
       mIspStats[i] = (struct cifisp_stat_buffer*)mIspStatBuf[i];
     }
     mIspIoctl = new V4l2Isp10Ioctl(mIspFd);
+    mCtrlMode = ctrl_mode;
+
     runIA(&mCamIA_DyCfg, NULL, &ia_results);
     runISPManual(&ia_results, BOOL_FALSE);
     convertIAResults(&isp_cfg, &ia_results);
@@ -167,9 +179,7 @@ bool CamIsp10CtrItf::init(const char* tuningFile,
     applySubDevConfig(&ia_results);
 
     mLaserFd = open("/dev/stmvl6180_ranging", O_RDWR | O_SYNC);
-    if (mLaserFd <= 0) {
-      ALOGE("%s: open laser ranging device failed!", __func__);
-    } else {
+    if (mLaserFd > 0) {
       //make sure it's not started
   	  if (ioctl(mLaserFd, VL6180_IOCTL_STOP , NULL) < 0) {
   	    ALOGE("%s: Could not perform VL6180_IOCTL_STOP : %s\n", __func__, strerror(errno));
@@ -202,7 +212,15 @@ bool CamIsp10CtrItf::deInit() {
     struct CamIsp10ConfigSet isp_cfg;
     isp_cfg.active_configs = 0xffffffff;
     memset(isp_cfg.enabled, 0, sizeof(isp_cfg.enabled));
-    applyIspConfig(&isp_cfg);
+    __applyIspConfig(mIspIoctl, &isp_cfg);
+
+    if (mSlaveInit == true && mCtrlMode == CAMISP_CTRL_SLAVE) {
+      mSlaveInit = false;
+      mSlaveSync = false;
+      mSlaveIspIoctl = NULL;
+      mSlaveDevFd = -1;
+    }
+
     if (mIspIoctl) {
       delete mIspIoctl;
       mIspIoctl = NULL;
@@ -521,6 +539,8 @@ int CamIsp10CtrItf::setExposure(unsigned int vts, unsigned int exposure, unsigne
 
 #ifdef RK_ISP10
   ret = ::setExposure(mDevFd, vts, exposure, gain, gain_percent);
+  if (mSlaveInit == true && mCtrlMode == CAMISP_CTRL_MASTER)
+    ret |= ::setExposure(mSlaveDevFd, vts, exposure, gain, gain_percent);
 #endif
   return ret;
 }
@@ -530,6 +550,8 @@ int CamIsp10CtrItf::setAutoAdjustFps(bool auto_adjust_fps) {
 
 #ifdef RK_ISP10
   ret = ::setAutoAdjustFps(mDevFd, auto_adjust_fps);
+  if (mSlaveInit == true && mCtrlMode == CAMISP_CTRL_MASTER)
+    ret |= ::setAutoAdjustFps(mSlaveDevFd, auto_adjust_fps);
 #endif
   return ret;
 }
@@ -542,14 +564,25 @@ bool CamIsp10CtrItf::applySubDevConfig(struct CamIA10_Results* results) {
     if (setFocusPos(mDevFd, results->af.LensePos) < 0) {
       ALOGE("%s: setFocusPos failed", __func__);
     }
+    if (mSlaveInit == true && mCtrlMode == CAMISP_CTRL_MASTER) {
+      if (setFocusPos(mSlaveDevFd, results->af.LensePos) < 0)
+        ALOGE("%s: setFocusPos failed", __func__);
+    }
 #endif
     mIA_results.af.LensePos = results->af.LensePos;
   }
 }
 
-bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
+bool CamIsp10CtrItf::__applyIspConfig(V4l2Isp10Ioctl* ispIoctl,
+  struct CamIsp10ConfigSet* isp_cfg) {
+
+  if (!ispIoctl || !isp_cfg) {
+    ALOGE("%s: input parameter is NULL", __func__);
+    return true;
+  }
+
   if (isp_cfg->active_configs & ISP_BPC_MASK) {
-    if (!mIspIoctl->setDpccCfg(
+    if (!ispIoctl->setDpccCfg(
             isp_cfg->configs.dpcc_config,
             isp_cfg->enabled[HAL_ISP_BPC_ID])) {
       ALOGE("%s: setDpccCfg failed", __func__);
@@ -560,7 +593,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_BLS_MASK) {
-    if (!mIspIoctl->setBlsCfg(
+    if (!ispIoctl->setBlsCfg(
             isp_cfg->configs.bls_config,
             isp_cfg->enabled[HAL_ISP_BLS_ID])) {
       ALOGE("%s: setBlsCfg failed", __func__);
@@ -571,7 +604,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_SDG_MASK) {
-    if (!mIspIoctl->setSdgCfg(
+    if (!ispIoctl->setSdgCfg(
             isp_cfg->configs.sdg_config,
             isp_cfg->enabled[HAL_ISP_SDG_ID])) {
       ALOGE("%s: setSdgCfg failed", __func__);
@@ -582,7 +615,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_HST_MASK) {
-    if (!mIspIoctl->setHstCfg(
+    if (!ispIoctl->setHstCfg(
             isp_cfg->configs.hst_config,
             isp_cfg->enabled[HAL_ISP_HST_ID])) {
       ALOGE("%s: setHstCfg failed", __func__);
@@ -593,7 +626,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_LSC_MASK) {
-    if (!mIspIoctl->setLscCfg(
+    if (!ispIoctl->setLscCfg(
             isp_cfg->configs.lsc_config,
             isp_cfg->enabled[HAL_ISP_LSC_ID])) {
       ALOGE("%s: setLscCfg failed", __func__);
@@ -604,7 +637,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_AWB_MEAS_MASK) {
-    if (!mIspIoctl->setAwbMeasCfg(
+    if (!ispIoctl->setAwbMeasCfg(
             isp_cfg->configs.awb_meas_config,
             isp_cfg->enabled[HAL_ISP_AWB_MEAS_ID])) {
       ALOGE("%s: setAwbMeasCfg failed", __func__);
@@ -615,7 +648,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_AWB_GAIN_MASK) {
-    if (!mIspIoctl->setAwbGainCfg(
+    if (!ispIoctl->setAwbGainCfg(
             isp_cfg->configs.awb_gain_config,
             isp_cfg->enabled[HAL_ISP_AWB_GAIN_ID])) {
       ALOGE("%s: setAwbGainCfg failed", __func__);
@@ -625,7 +658,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
         isp_cfg->enabled[HAL_ISP_AWB_GAIN_ID];
   }
   if (isp_cfg->active_configs & ISP_FLT_MASK) {
-    if (!mIspIoctl->setFltCfg(
+    if (!ispIoctl->setFltCfg(
             isp_cfg->configs.flt_config,
             isp_cfg->enabled[HAL_ISP_FLT_ID])) {
       ALOGE("%s: setFltCfg failed", __func__);
@@ -639,7 +672,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
         isp_cfg->enabled[HAL_ISP_FLT_ID];
   }
   if (isp_cfg->active_configs & ISP_BDM_MASK) {
-    if (!mIspIoctl->setBdmCfg(
+    if (!ispIoctl->setBdmCfg(
             isp_cfg->configs.bdm_config,
             isp_cfg->enabled[HAL_ISP_BDM_ID])) {
       ALOGE("%s: setBdmCfg failed", __func__);
@@ -650,7 +683,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_CTK_MASK) {
-    if (!mIspIoctl->setCtkCfg(
+    if (!ispIoctl->setCtkCfg(
             isp_cfg->configs.ctk_config,
             isp_cfg->enabled[HAL_ISP_CTK_ID])) {
       ALOGE("%s: setCtkCfg failed", __func__);
@@ -661,7 +694,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_GOC_MASK) {
-    if (!mIspIoctl->setGocCfg(
+    if (!ispIoctl->setGocCfg(
             isp_cfg->configs.goc_config,
             isp_cfg->enabled[HAL_ISP_GOC_ID])) {
       ALOGE("%s: setGocCfg failed", __func__);
@@ -672,7 +705,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_CPROC_MASK) {
-    if (!mIspIoctl->setCprocCfg(
+    if (!ispIoctl->setCprocCfg(
             isp_cfg->configs.cproc_config,
             isp_cfg->enabled[HAL_ISP_CPROC_ID])) {
       ALOGE("%s: setCprocCfg failed", __func__);
@@ -686,7 +719,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_AEC_MASK) {
-    if (!mIspIoctl->setAecCfg(
+    if (!ispIoctl->setAecCfg(
             isp_cfg->configs.aec_config,
             isp_cfg->enabled[HAL_ISP_AEC_ID])) {
       ALOGE("%s: setAecCfg failed", __func__);
@@ -697,7 +730,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_AFC_MASK) {
-    if (!mIspIoctl->setAfcCfg(
+    if (!ispIoctl->setAfcCfg(
             isp_cfg->configs.afc_config,
             isp_cfg->enabled[HAL_ISP_AFC_ID])) {
       ALOGE("%s: setAfcCfg failed", __func__);
@@ -708,7 +741,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_IE_MASK) {
-    if (!mIspIoctl->setIeCfg(
+    if (!ispIoctl->setIeCfg(
             isp_cfg->configs.ie_config,
             isp_cfg->enabled[HAL_ISP_IE_ID])) {
       ALOGE("%s: setIeCfg failed", __func__);
@@ -721,7 +754,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_DPF_MASK) {
-    if (!mIspIoctl->setDpfCfg(
+    if (!ispIoctl->setDpfCfg(
             isp_cfg->configs.dpf_config,
             isp_cfg->enabled[HAL_ISP_DPF_ID])) {
       ALOGE("%s: setDpfCfg failed, 0x%x, 0x%x, 0x%x, 0x%x, 0x%x",
@@ -738,7 +771,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   }
 
   if (isp_cfg->active_configs & ISP_DPF_STRENGTH_MASK) {
-    if (!mIspIoctl->setDpfStrengthCfg(
+    if (!ispIoctl->setDpfStrengthCfg(
             isp_cfg->configs.dpf_strength_config,
             isp_cfg->enabled[HAL_ISP_DPF_STRENGTH_ID])) {
       ALOGE("%s: setDpfStrengthCfg failed", __func__);
@@ -750,7 +783,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
 
   if (isp_cfg->active_configs & ISP_DSP_AWB_LSC_MASK) {
     if (isp_cfg->enabled[HAL_ISP_AWB_LSC_ID] == BOOL_FALSE) {
-      if (!mIspIoctl->setLscCfg(
+      if (!ispIoctl->setLscCfg(
           isp_cfg->configs.lsc_config,
           isp_cfg->enabled[HAL_ISP_AWB_LSC_ID])) {
         ALOGE("%s: setLscCfg failed", __func__);
@@ -762,7 +795,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
 
   if (isp_cfg->active_configs & ISP_AWB_CCM_MASK) {
     if (isp_cfg->enabled[HAL_ISP_AWB_CCM_ID] == BOOL_FALSE) {
-      if (!mIspIoctl->setCtkCfg(
+      if (!ispIoctl->setCtkCfg(
           isp_cfg->configs.ctk_config,
           isp_cfg->enabled[HAL_ISP_AWB_CCM_ID])) {
         ALOGE("%s: setCtkCfg failed", __func__);
@@ -786,13 +819,13 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
 
   if (isp_cfg->active_configs & ISP_ADPF_DPF_MASK) {
     if (isp_cfg->enabled[HAL_ISP_ADPF_DPF_ID] == BOOL_FALSE) {
-      if (!mIspIoctl->setDpfCfg(
+      if (!ispIoctl->setDpfCfg(
           isp_cfg->configs.dpf_config,
           isp_cfg->enabled[HAL_ISP_ADPF_DPF_ID])) {
         ALOGE("%s: setDpfCfg failed", __func__);
       }
 
-      if (!mIspIoctl->setDpfStrengthCfg(
+      if (!ispIoctl->setDpfStrengthCfg(
           isp_cfg->configs.dpf_strength_config,
           isp_cfg->enabled[HAL_ISP_ADPF_DPF_ID])) {
         ALOGE("%s: setDpfStrengthCfg failed", __func__);
@@ -804,7 +837,7 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
 
   if (isp_cfg->active_configs & ISP_ADPF_FLT_MASK) {
     if (isp_cfg->enabled[HAL_ISP_ADPF_FLT_ID] == BOOL_FALSE) {
-      if (!mIspIoctl->setFltCfg(
+      if (!ispIoctl->setFltCfg(
           isp_cfg->configs.flt_config,
           isp_cfg->enabled[HAL_ISP_ADPF_FLT_ID])) {
         ALOGE("%s: setFltCfg failed", __func__);
@@ -816,6 +849,38 @@ bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
   return true;
 }
 
+bool CamIsp10CtrItf::applyIspConfig(struct CamIsp10ConfigSet* isp_cfg) {
+  bool ret = true;
+
+  ret = __applyIspConfig(mIspIoctl, isp_cfg);
+  if (mSlaveInit == true && mCtrlMode == CAMISP_CTRL_MASTER) {
+    ret |= __applyIspConfig(mSlaveIspIoctl, isp_cfg);
+  }
+
+  return ret;
+}
+
+void CamIsp10CtrItf::syncSlaveIsp() {
+  int i;
+  struct CamIsp10ConfigSet isp_cfg;
+  int newTime = mIA_results.aec.regIntegrationTime;
+  int newGain = mIA_results.aec.regGain;
+  int newVts = mIA_results.aec.LinePeriodsPerField;
+
+  if (mSlaveInit && mSlaveSync &&
+      mCtrlMode == CAMISP_CTRL_MASTER) {
+    mSlaveSync = false;
+    isp_cfg.active_configs = ISP_ALL_MASK;
+    isp_cfg.configs = mIspCfg;
+    for (i = 0; i < HAL_ISP_MODULE_MAX_ID_ID; i++)
+      isp_cfg.enabled[i] = mIspCfg.enabled[i];
+
+    __applyIspConfig(mSlaveIspIoctl, &isp_cfg);
+#ifdef RK_ISP10
+    ::setExposure(mSlaveDevFd, newVts, newTime, newGain, 100);
+#endif
+  }
+}
 
 bool CamIsp10CtrItf::convertIspStats(
     struct cifisp_stat_buffer* isp_stats,
@@ -961,6 +1026,9 @@ bool CamIsp10CtrItf::convertIAResults(
   unsigned int i;
   unsigned int isp_ref_width;
   unsigned int isp_ref_height;
+  int newTime;
+  int newGain;
+  int newVts;
 
   if (isp_cfg == NULL)
     return false;
@@ -990,18 +1058,32 @@ bool CamIsp10CtrItf::convertIAResults(
         || (ia_results->active & CAMIA10_AEC_AFPS_MASK)) {
       if (ia_results->aec.actives & CAMIA10_AEC_MASK) {
         /*ae enable or manual exposure*/
-        if ((ia_results->aec_enabled) ||
-            ((ia_results->aec.regIntegrationTime > 0) ||
-             (ia_results->aec.regGain > 0))) {
-          int newTime = ia_results->aec.regIntegrationTime;
-          int newGain = ia_results->aec.regGain;
-          int newVts = ia_results->aec.LinePeriodsPerField;
+        if (ia_results->aec_enabled) {
+          for (i = 0; i < ia_results->aec.exp_set_cnt; i++) {
+            newTime = ia_results->aec.exp_set[i].regTime;
+            newGain = ia_results->aec.exp_set[i].regGain;
+            newVts = ia_results->aec.exp_set[i].vts;
 
-          //TRACE_D(0,"set exposure regtime: %d, reggain: %d, time:%f gain:%f pcf: %f, pppl: %d",
-          //  newTime, newGain, ia_results->aec.coarse_integration_time, ia_results->aec.analog_gain_code_global, mCamIA_DyCfg.sensor_mode.pixel_clock_freq_mhz,
-          //  mCamIA_DyCfg.sensor_mode.pixel_periods_per_line);
-          if ((newTime != 0) || (newGain != 0))
+            //ALOGD("set auto exposure regtime: %d, reggain: %d, time:%f gain:%f pcf: %f, pppl: %d",
+            //      newTime, newGain, ia_results->aec.coarse_integration_time,
+            //      ia_results->aec.analog_gain_code_global,
+            //      mCamIA_DyCfg.sensor_mode.pixel_clock_freq_mhz,
+            //      mCamIA_DyCfg.sensor_mode.pixel_periods_per_line);
             setExposure(newVts, newTime, newGain, 100);
+          }
+        } else if (((ia_results->aec.regIntegrationTime > 0) ||
+             (ia_results->aec.regGain > 0))) {
+            newTime = ia_results->aec.regIntegrationTime;
+            newGain = ia_results->aec.regGain;
+            newVts = ia_results->aec.LinePeriodsPerField;
+
+            //ALOGD("set manual exposure regtime: %d, reggain: %d, time:%f gain:%f pcf: %f, pppl: %d",
+            //      newTime, newGain, ia_results->aec.coarse_integration_time,
+            //      ia_results->aec.analog_gain_code_global,
+            //      mCamIA_DyCfg.sensor_mode.pixel_clock_freq_mhz,
+            //      mCamIA_DyCfg.sensor_mode.pixel_periods_per_line);
+            setExposure(newVts, newTime, newGain, 100);
+            ia_results->aec_enabled = BOOL_TRUE;
         }
 
         AecMeasuringMode_to_cifisp_exp_meas_mode(
@@ -1988,6 +2070,8 @@ bool CamIsp10CtrItf::threadLoop() {
   struct CamIA10_Results ia_results = {0};
   struct CamIsp10ConfigSet isp_cfg = {0};
   VL6180x_RangeData_t range_datas;
+  struct cifisp_stat_buffer meas_buffer;
+  bool ret;
   
   memset(&ia_dcfg, 0, sizeof(ia_dcfg));
 //  ALOGD("%s: enter",__func__);
@@ -2005,11 +2089,22 @@ bool CamIsp10CtrItf::threadLoop() {
   convertIspStats(mIspStats[v4l2_buf.index], &ia_stat);
 
   //get sensor mode data
-  buffer = (struct cifisp_stat_buffer*)(mIspStats[v4l2_buf.index]);
-  getSensorModedata(&(buffer->sensor_mode), &(mCamIA_DyCfg.sensor_mode));
-
+  if (ia_stat.meas_type & CAMIA10_AEC_MASK) {
+    buffer = (struct cifisp_stat_buffer*)(mIspStats[v4l2_buf.index]);
+    getSensorModedata(&(buffer->sensor_mode), &(mCamIA_DyCfg.sensor_mode));
+  }
   releaseMeasurement(&v4l2_buf);
 
+  if (mCtrlMode == CAMISP_CTRL_SLAVE) {
+    if (mSlaveInit == false) {
+      mSlaveIspIoctl = mIspIoctl;
+      mSlaveDevFd = mDevFd;
+      mSlaveSync = true;
+      mSlaveInit = true;
+    }
+    return true;
+  } else
+    syncSlaveIsp();
 
   if (ia_stat.meas_type & CAMIA10_AFC_MASK) {
     if (mLaserFd > 0 ) {

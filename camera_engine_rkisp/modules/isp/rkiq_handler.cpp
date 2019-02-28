@@ -257,11 +257,19 @@ AiqAeHandler::processAeMetaResults(AecResult_t aec_results, X3aResultList &outpu
                             inputParams->reqId);
 
     //# ANDROID_METADATA_Dynamic android.control.aeRegions done
-    /* TODO, not support aeRegions now */
-    /* entry = inputParams->settings.find(ANDROID_CONTROL_AE_REGIONS); */
-    /* if (entry.count == 5) { */
-    /*     metadata->update(ANDROID_CONTROL_AE_REGIONS, entry.data.i32, entry.count); */
-    /* } */
+    entry = inputParams->settings.find(ANDROID_CONTROL_AE_REGIONS);
+    if (entry.count == 5) {
+        int32_t aeRegion[5];
+        // Region value is (xMin, yMin, xMax, yMax) but not (xmin, ymin, w, h),
+        // Refering to the value parse function in
+        // MarshalQueryableMeteringRectangle.java@unmarshal
+        aeRegion[0] = aeParams.window.x_start;
+        aeRegion[1] = aeParams.window.y_start;
+        aeRegion[2] = aeParams.window.x_end;
+        aeRegion[3] = aeParams.window.y_end;
+        aeRegion[4] = entry.data.i32[4];
+        metadata->update(ANDROID_CONTROL_AE_REGIONS, aeRegion, entry.count);
+    }
 
     //# ANDROID_METADATA_Dynamic android.control.aeExposureCompensation done
     // TODO get step size (currently 1/3) from static metadata
@@ -331,6 +339,7 @@ AiqAwbHandler::processAwbMetaResults(CamIA10_AWB_Result_t awb_results, X3aResult
     XCamReturn ret = XCAM_RETURN_NO_ERROR;
     SmartPtr<AiqInputParams> inputParams = _aiq_compositor->getAiqInputParams();
     SmartPtr<XmetaResult> res;
+    camera_metadata_entry entry;
     LOGI("@%s %d: enter", __FUNCTION__, __LINE__);
 
     for (X3aResultList::iterator iter = output.begin ();
@@ -372,26 +381,34 @@ AiqAwbHandler::processAwbMetaResults(CamIA10_AWB_Result_t awb_results, X3aResult
     /*
      * store the results in row major order
      */
-    camera_metadata_rational_t transformMatrix[9];
-    const int32_t COLOR_TRANSFORM_PRECISION = 10000;
-    for (int i = 0; i < 9; i++) {
-        transformMatrix[i].numerator =
-            (int32_t)(_rkaiq_result.ctk_config.ctk_matrix.coeff[i] * COLOR_TRANSFORM_PRECISION);
-        transformMatrix[i].denominator = COLOR_TRANSFORM_PRECISION;
+    if (mAwbState->getState() != ANDROID_CONTROL_AWB_STATE_LOCKED) {
+        camera_metadata_rational_t transformMatrix[9];
+        const int32_t COLOR_TRANSFORM_PRECISION = 10000;
+        for (int i = 0; i < 9; i++) {
+            transformMatrix[i].numerator =
+                (int32_t)(_rkaiq_result.ctk_config.ctk_matrix.coeff[i] * COLOR_TRANSFORM_PRECISION);
+            transformMatrix[i].denominator = COLOR_TRANSFORM_PRECISION;
 
+        }
+
+        metadata->update(ANDROID_COLOR_CORRECTION_TRANSFORM,
+                         transformMatrix, 9);
+    } else {
+        entry = inputParams->settings.find(ANDROID_COLOR_CORRECTION_TRANSFORM);
+        if (entry.count == 9) {
+            metadata->update(ANDROID_COLOR_CORRECTION_TRANSFORM, entry.data.r, entry.count);
+        }
     }
-
-    metadata->update(ANDROID_COLOR_CORRECTION_TRANSFORM,
-                  transformMatrix, 9);
     return ret;
 }
 
 XCamReturn
-AiqAfHandler::processAfMetaResults(CamIA10_AFC_Result_t af_results, X3aResultList &output)
+AiqAfHandler::processAfMetaResults(XCam3aResultFocus af_results, X3aResultList &output)
 {
     XCamReturn ret = XCAM_RETURN_NO_ERROR;
     SmartPtr<AiqInputParams> inputParams = _aiq_compositor->getAiqInputParams();
     SmartPtr<XmetaResult> res;
+    camera_metadata_entry entry;
     LOGI("@%s %d: enter", __FUNCTION__, __LINE__);
 
     for (X3aResultList::iterator iter = output.begin ();
@@ -412,10 +429,145 @@ AiqAfHandler::processAfMetaResults(CamIA10_AFC_Result_t af_results, X3aResultLis
     struct CamIA10_SensorModeData &sensor_desc = _aiq_compositor->get_sensor_mode_data();
     ParamsTranslate::convert_from_rkisp_af_result(&_rkaiq_result, &af_results, &sensor_desc);
 
-    ret = mAfState->processResult(_rkaiq_result, inputParams->afInputParams.afParams, *metadata);
+    XCamAfParam &afParams = inputParams->afInputParams.afParams;
+    entry = inputParams->settings.find(ANDROID_CONTROL_AF_REGIONS);
+    if (entry.count == 5) {
+        int32_t afRegion[5];
+        afRegion[0] = afParams.focus_rect[0].left_hoff;
+        afRegion[1] = afParams.focus_rect[0].top_voff;
+        afRegion[2] = afParams.focus_rect[0].right_width + afParams.focus_rect[0].left_hoff;
+        afRegion[3] = afParams.focus_rect[0].bottom_height + afParams.focus_rect[0].top_voff;
+        afRegion[4] = entry.data.i32[4];
+        metadata->update(ANDROID_CONTROL_AF_REGIONS, afRegion, entry.count);
+    }
+
+    ret = mAfState->processResult(_rkaiq_result, afParams, *metadata);
 
     return ret;
 }
+
+XCamReturn AiqCommonHandler::initTonemaps()
+{
+#define TONEMAP_MAX_CURVE_POINTS 1024
+    mMaxCurvePoints = TONEMAP_MAX_CURVE_POINTS;
+
+    mRGammaLut = new float[mMaxCurvePoints * 2];
+    mGGammaLut = new float[mMaxCurvePoints * 2];
+    mBGammaLut = new float[mMaxCurvePoints * 2];
+
+    // Initialize P_IN, P_OUT values [(P_IN, P_OUT), ..]
+    for (unsigned int i = 0; i < mMaxCurvePoints; i++) {
+        mRGammaLut[i * 2] = (float) i / (mMaxCurvePoints - 1);
+        mRGammaLut[i * 2 + 1] = (float) i / (mMaxCurvePoints - 1);
+        mGGammaLut[i * 2] = (float) i / (mMaxCurvePoints - 1);
+        mGGammaLut[i * 2 + 1] = (float) i / (mMaxCurvePoints - 1);
+        mBGammaLut[i * 2] = (float) i / (mMaxCurvePoints - 1);
+        mBGammaLut[i * 2 + 1] = (float) i / (mMaxCurvePoints - 1);
+    }
+    return XCAM_RETURN_NO_ERROR;
+}
+
+XCamReturn
+AiqCommonHandler::fillTonemapCurve(CamerIcIspGocConfig_t goc, AiqInputParams* inputParams, CameraMetadata* metadata)
+{
+    int multiplier = 1;
+    CameraMetadata* staticMeta  = inputParams->staticMeta;
+    XCAM_ASSERT (staticMeta);
+    camera_metadata_entry_t rw_entry;
+    rw_entry = staticMeta->find(ANDROID_TONEMAP_AVAILABLE_TONE_MAP_MODES);
+    if (rw_entry.count == 2) {
+        if (((rw_entry.data.u8[0] != ANDROID_TONEMAP_MODE_FAST) && (rw_entry.data.u8[0] != ANDROID_TONEMAP_MODE_HIGH_QUALITY))||
+            ((rw_entry.data.u8[1] != ANDROID_TONEMAP_MODE_FAST) && (rw_entry.data.u8[1] != ANDROID_TONEMAP_MODE_HIGH_QUALITY))) {
+            LOGE("@%s %d: only support fast and high_quality tonemaps mode, modify camera3_profile.xml", __FUNCTION__, __LINE__);
+            return XCAM_RETURN_NO_ERROR;
+        }
+    } else {
+        LOGE("@%s %d: only support fast and high_quality tonemaps mode, modify camera3_profile.xml", __FUNCTION__, __LINE__);
+        return XCAM_RETURN_NO_ERROR;
+    }
+
+    const CameraMetadata* settings  = &inputParams->settings;
+    camera_metadata_ro_entry entry = settings->find(ANDROID_TONEMAP_MODE);
+    if (entry.count == 1) {
+        if ((entry.data.u8[0] != ANDROID_TONEMAP_MODE_FAST) && (entry.data.u8[0] != ANDROID_TONEMAP_MODE_HIGH_QUALITY)) {
+            LOGE("@%s %d: not support the tonemap mode:%d", __FUNCTION__, __LINE__, entry.data.u8[0]);
+            return XCAM_RETURN_NO_ERROR;
+        }
+        metadata->update(ANDROID_TONEMAP_MODE, entry.data.u8, entry.count);
+    } else {
+        LOGE("@%s %d: do not find the tonemap mode in settings", __FUNCTION__, __LINE__);
+        return XCAM_RETURN_NO_ERROR;
+    }
+
+    if (mMaxCurvePoints < CAMERIC_ISP_GAMMA_CURVE_SIZE && mMaxCurvePoints > 0) {
+        multiplier = CAMERIC_ISP_GAMMA_CURVE_SIZE / mMaxCurvePoints;
+        LOGI("Not enough curve points. Linear interpolation is used."); } else {
+        mMaxCurvePoints = CAMERIC_ISP_GAMMA_CURVE_SIZE;
+        if (mMaxCurvePoints > CIFISP_GAMMA_OUT_MAX_SAMPLES)
+            mMaxCurvePoints = CIFISP_GAMMA_OUT_MAX_SAMPLES;
+    }
+
+    if (mRGammaLut == nullptr ||
+        mGGammaLut == nullptr ||
+        mBGammaLut == nullptr) {
+        LOGE("Lut tables are not initialized.");
+        return XCAM_RETURN_ERROR_UNKNOWN;
+    }
+
+    unsigned short gamma_y_max = mMaxCurvePoints > 0 ? goc.gamma_y.GammaY[mMaxCurvePoints - 1] :
+        goc.gamma_y.GammaY[0];
+    for (uint32_t i=0; i < mMaxCurvePoints; i++) {
+        if (mMaxCurvePoints > 1)
+            mRGammaLut[i * 2] = (float) i / (mMaxCurvePoints - 1);
+        mRGammaLut[i * 2 + 1] = (float)goc.gamma_y.GammaY[i * multiplier] / gamma_y_max;
+        if (mMaxCurvePoints > 1)
+            mGGammaLut[i * 2] = (float) i / (mMaxCurvePoints - 1);
+        mGGammaLut[i * 2 + 1] = (float)goc.gamma_y.GammaY[i * multiplier] / gamma_y_max;
+        if (mMaxCurvePoints > 1)
+            mBGammaLut[i * 2] = (float) i / (mMaxCurvePoints - 1);
+        mBGammaLut[i * 2 + 1] = (float)goc.gamma_y.GammaY[i * multiplier] / gamma_y_max;
+    }
+    metadata->update(ANDROID_TONEMAP_CURVE_RED,
+                     mRGammaLut,
+                     mMaxCurvePoints * 2);
+    metadata->update(ANDROID_TONEMAP_CURVE_GREEN,
+                     mGGammaLut,
+                     mMaxCurvePoints * 2);
+    metadata->update(ANDROID_TONEMAP_CURVE_BLUE,
+                     mBGammaLut,
+                     mMaxCurvePoints * 2);
+    return XCAM_RETURN_NO_ERROR;
+}
+
+XCamReturn
+AiqCommonHandler::processToneMapsMetaResults(CamerIcIspGocConfig_t goc, X3aResultList &output)
+{
+    XCamReturn ret = XCAM_RETURN_NO_ERROR;
+    SmartPtr<AiqInputParams> inputParams = _aiq_compositor->getAiqInputParams();
+    SmartPtr<XmetaResult> res;
+    camera_metadata_entry entry;
+    LOGI("@%s %d: enter", __FUNCTION__, __LINE__);
+
+    for (X3aResultList::iterator iter = output.begin ();
+            iter != output.end ();)
+    {
+        if ((*iter)->get_type() == XCAM_3A_METADATA_RESULT_TYPE) {
+            res = (*iter).dynamic_cast_ptr<XmetaResult> ();
+            break ;
+        }
+        ++iter;
+        if (iter == output.end()) {
+            res = new XmetaResult(XCAM_IMAGE_PROCESS_ONCE);
+            output.push_back(res);
+        }
+    }
+
+    CameraMetadata* metadata = res->get_metadata_result();
+    ret = fillTonemapCurve(goc, inputParams.ptr(), metadata);
+
+    return ret;
+}
+
 XCamReturn
 AiqAeHandler::analyze (X3aResultList &output, bool first)
 {
@@ -558,6 +710,14 @@ AiqAeHandler::get_current_exposure_time ()
     AnalyzerHandler::HandlerLock lock(this);
 
     return (int64_t)_result.coarse_integration_time;
+}
+
+float
+AiqAeHandler::get_current_exposure_time_us ()
+{
+    AnalyzerHandler::HandlerLock lock(this);
+
+    return _result.coarse_integration_time * 1000000;
 }
 
 double
@@ -902,8 +1062,17 @@ AiqAfHandler::analyze (X3aResultList &output, bool first)
     XCam3aResultFocus isp_result;
     xcam_mem_clear(isp_result);
     XCamAfParam param = this->get_params_unlock();
+    SmartPtr<AiqInputParams> inputParams = _aiq_compositor->getAiqInputParams();
+    if (inputParams.ptr()) {
+        mAfState->processTriggers(inputParams->aaaControls.af.afTrigger,
+                                    inputParams->aaaControls.af.afMode, 0,
+                                    inputParams->afInputParams.afParams);
+    }
+
     _aiq_compositor->_isp10_engine->runAf(&param, &isp_result);
 
+    if (inputParams.ptr())
+        processAfMetaResults(isp_result, output);
     XCAM_LOG_INFO ("AiqAfHandler, position: %d",
         isp_result.next_lens_position);
 
@@ -920,6 +1089,13 @@ AiqCommonHandler::AiqCommonHandler (SmartPtr<RKiqCompositor> &aiq_compositor)
     : _aiq_compositor (aiq_compositor)
     , _gbce_result (NULL)
 {
+    initTonemaps();
+}
+AiqCommonHandler::~AiqCommonHandler ()
+{
+    delete mRGammaLut;
+    delete mGGammaLut;
+    delete mBGammaLut;
 }
 
 XCamReturn
@@ -1053,15 +1229,59 @@ RKiqCompositor::init_dynamic_config ()
 }
 
 bool
-RKiqCompositor::set_3a_stats (SmartPtr<X3aIspStatistics> &stats)
+RKiqCompositor::set_vcm_time (struct rk_cam_vcm_tim *vcm_tim)
 {
     if (!_isp10_engine) {
         XCAM_LOG_ERROR ("ISP control device is null");
         return false;
     }
 
+    _ia_stat.vcm_tim = *vcm_tim;
+
+    return true;
+}
+
+bool
+RKiqCompositor::set_frame_softime (int64_t sof_tim)
+{
+    if (!_isp10_engine) {
+        XCAM_LOG_ERROR ("ISP control device is null");
+        return false;
+    }
+
+    _ia_stat.sof_tim = sof_tim;
+
+    return true;
+}
+
+bool
+RKiqCompositor::set_3a_stats (SmartPtr<X3aIspStatistics> &stats)
+{
+    int64_t frame_ts;
+    int64_t vcm_ts;
+    float cur_exptime = 0;
+
+    if (!_isp10_engine) {
+        XCAM_LOG_ERROR ("ISP control device is null");
+        return false;
+    }
+
     _isp_stats = *(struct cifisp_stat_buffer*)stats->get_isp_stats();
+    frame_ts = _ia_stat.sof_tim / 1000;
     XCAM_LOG_DEBUG ("set_3a_stats meas type: %d", _isp_stats.meas_type);
+
+    vcm_ts = (int64_t)_ia_stat.vcm_tim.vcm_end_t.tv_sec * 1000 * 1000 +
+             (int64_t)_ia_stat.vcm_tim.vcm_end_t.tv_usec;
+
+    cur_exptime = _ae_handler->get_current_exposure_time_us();
+
+    if (vcm_ts + cur_exptime <= frame_ts)
+      _ia_stat.af.cameric.MoveStatus = AFM_VCM_MOVE_END;
+    else
+      _ia_stat.af.cameric.MoveStatus = AFM_VCM_MOVE_RUNNING;
+
+    XCAM_LOG_DEBUG ("MoveStatus: %d, vcm_ts %lld, cur_exptime %f, frame_ts %lld",
+        _ia_stat.af.cameric.MoveStatus, vcm_ts / 1000, cur_exptime / 1000, frame_ts / 1000);
 
     _isp_stats.meas_type = CIFISP_STAT_AUTOEXP | CIFISP_STAT_HIST | CIFISP_STAT_AWB | CIFISP_STAT_AFM_FIN;
     _isp10_engine->convertIspStats(&_isp_stats, &_ia_stat);
@@ -1124,6 +1344,7 @@ XCamReturn RKiqCompositor::integrate (X3aResultList &results)
     if (_ae_handler && _awb_handler && _inputParams.ptr()) {
         _ae_handler->processAeMetaResults(_ia_results.aec, results);
         _awb_handler->processAwbMetaResults(_ia_results.awb, results);
+        _common_handler->processToneMapsMetaResults(_ia_results.goc, results);
     }
 
     _isp10_engine->convertIAResults(&_isp_cfg, &_ia_results);
