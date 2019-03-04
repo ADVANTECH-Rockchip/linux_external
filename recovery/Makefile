@@ -15,6 +15,9 @@ OBJ = recovery.o \
 	mtdutils/mtdutils.o \
 	mtdutils/rk29.o \
 	minzip/DirUtil.o
+	
+OBJ += update_recv/update_recv.o
+	
 
 ifdef RecoveryNoUi
 OBJ += noui.o

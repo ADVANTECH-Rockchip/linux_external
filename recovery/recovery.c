@@ -42,6 +42,8 @@
 #include "rktools.h"
 #include "sdboot.h"
 
+#include "update_recv/update_recv.h"
+
 static const struct option OPTIONS[] = {
   { "send_intent", required_argument, NULL, 's' },
   { "update_package", required_argument, NULL, 'u' },
@@ -876,8 +878,14 @@ main(int argc, char **argv) {
                 strcpy(systemFlag, update_package);
 
                 if(strncmp(update_package,"/userdata", 9) != 0) {
-                    if (resize_volume("/userdata"))
-                        LOGE("\n ---resize_volume userdata error ---\n");
+					int exist_userdata = -1;
+					char* partition_name = "userdata:grow";
+					exist_userdata = CheckFwExit(update_package, partition_name);
+					LOGE("\n ---exist_userdata = %d ---\n", exist_userdata);
+					if(exist_userdata > 0){
+                        if (resize_volume("/userdata"))
+							LOGE("\n ---resize_volume userdata error ---\n");
+					}
                 } else {
                     //update success, delete userdata/update.img and write result to file.
                     if(access(update_package, F_OK) == 0)
