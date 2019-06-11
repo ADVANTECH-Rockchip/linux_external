@@ -210,7 +210,7 @@ CRKImage::CRKImage(tstring filename,bool &bCheck)
 		bOnlyBootFile=true;
 	}
 
-	m_pFile = fopen(szName, "rb");
+	m_pFile = fopen64(szName, "rb");
 	if ( !m_pFile)
 	{
 		bCheck = false;
