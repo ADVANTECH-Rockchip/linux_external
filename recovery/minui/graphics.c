@@ -443,6 +443,11 @@ int gr_init(void)
         gr_backend = open_drm();
         gr_draw = gr_backend->init(gr_backend);
     }
+	if (!gr_draw) {
+        perror("failed init drm device");
+        gr_exit();
+        return -1;
+	}
 #if 0
     if (!gr_draw) {
         gr_backend = open_fbdev();

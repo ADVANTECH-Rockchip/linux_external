@@ -89,6 +89,8 @@ static pthread_cond_t key_queue_cond = PTHREAD_COND_INITIALIZER;
 static int key_queue[256], key_queue_len = 0;
 static volatile char key_pressed[KEY_MAX + 1];
 
+static int drm_fd = -1;
+
 // Clear the screen and draw the currently selected background icon (if any).
 // Should only be called with gUpdateMutex locked.
 static void draw_background_locked(gr_surface icon)
@@ -319,8 +321,11 @@ static void *input_thread(void *cookie)
 }
 
 void ui_init(void)
-{
-    gr_init();
+{	
+    drm_fd=gr_init();
+    if(drm_fd < 0) {
+        return;
+    }
     ev_init(input_callback, NULL);
 
     text_col = text_row = 0;
@@ -351,6 +356,9 @@ void ui_init(void)
 
 void ui_set_background(int icon)
 {
+	if(drm_fd < 0) {
+		return;
+	}
     pthread_mutex_lock(&gUpdateMutex);
     gCurrentIcon = gBackgroundIcon[icon];
     update_screen_locked();
@@ -359,6 +367,9 @@ void ui_set_background(int icon)
 
 void ui_show_indeterminate_progress()
 {
+	if(drm_fd < 0) {
+		return;
+	}
     pthread_mutex_lock(&gUpdateMutex);
     if (gProgressBarType != PROGRESSBAR_TYPE_INDETERMINATE) {
         gProgressBarType = PROGRESSBAR_TYPE_INDETERMINATE;
@@ -369,6 +380,9 @@ void ui_show_indeterminate_progress()
 
 void ui_show_progress(float portion, int seconds)
 {
+	if(drm_fd < 0) {
+		return;
+	}
     pthread_mutex_lock(&gUpdateMutex);
     gProgressBarType = PROGRESSBAR_TYPE_NORMAL;
     gProgressScopeStart += gProgressScopeSize;
@@ -382,6 +396,9 @@ void ui_show_progress(float portion, int seconds)
 
 void ui_set_progress(float fraction)
 {
+	if(drm_fd < 0) {
+		return;
+	}
     pthread_mutex_lock(&gUpdateMutex);
     if (fraction < 0.0) fraction = 0.0;
     if (fraction > 1.0) fraction = 1.0;
@@ -399,6 +416,9 @@ void ui_set_progress(float fraction)
 
 void ui_reset_progress()
 {
+	if(drm_fd < 0) {
+		return;
+	}
     pthread_mutex_lock(&gUpdateMutex);
     gProgressBarType = PROGRESSBAR_TYPE_NONE;
     gProgressScopeStart = gProgressScopeSize = 0;
@@ -416,6 +436,9 @@ void ui_print(const char *fmt, ...)
     vsnprintf(buf, 256, fmt, ap);
     va_end(ap);
 
+	if(drm_fd < 0) {
+		return;
+	}
     fputs(buf, stdout);
 
     // This can get called before ui_init(), so be careful.
@@ -439,6 +462,10 @@ void ui_print(const char *fmt, ...)
 
 void ui_start_menu(char** headers, char** items, int initial_selection) {
     int i;
+
+	if(drm_fd < 0) {
+		return;
+	}
     pthread_mutex_lock(&gUpdateMutex);
     if (text_rows > 0 && text_cols > 0) {
         for (i = 0; i < text_rows; ++i) {
@@ -462,6 +489,10 @@ void ui_start_menu(char** headers, char** items, int initial_selection) {
 
 int ui_menu_select(int sel) {
     int old_sel;
+
+	if(drm_fd < 0) {
+		return 0;
+	}
     pthread_mutex_lock(&gUpdateMutex);
     if (show_menu > 0) {
         old_sel = menu_sel;
@@ -477,6 +508,10 @@ int ui_menu_select(int sel) {
 
 void ui_end_menu() {
     int i;
+
+	if(drm_fd < 0) {
+		return;
+	}
     pthread_mutex_lock(&gUpdateMutex);
     if (show_menu > 0 && text_rows > 0 && text_cols > 0) {
         show_menu = 0;
@@ -487,6 +522,9 @@ void ui_end_menu() {
 
 int ui_text_visible()
 {
+	if(drm_fd < 0) {
+		return 0;
+	}
     pthread_mutex_lock(&gUpdateMutex);
     int visible = show_text;
     pthread_mutex_unlock(&gUpdateMutex);
@@ -495,6 +533,9 @@ int ui_text_visible()
 
 void ui_show_text(int visible)
 {
+	if(drm_fd < 0) {
+		return;
+	}
     pthread_mutex_lock(&gUpdateMutex);
     show_text = visible;
     update_screen_locked();
@@ -503,6 +544,9 @@ void ui_show_text(int visible)
 
 int ui_wait_key()
 {
+	if(drm_fd < 0) {
+		return 0;
+	}
     pthread_mutex_lock(&key_queue_mutex);
     while (key_queue_len == 0) {
         pthread_cond_wait(&key_queue_cond, &key_queue_mutex);
@@ -516,11 +560,17 @@ int ui_wait_key()
 
 int ui_key_pressed(int key)
 {
+	if(drm_fd < 0) {
+		return 0;
+	}
     // This is a volatile static array, don't bother locking
     return key_pressed[key];
 }
 
 void ui_clear_key_queue() {
+	if(drm_fd < 0) {
+		return;
+	}
     pthread_mutex_lock(&key_queue_mutex);
     key_queue_len = 0;
     pthread_mutex_unlock(&key_queue_mutex);
