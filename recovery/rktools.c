@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include "rktools.h"
+#include "common.h"
 
 /**
  * 从/proc/cmdline 获取串口的节点
@@ -62,8 +63,8 @@ char *getSerial(){
 static char result_point[4][20]={'\0'}; //0-->emmc, 1-->sdcard, 2-->SDIO, 3-->SDcombo
 int readFile(DIR* dir, char* filename){
     char name[30] = {'\0'};
-	int i;
-	
+    int i;
+
     strcpy(name, filename);
     strcat(name, "/type");
     int fd = openat(dirfd(dir), name, O_RDONLY);
@@ -95,7 +96,12 @@ void init_sd_emmc_point(){
     if(dir != NULL){
         struct dirent* de;
         while((de = readdir(dir))){
-            if(strncmp(de->d_name, "mmc", 3) == 0){
+            if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0 )
+                continue;
+            //if (de->d_type == 4)    //dir
+            //    printf("dir name : %s \n", de->d_name);
+
+            if (strncmp(de->d_name, "mmc", 3) == 0){
                 //printf("find mmc is %s.\n", de->d_name);
                 char flag = de->d_name[3];
                 int ret = -1;
@@ -107,12 +113,34 @@ void init_sd_emmc_point(){
                 }
             }
         }
-
     }
     closedir(dir);
 }
 
+static void wait_for_device(const char* fn) {
+    int tries = 0;
+    int ret;
+    struct stat buf;
+    do {
+        ++tries;
+        ret = stat(fn, &buf);
+        if (ret) {
+            printf("stat %s try %d: %s\n", fn, tries, strerror(errno));
+            sleep(1);
+        }
+    } while (ret && tries < 10);
+    if (ret) {
+        printf("failed to stat %s\n", fn);
+    }
+}
+
 void setFlashPoint(){
+    Volume* v = volume_for_path("/misc");
+    if (strcmp(v->fs_type, "emmc") == 0) {
+        //wait for devices ready
+        wait_for_device(v->device);
+    }
+
     init_sd_emmc_point();
     setenv(EMMC_POINT_NAME, result_point[MMC], 1);
     //SDcard 有两个挂载点
@@ -130,4 +158,44 @@ void setFlashPoint(){
     printf("emmc_point is %s\n", getenv(EMMC_POINT_NAME));
     printf("sd_point is %s\n", getenv(SD_POINT_NAME));
     printf("sd_point_2 is %s\n", getenv(SD_POINT_NAME_2));
+}
+
+#define MTD_PATH "/proc/mtd"
+//判断是MTD还是block 设备
+int isMtdDevice() {
+    char param[2048];
+    int fd, ret;
+    char *s = NULL;
+    fd = open("/proc/cmdline", O_RDONLY);
+    ret = read(fd, (char*)param, 2048);
+    s = strstr(param,"storagemedia");
+    if(s == NULL){
+        printf("no found storagemedia in cmdline, default is not MTD.\n");
+        return -1;
+    }else{
+        s = strstr(s, "=");
+        if (s == NULL) {
+            printf("no found storagemedia in cmdline, default is not MTD.\n");
+            return -1;
+        }
+
+        s++;
+        while (*s == ' ') {
+            s++;
+        }
+
+        if (strncmp(s, "mtd", 3) == 0 ) {
+            printf("Now is MTD.\n");
+            return 0;
+        } else if (strncmp(s, "sd", 2) == 0) {
+            printf("Now is SD.\n");
+            if ( !access(MTD_PATH, F_OK) ) {
+                LOGI("Now is MTD.\n");
+                return 0;
+            }
+
+        }
+    }
+    printf("devices is not MTD.\n");
+    return -1;
 }

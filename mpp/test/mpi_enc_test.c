@@ -296,8 +296,12 @@ MPP_RET test_mpp_setup(MpiEncTestData *p)
         codec_cfg->jpeg.change  = MPP_ENC_JPEG_CFG_CHANGE_QP;
         codec_cfg->jpeg.quant   = 10;
     } break;
-    case MPP_VIDEO_CodingVP8 :
-    case MPP_VIDEO_CodingHEVC :
+    case MPP_VIDEO_CodingVP8 : {
+    } break;
+    case MPP_VIDEO_CodingHEVC : {
+        codec_cfg->h265.change = MPP_ENC_H265_CFG_INTRA_QP_CHANGE;
+        codec_cfg->h265.intra_qp = 26;
+    } break;
     default : {
         mpp_err_f("support encoder coding type %d\n", codec_cfg->coding);
     } break;
@@ -360,7 +364,7 @@ MPP_RET test_mpp_run(MpiEncTestData *p)
         if (p->fp_input) {
             ret = read_yuv_image(buf, p->fp_input, p->width, p->height,
                                  p->hor_stride, p->ver_stride, p->fmt);
-            if (ret == MPP_NOK  || feof(p->fp_input)) {
+            if (ret == MPP_NOK || feof(p->fp_input)) {
                 mpp_log("found last frame. feof %d\n", feof(p->fp_input));
                 p->frm_eos = 1;
             } else if (ret == MPP_ERR_VALUE)
@@ -383,8 +387,12 @@ MPP_RET test_mpp_run(MpiEncTestData *p)
         mpp_frame_set_hor_stride(frame, p->hor_stride);
         mpp_frame_set_ver_stride(frame, p->ver_stride);
         mpp_frame_set_fmt(frame, p->fmt);
-        mpp_frame_set_buffer(frame, p->frm_buf);
         mpp_frame_set_eos(frame, p->frm_eos);
+
+        if (p->fp_input && feof(p->fp_input))
+            mpp_frame_set_buffer(frame, NULL);
+        else
+            mpp_frame_set_buffer(frame, p->frm_buf);
 
         ret = mpi->encode_put_frame(ctx, frame);
         if (ret) {
@@ -397,6 +405,8 @@ MPP_RET test_mpp_run(MpiEncTestData *p)
             mpp_err("mpp encode get packet failed\n");
             goto RET;
         }
+
+        mpp_assert(packet);
 
         if (packet) {
             // write packet to file here
@@ -435,6 +445,7 @@ int mpi_enc_test(MpiEncTestCmd *cmd)
 {
     MPP_RET ret = MPP_OK;
     MpiEncTestData *p = NULL;
+    MppPollType timeout = MPP_POLL_BLOCK;
 
     mpp_log("mpi_enc_test start\n");
 
@@ -457,6 +468,12 @@ int mpi_enc_test(MpiEncTestCmd *cmd)
     ret = mpp_create(&p->ctx, &p->mpi);
     if (ret) {
         mpp_err("mpp_create failed ret %d\n", ret);
+        goto MPP_TEST_OUT;
+    }
+
+    ret = p->mpi->control(p->ctx, MPP_SET_OUTPUT_TIMEOUT, &timeout);
+    if (MPP_OK != ret) {
+        mpp_err("mpi control set output timeout %d ret %d\n", timeout, ret);
         goto MPP_TEST_OUT;
     }
 
@@ -625,7 +642,7 @@ static RK_S32 mpi_enc_test_parse_options(int argc, char **argv, MpiEncTestCmd* c
                 }
                 break;
             default:
-                goto PARSE_OPINIONS_OUT;
+                mpp_err("skip invalid opt %c\n", *opt);
                 break;
             }
 

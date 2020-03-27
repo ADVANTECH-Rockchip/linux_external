@@ -150,8 +150,12 @@ gst_mpp_bare_buffer_pool_alloc_buffer (GstBufferPool * bpool,
     GstBuffer ** buffer, GstBufferPoolAcquireParams * params)
 {
   GstMppBareBufferPool *pool = GST_MPP_BARE_BUFFER_POOL (bpool);
+  GstMppJpegDec *dec = pool->dec;
   GstMemory *mem;
   GstBuffer *newbuf = NULL;
+  GstVideoInfo *info;
+
+  info = &dec->info;
 
   mem = gst_mpp_allocator_alloc_dmabuf (pool->vallocator, pool->allocator);
   if (mem != NULL) {
@@ -160,6 +164,11 @@ gst_mpp_bare_buffer_pool_alloc_buffer (GstBufferPool * bpool,
   } else {
     goto allocation_failed;
   }
+
+  gst_buffer_add_video_meta_full (newbuf, GST_VIDEO_FRAME_FLAG_NONE,
+      GST_VIDEO_INFO_FORMAT (info), GST_VIDEO_INFO_WIDTH (info),
+      GST_VIDEO_INFO_HEIGHT (info), GST_VIDEO_INFO_N_PLANES (info),
+      info->offset, info->stride);
 
   *buffer = newbuf;
 
@@ -216,7 +225,7 @@ gst_mpp_bare_buffer_pool_acquire_buffer (GstBufferPool * bpool,
   GstBuffer *outbuf = NULL;
   GstMppMemory *mem = NULL;
 
-  for (gint n = 0; pool->count; n++) {
+  for (gint n = 0; n < pool->count; n++) {
     if (pool->buffers[n]) {
       outbuf = pool->buffers[n];
       if (gst_mpp_bare_is_buffer_valid (outbuf, &mem))

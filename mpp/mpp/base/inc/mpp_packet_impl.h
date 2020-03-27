@@ -17,7 +17,7 @@
 #ifndef __MPP_PACKET_IMPL_H__
 #define __MPP_PACKET_IMPL_H__
 
-#include "mpp_buffer.h"
+#include "mpp_meta.h"
 
 #define MPP_PACKET_FLAG_EOS             (0x00000001)
 #define MPP_PACKET_FLAG_EXTRA_DATA      (0x00000002)
@@ -48,8 +48,12 @@ typedef struct MppPacketImpl_t {
     RK_U32      flag;
 
     MppBuffer   buffer;
+    MppMeta     meta;
 } MppPacketImpl;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 /*
  * mpp_packet_reset is only used internelly and should NOT be used outside
  */
@@ -57,5 +61,9 @@ MPP_RET mpp_packet_reset(MppPacketImpl *packet);
 
 /* pointer check function */
 MPP_RET check_is_mpp_packet(void *ptr);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /*__MPP_PACKET_IMPL_H__*/

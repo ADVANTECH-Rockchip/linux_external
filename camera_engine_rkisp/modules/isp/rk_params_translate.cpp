@@ -123,7 +123,7 @@ ParamsTranslate::convert_from_rkisp_awb_result(
     aiq_awb_result->awb_gain_cfg.awb_gains.green_r_gain= result->awbGains.GreenR == 0 ? 256 : result->awbGains.GreenR;
     aiq_awb_result->awb_gain_cfg.awb_gains.blue_gain= result->awbGains.Blue == 0 ? 296 : result->awbGains.Blue;
 
-    //ALOGD("AWB GAIN RESULT: %d-%d-%d-%d", result->awbGains.Red, result->awbGains.GreenB, result->awbGains.GreenR, result->awbGains.Blue);
+    //LOGD("AWB GAIN RESULT: %d-%d-%d-%d", result->awbGains.Red, result->awbGains.GreenB, result->awbGains.GreenR, result->awbGains.Blue);
 
     aiq_awb_result->ctk_config.enabled = true;
     memcpy(aiq_awb_result->ctk_config.ctk_matrix.coeff, result->CcMatrix.Coeff, sizeof(unsigned int)*9);
@@ -247,7 +247,7 @@ void ParamsTranslate::convert_to_rkisp_aec_config( XCamAeParam* aec_params,
 
     switch (aec_params->metering_mode) {
     case XCAM_AE_METERING_MODE_AUTO:
-        config->meter_mode = HAL_AE_METERING_MODE_AVERAGE;
+        config->meter_mode = HAL_AE_METERING_MODE_CENTER;
         break;
     case XCAM_AE_METERING_MODE_SPOT:
         config->meter_mode = HAL_AE_METERING_MODE_SPOT;
@@ -267,8 +267,8 @@ void ParamsTranslate::convert_to_rkisp_aec_config( XCamAeParam* aec_params,
     // window
     if (aec_params->window.x_end < 0 || aec_params->window.x_end > sensor_desc->sensor_output_width ||
         aec_params->window.y_end < 0 || aec_params->window.y_end > sensor_desc->sensor_output_height) {
-        LOGE("%s, XCamAeParam window is not right", __func__);
-        return;
+        LOGW("%s, XCamAeParam window is not right top,bottom(%d,%d)", __FUNCTION__,
+             aec_params->window.x_end, aec_params->window.y_end);
     } else if( aec_params->window.x_end != 0 && aec_params->window.y_end != 0 ) {
         config->win.left_hoff =  aec_params->window.x_start;
         config->win.top_voff =  aec_params->window.y_start;
@@ -283,13 +283,19 @@ void ParamsTranslate::convert_to_rkisp_aec_config( XCamAeParam* aec_params,
     // bias
     config->ae_bias = (int)(aec_params->ev_shift);
 
-    config->frame_time_us_min = aec_params->exposure_time_min;
-    config->frame_time_us_max = aec_params->exposure_time_max;
-
-    LOGI("@%s %d: flk:%d, mode:%d, meter_mode:%d, win(%d,%d,%d,%d), bias:%d, min:%d, max:%d ", __FUNCTION__, __LINE__,
+    if (config->mode == HAL_AE_OPERATION_MODE_AUTO) {
+        config->frame_time_ns_min = aec_params->exposure_time_min;
+        config->frame_time_ns_max = aec_params->exposure_time_max;
+    } else {
+        config->frame_time_ns_min = aec_params->manual_exposure_time;
+        config->frame_time_ns_max = aec_params->manual_exposure_time;
+        config->manual_gains = aec_params->manual_analog_gain;
+    }
+    LOGI("@%s %d: aec_config, flk:%d, mode:%d, meter_mode:%d, win(%d,%d,%d,%d), bias:%d, "
+         "min:%" PRId64 " max:%" PRId64,  __FUNCTION__, __LINE__,
          config->flk, config->mode, config->meter_mode,
          config->win.left_hoff, config->win.top_voff, config->win.right_width, config->win.bottom_height,
-         config->ae_bias, config->frame_time_us_min, config->frame_time_us_max);
+         config->ae_bias, config->frame_time_ns_min, config->frame_time_ns_max);
 }
 
 void
@@ -385,26 +391,24 @@ ParamsTranslate::convert_to_rkisp_af_config(XCamAfParam* af_params,
 		af_params->trigger_new_search ? BOOL_TRUE : BOOL_FALSE;
     /* config->win_num = af_params->focus_rect_cnt; */
     config->win_num = 1;
-
+	config->af_lock = af_params->focus_lock;
     config->win_a.left_hoff = af_params->focus_rect[0].left_hoff;
     config->win_a.top_voff= af_params->focus_rect[0].top_voff;
     config->win_a.right_width = af_params->focus_rect[0].right_width;
     config->win_a.bottom_height = af_params->focus_rect[0].bottom_height;
+    LOGI("@%s %d: af_config, mode:%d, new_search:%d, win(%d,%d,%d,%d)", __FUNCTION__, __LINE__, config->mode, config->oneshot_trigger,
+         config->win_a.left_hoff, config->win_a.top_voff, config->win_a.right_width, config->win_a.bottom_height);
 }
 
 void
 ParamsTranslate::convert_from_rkisp_af_result(rk_aiq_af_results* aiq_af_result,
-                                         CamIA10_AFC_Result_t* result, struct CamIA10_SensorModeData *sensor_desc) {
+                                         XCam3aResultFocus* result, struct CamIA10_SensorModeData *sensor_desc) {
 
-    aiq_af_result->afc_config.enabled = true;
-    aiq_af_result->afc_config.num_afm_win = result->Window_Num;
-    aiq_af_result->afc_config.afm_win[0].h_offset = result->WindowA.h_offs;
-    aiq_af_result->afc_config.afm_win[0].width = result->WindowA.h_size;
-    aiq_af_result->afc_config.afm_win[0].v_offset = result->WindowA.v_offs;
-    aiq_af_result->afc_config.afm_win[0].height = result->WindowA.v_size;
-
-    aiq_af_result->afc_config.thres = result->Thres;
-    aiq_af_result->afc_config.var_shift = result->VarShift;
+    aiq_af_result->afc_config = result->afc_config;
+    aiq_af_result->status = result->status;
+    aiq_af_result->current_focus_distance = result->current_focus_distance;
+    aiq_af_result->next_lens_position = result->next_lens_position;
+    aiq_af_result->final_lens_position_reached = result->final_lens_position_reached;
 }
 
 };

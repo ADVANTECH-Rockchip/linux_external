@@ -16,7 +16,6 @@
 
 #include "mpp_common.h"
 
-#include "h264_syntax.h"
 #include "hal_h264e_rkv_nal.h"
 #include "hal_h264e_rkv_dpb.h"
 
@@ -175,14 +174,9 @@ static void h264e_rkv_reference_reset(H264eRkvDpbCtx *dpb_ctx)
 }
 
 static RK_S32
-h264e_rkv_reference_distance(H264eRefParam *ref_cfg,
-                             H264eRkvDpbCtx *dpb_ctx, H264eRkvFrame *frame )
+h264e_rkv_reference_distance(H264eRkvDpbCtx *dpb_ctx, H264eRkvFrame *frame )
 {
-    if ( ref_cfg->i_frame_packing == 5 )
-        return abs((dpb_ctx->fdec->i_frame_cnt & ~1) - (frame->i_frame_cnt & ~1)) +
-               ((dpb_ctx->fdec->i_frame_cnt & 1) != (frame->i_frame_cnt & 1));
-    else
-        return abs(dpb_ctx->fdec->i_frame_cnt - frame->i_frame_cnt);
+    return abs(dpb_ctx->fdec->i_frame_cnt - frame->i_frame_cnt);
 }
 
 static void h264e_rkv_reference_build_list(H264eHalContext *ctx)
@@ -201,7 +195,7 @@ static void h264e_rkv_reference_build_list(H264eHalContext *ctx)
     dpb_ctx->i_ref[0] = 0;
     dpb_ctx->i_ref[1] = 0;
 
-    if ( dpb_ctx->i_slice_type == H264E_HAL_SLICE_TYPE_I ) {
+    if ( dpb_ctx->i_slice_type == H264_I_SLICE ) {
         if ( ref_cfg->i_long_term_en && ref_cfg->i_frame_reference > 1 )
             ref_cfg->hw_longterm_mode ^= 1;  //0 and 1, circle; If ref==1 , longterm mode only 1;
 
@@ -254,8 +248,8 @@ static void h264e_rkv_reference_build_list(H264eHalContext *ctx)
                 if ( list ? dpb_ctx->fref[list][i + 1]->i_poc < dpb_ctx->fref_nearest[list]->i_poc
                      : dpb_ctx->fref[list][i + 1]->i_poc > dpb_ctx->fref_nearest[list]->i_poc )
                     dpb_ctx->fref_nearest[list] = dpb_ctx->fref[list][i + 1];
-                if ( h264e_rkv_reference_distance( ref_cfg, dpb_ctx, dpb_ctx->fref[list][i]   ) >
-                     h264e_rkv_reference_distance( ref_cfg, dpb_ctx, dpb_ctx->fref[list][i + 1] ) ) {
+                if ( h264e_rkv_reference_distance(dpb_ctx, dpb_ctx->fref[list][i]   ) >
+                     h264e_rkv_reference_distance(dpb_ctx, dpb_ctx->fref[list][i + 1] ) ) {
                     MPP_SWAP( H264eRkvFrame *, dpb_ctx->fref[list][i], dpb_ctx->fref[list][i + 1] );
                     b_ok = 0;
                     break;
@@ -445,32 +439,32 @@ h264e_rkv_reference_frame_set( H264eHalContext *ctx, H264eHwCfg *syn)
     if (syn->coding_type == RKVENC_CODING_TYPE_IDR) {
         //TODO: extend syn->frame_coding_type definition
         /* reset ref pictures */
-        i_nal_type    = H264E_NAL_SLICE_IDR;
-        i_nal_ref_idc = H264E_NAL_PRIORITY_HIGHEST;
-        dpb_ctx->i_slice_type = H264E_HAL_SLICE_TYPE_I;
+        i_nal_type    = H264_NALU_TYPE_IDR;
+        i_nal_ref_idc = H264_NALU_PRIORITY_HIGHEST;
+        dpb_ctx->i_slice_type = H264_I_SLICE;
         h264e_rkv_reference_reset(dpb_ctx);
     } else if ( syn->coding_type == RKVENC_CODING_TYPE_I ) {
-        i_nal_type    = H264E_NAL_SLICE;
-        i_nal_ref_idc = H264E_NAL_PRIORITY_HIGH; /* Not completely true but for now it is (as all I/P are kept as ref)*/
-        dpb_ctx->i_slice_type = H264E_HAL_SLICE_TYPE_I;
+        i_nal_type    = H264_NALU_TYPE_SLICE;
+        i_nal_ref_idc = H264_NALU_PRIORITY_HIGH; /* Not completely true but for now it is (as all I/P are kept as ref)*/
+        dpb_ctx->i_slice_type = H264_I_SLICE;
     } else if ( syn->coding_type == RKVENC_CODING_TYPE_P ) {
-        i_nal_type    = H264E_NAL_SLICE;
-        i_nal_ref_idc = H264E_NAL_PRIORITY_HIGH; /* Not completely true but for now it is (as all I/P are kept as ref)*/
-        dpb_ctx->i_slice_type = H264E_HAL_SLICE_TYPE_P;
+        i_nal_type    = H264_NALU_TYPE_SLICE;
+        i_nal_ref_idc = H264_NALU_PRIORITY_HIGH; /* Not completely true but for now it is (as all I/P are kept as ref)*/
+        dpb_ctx->i_slice_type = H264_P_SLICE;
     } else if ( syn->coding_type == RKVENC_CODING_TYPE_BREF ) {
-        i_nal_type    = H264E_NAL_SLICE;
-        i_nal_ref_idc = H264E_NAL_PRIORITY_HIGH;
-        dpb_ctx->i_slice_type = H264E_HAL_SLICE_TYPE_B;
+        i_nal_type    = H264_NALU_TYPE_SLICE;
+        i_nal_ref_idc = H264_NALU_PRIORITY_HIGH;
+        dpb_ctx->i_slice_type = H264_B_SLICE;
     } else { /* B frame */
-        i_nal_type    = H264E_NAL_SLICE;
-        i_nal_ref_idc = H264E_NAL_PRIORITY_DISPOSABLE;
-        dpb_ctx->i_slice_type = H264E_HAL_SLICE_TYPE_B;
+        i_nal_type    = H264_NALU_TYPE_SLICE;
+        i_nal_ref_idc = H264_NALU_PRIORITY_DISPOSABLE;
+        dpb_ctx->i_slice_type = H264_B_SLICE;
     }
 
-    dpb_ctx->fdec->b_kept_as_ref = i_nal_ref_idc != H264E_NAL_PRIORITY_DISPOSABLE;// && h->param.i_keyint_max > 1;
+    dpb_ctx->fdec->b_kept_as_ref = i_nal_ref_idc != H264_NALU_PRIORITY_DISPOSABLE;// && h->param.i_keyint_max > 1;
 
     if (sps->keyframe_max_interval == 1)
-        i_nal_ref_idc = H264E_NAL_PRIORITY_LOW;
+        i_nal_ref_idc = H264_NALU_PRIORITY_LOW;
 
     dpb_ctx->i_nal_ref_idc = i_nal_ref_idc;
     dpb_ctx->i_nal_type = i_nal_type;
@@ -503,7 +497,7 @@ h264e_rkv_reference_frame_set( H264eHalContext *ctx, H264eHwCfg *syn)
         }
     }
 
-    if (dpb_ctx->i_nal_type == H264E_NAL_SLICE_IDR) {
+    if (dpb_ctx->i_nal_type == H264_NALU_TYPE_IDR) {
         if (ref_cfg->i_long_term_en && ref_cfg->hw_longterm_mode && ((dpb_ctx->fdec->i_frame_cnt % ref_cfg->i_long_term_internal) == 0) )
             dpb_ctx->i_long_term_reference_flag = 1;
         dpb_ctx->i_idr_pic_id = dpb_ctx->i_tmp_idr_pic_id;

@@ -14,6 +14,11 @@ int c_RkRgaInit()
     return ret;
 }
 
+void c_RkRgaDeInit()
+{
+    rkRga.RkRgaDeInit();
+}
+
 int c_RkRgaGetAllocBuffer(bo_t *bo_info, int width, int height, int bpp)
 {
     rkRga.RkRgaGetAllocBuffer(bo_info, width, height, bpp);
@@ -49,6 +54,11 @@ int c_RkRgaBlit(rga_info_t *src, rga_info_t *dst, rga_info_t *src1)
     int ret;
     ret = rkRga.RkRgaBlit(src, dst, NULL);
     return ret ;
+}
+
+int c_RkRgaColorFill(rga_info_t *dst)
+{
+    return rkRga.RkRgaCollorFill(dst);
 }
 
 #ifdef __cplusplus

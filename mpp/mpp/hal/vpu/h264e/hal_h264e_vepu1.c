@@ -17,14 +17,13 @@
 #define MODULE_TAG "hal_h264e_vepu1"
 #include <string.h>
 
-#include "mpp_device.h"
-#include "rk_mpi.h"
-
-#include "mpp_rc.h"
 #include "mpp_env.h"
 #include "mpp_mem.h"
 #include "mpp_frame.h"
 #include "mpp_common.h"
+
+#include "mpp_rc.h"
+#include "mpp_device.h"
 
 #include "hal_h264e_com.h"
 #include "hal_h264e_header.h"
@@ -53,19 +52,19 @@ MPP_RET hal_h264e_vepu1_init(void *hal, MppHalCfg *cfg)
 
     h264e_vpu_init_extra_info(ctx->extra_info);
 
-#ifdef RKPLATFORM
     MppDevCfg dev_cfg = {
         .type = MPP_CTX_ENC,            /* type */
         .coding = MPP_VIDEO_CodingAVC,  /* coding */
         .platform = 0,                  /* platform */
         .pp_enable = 0,                 /* pp_enable */
     };
+
     ret = mpp_device_init(&ctx->dev_ctx, &dev_cfg);
-    if (ret != MPP_OK) {
+    if (ret) {
         mpp_err("mpp_device_init failed. ret: %d\n", ret);
         return ret;
     }
-#endif
+
     ctx->hw_cfg.qp_prev = ctx->cfg->codec.h264.qp_init;
     mpp_env_get_u32("hal_vpu_h264e_debug", &hal_vpu_h264e_debug, 0);
 
@@ -127,12 +126,9 @@ MPP_RET hal_h264e_vepu1_deinit(void *hal)
         ctx->qp_p = NULL;
     }
 
-#ifdef RKPLATFORM
     ret = mpp_device_deinit(ctx->dev_ctx);
-    if (ret) {
+    if (ret)
         mpp_err("mpp_device_deinit failed ret: %d", ret);
-    }
-#endif
 
     h264e_hal_leave();
     return ret;
@@ -238,9 +234,10 @@ MPP_RET hal_h264e_vepu1_gen_regs(void *hal, HalTaskInfo *task)
     if (prep->height & 0x0f)
         overfill_b = 16 - (prep->height & 0x0f);
 
+    // When offset is zero row length should be total 16 aligned width
     val = VEPU_REG_IN_IMG_CHROMA_OFFSET(0)
           | VEPU_REG_IN_IMG_LUMA_OFFSET(0)
-          | VEPU_REG_IN_IMG_CTRL_ROW_LEN(prep->width)
+          | VEPU_REG_IN_IMG_CTRL_ROW_LEN(mbs_in_row * 16)
           | VEPU_REG_IN_IMG_CTRL_OVRFLR_D4(overfill_r)
           | VEPU_REG_IN_IMG_CTRL_OVRFLB(overfill_b)
           | VEPU_REG_IN_IMG_CTRL_FMT(hw_cfg->input_format)
@@ -432,7 +429,7 @@ MPP_RET hal_h264e_vepu1_start(void *hal, HalTaskInfo *task)
     H264eHalContext *ctx = (H264eHalContext *)hal;
     (void)task;
     h264e_hal_enter();
-#ifdef RKPLATFORM
+
     if (ctx->dev_ctx) {
         RK_U32 *p_regs = (RK_U32 *)ctx->regs;
         h264e_hal_dbg(H264E_DBG_DETAIL, "vpu client is sending %d regs",
@@ -448,8 +445,7 @@ MPP_RET hal_h264e_vepu1_start(void *hal, HalTaskInfo *task)
         mpp_err("invalid device ctx: %p", ctx->dev_ctx);
         return MPP_NOK;
     }
-#endif
-    (void)ctx;
+
     h264e_hal_leave();
 
     return MPP_OK;
@@ -491,7 +487,7 @@ static MPP_RET hal_h264e_vpu1_resend(H264eHalContext *ctx, RK_U32 *reg_out, RK_S
           | VEPU_REG_H264_CHKPT_DISTANCE(hw_cfg->cp_distance_mbs);
 
     H264E_HAL_SET_REG(p_regs, VEPU_REG_QP_VAL, val);
-#ifdef RKPLATFORM
+
     hw_ret = mpp_device_send_reg(ctx->dev_ctx, p_regs, VEPU_H264E_VEPU1_NUM_REGS);
     if (hw_ret)
         mpp_err("mpp_device_send_reg failed ret %d", hw_ret);
@@ -499,11 +495,11 @@ static MPP_RET hal_h264e_vpu1_resend(H264eHalContext *ctx, RK_U32 *reg_out, RK_S
         h264e_hal_dbg(H264E_DBG_DETAIL, "mpp_device_send_reg success!");
 
     hw_ret = mpp_device_wait_reg(ctx->dev_ctx, (RK_U32 *)reg_out, VEPU_H264E_VEPU1_NUM_REGS);
-#endif
-    if (hw_ret != MPP_OK) {
+    if (hw_ret) {
         h264e_hal_err("hardware returns error:%d", hw_ret);
         return MPP_ERR_VPUHW;
     }
+
     return MPP_OK;
 }
 
@@ -523,7 +519,6 @@ MPP_RET hal_h264e_vepu1_wait(void *hal, HalTaskInfo *task)
 
     h264e_hal_enter();
 
-#ifdef RKPLATFORM
     if (ctx->dev_ctx) {
         RK_S32 hw_ret = mpp_device_wait_reg(ctx->dev_ctx, (RK_U32 *)reg_out,
                                             VEPU_H264E_VEPU1_NUM_REGS);
@@ -538,7 +533,6 @@ MPP_RET hal_h264e_vepu1_wait(void *hal, HalTaskInfo *task)
         mpp_err("invalid device ctx: %p", ctx->dev_ctx);
         return MPP_NOK;
     }
-#endif
 
     hal_h264e_vepu1_set_feedback(fb, reg_out);
     task->enc.length = fb->out_strm_size;
@@ -555,12 +549,12 @@ MPP_RET hal_h264e_vepu1_wait(void *hal, HalTaskInfo *task)
             } else {
                 dealt_qp = 2;
             }
-            if (fb->out_strm_size * 8 >  (RK_U32)rc_syn->bit_target * 3) {
+            if ((fb->out_strm_size * 8 >  (RK_U32)rc_syn->bit_target * 3) && (hw_cfg->qp < hw_cfg->qp_max)) {
                 hal_h264e_vpu1_resend(hal, (RK_U32 *)reg_out, dealt_qp);
                 hal_h264e_vepu1_set_feedback(fb, reg_out);
                 task->enc.length = fb->out_strm_size;
                 hw_cfg->qp_prev = fb->qp_sum / num_mb;
-                if (cnt-- <= 0) {
+                if ((cnt-- <= 0) || (hw_cfg->qp == hw_cfg->qp_max)) {
                     break;
                 }
             } else {
@@ -628,7 +622,7 @@ MPP_RET hal_h264e_vepu1_flush(void *hal)
     return MPP_OK;
 }
 
-MPP_RET hal_h264e_vepu1_control(void *hal, RK_S32 cmd_type, void *param)
+MPP_RET hal_h264e_vepu1_control(void *hal, MpiCmd cmd_type, void *param)
 {
     MPP_RET ret = MPP_OK;
     H264eHalContext *ctx = (H264eHalContext *)hal;
@@ -644,9 +638,9 @@ MPP_RET hal_h264e_vepu1_control(void *hal, RK_S32 cmd_type, void *param)
         MppPacket *pkt_out  = (MppPacket *)param;
 
         H264eVpuExtraInfo *src = (H264eVpuExtraInfo *)ctx->extra_info;
-        H264eVpuStream *sps_stream = &src->sps_stream;
-        H264eVpuStream *pps_stream = &src->pps_stream;
-        H264eVpuStream *sei_stream = &src->sei_stream;
+        H264eStream *sps_stream = &src->sps_stream;
+        H264eStream *pps_stream = &src->pps_stream;
+        H264eStream *sei_stream = &src->sei_stream;
 
         h264e_vpu_set_extra_info(ctx);
 
@@ -763,6 +757,9 @@ MPP_RET hal_h264e_vepu1_control(void *hal, RK_S32 cmd_type, void *param)
         mpp_err("vepu1 do not support roi cfg\n");
         ret = MPP_NOK;
     } break;
+    case MPP_ENC_PRE_ALLOC_BUFF:
+        // vepu do not support prealloc buff, ignore cmd
+        break;
     default : {
         mpp_err("unrecognizable cmd type %d", cmd_type);
         ret = MPP_NOK;

@@ -167,7 +167,7 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 	void *srcBuf = NULL;
 	void *dstBuf = NULL;
 	void *src1Buf = NULL;
-	RECT clip;
+	RECT_t clip;
 
 	if (!ctx) {
 		DEBUG("Try to use uninit rgaCtx=%p \n",ctx);
@@ -364,7 +364,7 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 			DEBUG("Error scale[%f,%f] line %d \n", hScale, vScale, __LINE__);
 			return -EINVAL;
 		}
-		if (ctx->mVersion <= 2.0 && (hScale < 1/8 ||
+		if (ctx->mVersion < 2.0 && (hScale < 1/8 ||
 					hScale > 8 || vScale < 1/8 || vScale > 8)) {
 			DEBUG("Error scale[%f,%f] line %d \n", hScale, vScale, __LINE__);
 			return -EINVAL;
@@ -380,11 +380,23 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 	if (hScale < 1 || vScale < 1)
     {
 		scaleMode = 2;
-        if((src->format == RK_FORMAT_RGBA_8888  ||src->format == RK_FORMAT_BGRA_8888)){
+        if((relSrcRect.format == RK_FORMAT_RGBA_8888  || relSrcRect.format == RK_FORMAT_BGRA_8888)){
             scaleMode = 0;     //  force change scale_mode to 0 ,for rga not support
         }
 	}
-
+	/*
+	 *  RGA2 upScale Bi-cubic can chose operator
+	 *  0  CATROM
+	 *  1  MITCHELL
+	 *  2  HERMITE
+	 *  3  B-SPLINE
+	 */
+	if (ctx->mVersion >= 2.0) {
+	    if (src->scale_mode)
+		scaleMode = src->scale_mode;
+	    else
+		scaleMode = 0;
+	}
     DEBUG("scaleMode = %d , stretch = %d; \n",scaleMode,stretch);
 
 	switch (rotation) {
@@ -399,7 +411,7 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 			srcActH = relSrcRect.height;
 
 			dstVirW = relDstRect.wstride;
-			dstVirH = relDstRect.height;
+			dstVirH = relDstRect.hstride;
 			dstXPos = relDstRect.xoffset;
 			dstYPos = relDstRect.yoffset;
 			dstActW = relDstRect.width;
@@ -416,7 +428,7 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 			srcActH = relSrcRect.height;
 
 			dstVirW = relDstRect.wstride;
-			dstVirH = relDstRect.height;
+			dstVirH = relDstRect.hstride;
 			dstXPos = relDstRect.xoffset;
 			dstYPos = relDstRect.yoffset;
 			dstActW = relDstRect.width;
@@ -433,10 +445,9 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 			srcActH = relSrcRect.height;
 
 			dstVirW = relDstRect.wstride;
-			dstVirH = relDstRect.height;
-			dstXPos = relDstRect.width - 1;
-			//dstYPos = relDstRect.yoffset;
-			dstYPos = 0;
+			dstVirH = relDstRect.hstride;
+			dstXPos = relDstRect.xoffset + relDstRect.width - 1;
+			dstYPos = relDstRect.yoffset;
 			dstActW = relDstRect.height;
 			dstActH = relDstRect.width;
 			break;
@@ -451,9 +462,9 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 			srcActH = relSrcRect.height;
 
 			dstVirW = relDstRect.wstride;
-			dstVirH = relDstRect.height;
-			dstXPos = relDstRect.width - 1;
-			dstYPos = relDstRect.height - 1;
+			dstVirH = relDstRect.hstride;
+			dstXPos = relDstRect.xoffset + relDstRect.width - 1;
+			dstYPos = relDstRect.yoffset + relDstRect.height - 1;
 			dstActW = relDstRect.width;
 			dstActH = relDstRect.height;
 			break;
@@ -468,10 +479,9 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 			srcActH = relSrcRect.height;
 
 			dstVirW = relDstRect.wstride;
-			dstVirH = relDstRect.height;
-			//dstXPos = relDstRect.xoffset;
-			dstXPos = 0;
-			dstYPos = relDstRect.height - 1;
+			dstVirH = relDstRect.hstride;
+			dstXPos = relDstRect.xoffset;
+			dstYPos = relDstRect.yoffset + relDstRect.height - 1;
 			dstActW = relDstRect.height;
 			dstActH = relDstRect.width;
 			break;
@@ -697,7 +707,7 @@ int RgaCollorFill(rga_info *dst)
 	struct rga_req rgaReg;
 	COLOR_FILL fillColor ;
 	void *dstBuf = NULL;
-	RECT clip;
+	RECT_t  clip;
 
 	if (!ctx) {
 		DEBUG("Try to use uninit rgaCtx=%p \n",ctx);

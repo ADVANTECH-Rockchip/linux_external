@@ -92,7 +92,14 @@ typedef enum VPU_API_CMD {
     VPU_API_GET_FRAME_INFO,
     VPU_API_SET_OUTPUT_BLOCK,
     VPU_API_GET_EOS_STATUS,
+
     VPU_API_SET_IMMEDIATE_OUT = 0x1000,
+    VPU_API_ENC_VEPU22_START = 0x2000,
+    VPU_API_ENC_SET_VEPU22_CFG,
+    VPU_API_ENC_GET_VEPU22_CFG,
+    VPU_API_ENC_SET_VEPU22_CTU_QP,
+    VPU_API_ENC_SET_VEPU22_ROI,
+
 } VPU_API_CMD;
 
 typedef struct {
@@ -133,7 +140,22 @@ typedef struct tVPU_FRAME {
     RK_U32              employ_cnt;
     VPUMemLinear_t      vpumem;
     struct tVPU_FRAME  *next_frame;
-    RK_U32              Res[4];
+    union {
+        struct {
+            RK_U32      Res0[2];
+            struct {
+                RK_U32      ColorPrimaries : 8;
+                RK_U32      ColorTransfer  : 8;
+                RK_U32      ColorCoeffs    : 8;
+                RK_U32      ColorRange     : 1;
+                RK_U32      Res1           : 7;
+            };
+
+            RK_U32      Res2;
+        };
+
+        RK_U32          Res[4];
+    };
 } VPU_FRAME;
 
 typedef struct VideoPacket {

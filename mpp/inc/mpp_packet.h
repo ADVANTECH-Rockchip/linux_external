@@ -17,9 +17,7 @@
 #ifndef __MPP_PACKET_H__
 #define __MPP_PACKET_H__
 
-#include "mpp_buffer.h"
-
-typedef void* MppPacket;
+#include "mpp_meta.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,6 +76,10 @@ MppBuffer   mpp_packet_get_buffer(const MppPacket packet);
 MPP_RET mpp_packet_read(MppPacket packet, size_t offset, void *data, size_t size);
 MPP_RET mpp_packet_write(MppPacket packet, size_t offset, void *data, size_t size);
 
+/*
+ * meta data access interface
+ */
+MppMeta mpp_packet_get_meta(const MppPacket packet);
 
 #ifdef __cplusplus
 }

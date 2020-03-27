@@ -5,7 +5,7 @@
 # ----------------------------------------------------------------------------
 add_library(mpp_codec STATIC
     mpp_enc.cpp
-    mpp_controller.cpp
+    mpp_enc_impl.cpp
     mpp_dec.cpp
     mpp_parser.cpp
     )
@@ -30,6 +30,8 @@ target_link_libraries(mpp_codec
                       ${CODEC_JPEGD}
                       ${CODEC_H264E}
                       ${CODEC_JPEGE}
+                      ${CODEC_H265E}
+                      ${CODEC_VP8E}
                       codec_dummy_enc
                       codec_dummy_dec
                       mpp_vproc

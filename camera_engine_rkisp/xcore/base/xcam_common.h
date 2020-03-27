@@ -76,9 +76,6 @@ void xcam_free (void *ptr);
 int xcam_device_ioctl (int fd, int cmd, void *arg);
 const char *xcam_fourcc_to_string (uint32_t fourcc);
 
-void xcam_set_log (const char* file_name);
-void xcam_print_log (int level, const char* format, ...);
-
 static inline uint32_t
 xcam_ceil (uint32_t value, const uint32_t align) {
     return (value + align - 1) / align * align;

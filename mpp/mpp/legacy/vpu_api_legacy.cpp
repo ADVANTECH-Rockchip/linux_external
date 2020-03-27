@@ -16,9 +16,7 @@
 
 #define MODULE_TAG "vpu_api_legacy"
 
-#ifdef RKPLATFORM
 #include <fcntl.h>
-#endif
 #include "string.h"
 
 #include "mpp_log.h"
@@ -92,10 +90,12 @@ static MPP_RET vpu_api_set_enc_cfg(MppCtx mpp_ctx, MppApi *mpi,
                                    EncParameter_t *cfg)
 {
     MPP_RET ret = MPP_OK;
-    MppEncCfgSet set;
-    MppEncCodecCfg *codec_cfg = &set.codec;
-    MppEncPrepCfg *prep_cfg = &set.prep;
-    MppEncRcCfg *rc_cfg = &set.rc;
+    MppEncCodecCfg codec;
+    MppEncPrepCfg prep;
+    MppEncRcCfg rc;
+    MppEncCodecCfg *codec_cfg = &codec;
+    MppEncPrepCfg *prep_cfg = &prep;
+    MppEncRcCfg *rc_cfg = &rc;
     RK_S32 width    = cfg->width;
     RK_S32 height   = cfg->height;
     RK_S32 bps      = cfg->bitRate;
@@ -104,7 +104,8 @@ static MPP_RET vpu_api_set_enc_cfg(MppCtx mpp_ctx, MppApi *mpi,
     RK_S32 gop      = (cfg->intraPicRate) ? (cfg->intraPicRate) : (fps_out);
     RK_S32 qp_init  = (coding == MPP_VIDEO_CodingAVC) ? (26) :
                       (coding == MPP_VIDEO_CodingMJPEG) ? (10) :
-                      (coding == MPP_VIDEO_CodingVP8) ? (56) : (0);
+                      (coding == MPP_VIDEO_CodingVP8) ? (56) :
+                      (coding == MPP_VIDEO_CodingHEVC) ? (26) : (0);
     RK_S32 qp       = (cfg->qp) ? (cfg->qp) : (qp_init);
     RK_S32 profile  = cfg->profileIdc;
     RK_S32 level    = cfg->levelIdc;
@@ -200,8 +201,11 @@ static MPP_RET vpu_api_set_enc_cfg(MppCtx mpp_ctx, MppApi *mpi,
         codec_cfg->jpeg.change = MPP_ENC_JPEG_CFG_CHANGE_QP;
         codec_cfg->jpeg.quant = qp;
     } break;
+    case MPP_VIDEO_CodingHEVC : {
+        codec_cfg->h265.change = MPP_ENC_H265_CFG_INTRA_QP_CHANGE;
+        codec_cfg->h265.intra_qp = qp;
+    } break;
     case MPP_VIDEO_CodingVP8 :
-    case MPP_VIDEO_CodingHEVC :
     default : {
         mpp_err_f("support encoder coding type %d\n", coding);
     } break;
@@ -216,8 +220,6 @@ RET:
 static int is_valid_dma_fd(int fd)
 {
     int ret = 1;
-
-#ifdef RKPLATFORM
     /* detect input file handle */
     int fs_flag = fcntl(fd, F_GETFL, NULL);
     int fd_flag = fcntl(fd, F_GETFD, NULL);
@@ -225,9 +227,7 @@ static int is_valid_dma_fd(int fd)
     if (fs_flag == -1 || fd_flag == -1) {
         ret = 0;
     }
-#else
-    (void) fd;
-#endif
+
     return ret;
 }
 
@@ -463,8 +463,11 @@ static void setup_VPU_FRAME_from_mpp_frame(VPU_FRAME *vframe, MppFrame mframe)
     MppBuffer buf = mpp_frame_get_buffer(mframe);
     RK_U64 pts  = mpp_frame_get_pts(mframe);
     RK_U32 mode = mpp_frame_get_mode(mframe);
+
+    MppFrameColorRange colorRan = mpp_frame_get_color_range(mframe);
     MppFrameColorTransferCharacteristic colorTrc = mpp_frame_get_color_trc(mframe);
     MppFrameColorPrimaries colorPri = mpp_frame_get_color_primaries(mframe);
+    MppFrameColorSpace colorSpa = mpp_frame_get_colorspace(mframe);
 
     if (buf)
         mpp_buffer_inc_ref(buf);
@@ -473,6 +476,12 @@ static void setup_VPU_FRAME_from_mpp_frame(VPU_FRAME *vframe, MppFrame mframe)
     vframe->DisplayHeight = mpp_frame_get_height(mframe);
     vframe->FrameWidth = mpp_frame_get_hor_stride(mframe);
     vframe->FrameHeight = mpp_frame_get_ver_stride(mframe);
+
+    vframe->ColorRange = (colorRan == MPP_FRAME_RANGE_JPEG);
+    vframe->ColorPrimaries = colorPri;
+    vframe->ColorTransfer = colorTrc;
+    vframe->ColorCoeffs = colorSpa;
+
     if (mode == MPP_FRAME_FLAG_FRAME)
         vframe->FrameType = 0;
     else {
@@ -1169,8 +1178,6 @@ RK_S32 VpuApiLegacy::encoder_sendframe(VpuCodecContext *ctx, EncInputStream_t *a
     /* try import input buffer and output buffer */
     MppFrame frame = NULL;
 
-
-
     ret = mpp_frame_init(&frame);
     if (MPP_OK != ret) {
         mpp_err_f("mpp_frame_init failed\n");
@@ -1182,6 +1189,18 @@ RK_S32 VpuApiLegacy::encoder_sendframe(VpuCodecContext *ctx, EncInputStream_t *a
     mpp_frame_set_hor_stride(frame, hor_stride);
     mpp_frame_set_ver_stride(frame, ver_stride);
     mpp_frame_set_pts(frame, pts);
+
+    if (aEncInStrm->nFlags) {
+        mpp_log_f("found eos true\n");
+        mpp_frame_set_eos(frame, 1);
+    }
+
+    if (size <= 0) {
+        mpp_frame_set_buffer(frame, NULL);
+        if (!aEncInStrm->nFlags)
+            mpp_err_f("found empty frame without eos flag set!\n");
+        goto PUT_FRAME;
+    }
 
     if (fd_input < 0) {
         fd_input = is_valid_dma_fd(fd);
@@ -1237,13 +1256,10 @@ RK_S32 VpuApiLegacy::encoder_sendframe(VpuCodecContext *ctx, EncInputStream_t *a
         }
     }
 
+PUT_FRAME:
+
     vpu_api_dbg_input("w %d h %d input fd %d size %d pts %lld, flag %d \n",
                       width, height, fd, size, aEncInStrm->timeUs, aEncInStrm->nFlags);
-
-    if (aEncInStrm->nFlags) {
-        mpp_log_f("found eos true");
-        mpp_frame_set_eos(frame, 1);
-    }
 
     ret = mpi->encode_put_frame(mpp_ctx, frame);
     if (ret)
@@ -1295,7 +1311,7 @@ RK_S32 VpuApiLegacy::encoder_getstream(VpuCodecContext *ctx, EncoderOut_t *aEncO
         mpp_packet_deinit(&packet);
     } else {
         aEncOut->size = 0;
-        vpu_api_dbg_output("encode_get_packet get NULL packet\n");
+        vpu_api_dbg_output("get NULL packet, eos %d\n", mEosSet);
         if (mEosSet)
             ret = -1;
     }
@@ -1396,6 +1412,18 @@ RK_S32 VpuApiLegacy::control(VpuCodecContext *ctx, VPU_API_CMD cmd, void *param)
     } break;
     case VPU_API_SET_IMMEDIATE_OUT: {
         mpicmd = MPP_DEC_SET_IMMEDIATE_OUT;
+    } break;
+    case VPU_API_ENC_SET_VEPU22_CFG: {
+        mpicmd = MPP_ENC_SET_CODEC_CFG;
+    } break;
+    case VPU_API_ENC_GET_VEPU22_CFG: {
+        mpicmd = MPP_ENC_GET_CODEC_CFG;
+    } break;
+    case VPU_API_ENC_SET_VEPU22_CTU_QP: {
+        mpicmd = MPP_ENC_SET_CTU_QP;
+    } break;
+    case VPU_API_ENC_SET_VEPU22_ROI: {
+        mpicmd = MPP_ENC_SET_ROI_CFG;
     } break;
     default: {
     } break;

@@ -19,6 +19,7 @@ IspEngine::IspEngine():
     mStartCnt = 0;
     mStreaming = false;
     mIspFd = -1;
+    mIspVer = 0;
     memset(&mCamIA_DyCfg, 0x00, sizeof(struct CamIA10_DyCfg));
     osMutexInit(&mApiLock);
 }
@@ -30,6 +31,7 @@ IspEngine::~IspEngine()
 
 bool IspEngine::init(const char* tuningFile,
                      const char* ispDev,
+                     int isp_ver,
                      int devFd)
 {
     return true;
@@ -49,7 +51,7 @@ bool IspEngine::deInit()
             ret = ioctl(mIspFd, VIDIOC_STREAMOFF, &type);
             if (ret < 0)
             {
-                ALOGE("%s: Failed to stop stream", __func__);
+                LOGE("%s: Failed to stop stream", __func__);
             }
         }
 
@@ -85,6 +87,8 @@ int IspEngine::setStatistics(struct CamIA10_Stats* ia_stats)
 
 int IspEngine::updateDynamicConfig(struct CamIA10_DyCfg* ia_dcfg)
 {
+    mCamIA_DyCfg = *ia_dcfg;
+
     mCamIAEngine->initDynamic(ia_dcfg);
 
     return 0;
@@ -92,21 +96,23 @@ int IspEngine::updateDynamicConfig(struct CamIA10_DyCfg* ia_dcfg)
 
 int IspEngine::runAe(XCamAeParam *param, AecResult_t* result, bool first)
 {
-    mCamIAEngine->runAe(param, result, first);
+    int ret = mCamIAEngine->runAe(param, result, first);
+    if (ret != 0)
+        return ret;
     mCamIAEngine->runADPF();
     mCamIAEngine->runAWDR();
 
     return 0;
 }
 
-int IspEngine::runAwb(XCamAwbParam *param, CamIA10_AWB_Result_t* result)
+int IspEngine::runAwb(XCamAwbParam *param, CamIA10_AWB_Result_t* result, bool first)
 {
-    return mCamIAEngine->runAwb(param, result);
+    return mCamIAEngine->runAwb(param, result, first);
 }
 
-int IspEngine::runAf(XCamAfParam *param, XCam3aResultFocus* result)
+int IspEngine::runAf(XCamAfParam *param, XCam3aResultFocus* result, bool first)
 {
-    return mCamIAEngine->runAf(param, result);
+    return mCamIAEngine->runAf(param, result, first);
 }
 
 bool IspEngine::getIAResult(struct CamIA10_Results* ia_results) {
@@ -239,18 +245,154 @@ bool IspEngine::getIAResult(struct CamIA10_Results* ia_results) {
             ia_results->active |= CAMIA10_DSP_3DNR_MASK;
         }
 
+		if ((ia_results->adpf.actives & ADPF_NEW_DSP_3DNR_MASK) &&
+	        (mNew3DnrEnabled == HAL_ISP_ACTIVE_DEFAULT)) {
+	        ia_results->active |= CAMIA10_NEW_DSP_3DNR_MASK;
+	    }
+		
+		if (ia_results->adpf.actives & ADPF_DEMOSAICLP_MASK)
+        {
+        	ia_results->rkDemosaicLP.lp_en = ia_results->adpf.RKDemosaicLpResult.lp_en;
+			ia_results->rkDemosaicLP.rb_filter_en = ia_results->adpf.RKDemosaicLpResult.rb_filter_en;
+			ia_results->rkDemosaicLP.hp_filter_en = ia_results->adpf.RKDemosaicLpResult.hp_filter_en;
+			ia_results->rkDemosaicLP.th_grad = ia_results->adpf.RKDemosaicLpResult.th_grad;
+			ia_results->rkDemosaicLP.th_diff = ia_results->adpf.RKDemosaicLpResult.th_diff;
+			ia_results->rkDemosaicLP.th_csc = ia_results->adpf.RKDemosaicLpResult.th_csc;
+			ia_results->rkDemosaicLP.th_var = ia_results->adpf.RKDemosaicLpResult.th_var;
+			ia_results->rkDemosaicLP.th_var_en = ia_results->adpf.RKDemosaicLpResult.th_var_en;
+			ia_results->rkDemosaicLP.th_csc_en = ia_results->adpf.RKDemosaicLpResult.th_csc_en;
+			ia_results->rkDemosaicLP.th_diff_en = ia_results->adpf.RKDemosaicLpResult.th_diff_en;
+			ia_results->rkDemosaicLP.th_grad_en = ia_results->adpf.RKDemosaicLpResult.th_grad_en;
+			ia_results->rkDemosaicLP.use_old_lp = ia_results->adpf.RKDemosaicLpResult.use_old_lp;
+			ia_results->rkDemosaicLP.similarity_th = ia_results->adpf.RKDemosaicLpResult.similarity_th;
+			ia_results->rkDemosaicLP.flat_level_sel = ia_results->adpf.RKDemosaicLpResult.flat_level_sel;
+			ia_results->rkDemosaicLP.pattern_level_sel = ia_results->adpf.RKDemosaicLpResult.pattern_level_sel;
+			ia_results->rkDemosaicLP.edge_level_sel = ia_results->adpf.RKDemosaicLpResult.edge_level_sel;
+			ia_results->rkDemosaicLP.thgrad_r_fct = ia_results->adpf.RKDemosaicLpResult.thgrad_r_fct;
+			ia_results->rkDemosaicLP.thdiff_r_fct = ia_results->adpf.RKDemosaicLpResult.thdiff_r_fct;
+			ia_results->rkDemosaicLP.thvar_r_fct = ia_results->adpf.RKDemosaicLpResult.thvar_r_fct;
+			ia_results->rkDemosaicLP.thgrad_b_fct = ia_results->adpf.RKDemosaicLpResult.thgrad_b_fct;
+			ia_results->rkDemosaicLP.thdiff_b_fct = ia_results->adpf.RKDemosaicLpResult.thdiff_b_fct;
+			ia_results->rkDemosaicLP.thvar_b_fct = ia_results->adpf.RKDemosaicLpResult.thvar_b_fct;
+			memcpy(ia_results->rkDemosaicLP.lu_divided,
+					ia_results->adpf.RKDemosaicLpResult.lu_divided,
+					sizeof(ia_results->rkDemosaicLP.lu_divided));
+			memcpy(ia_results->rkDemosaicLP.thgrad_divided,
+					ia_results->adpf.RKDemosaicLpResult.thgrad_divided,
+					sizeof(ia_results->rkDemosaicLP.thgrad_divided));
+			memcpy(ia_results->rkDemosaicLP.thdiff_divided,
+					ia_results->adpf.RKDemosaicLpResult.thdiff_divided,
+					sizeof(ia_results->rkDemosaicLP.thdiff_divided));
+			memcpy(ia_results->rkDemosaicLP.thcsc_divided,
+					ia_results->adpf.RKDemosaicLpResult.thcsc_divided,
+					sizeof(ia_results->rkDemosaicLP.thcsc_divided));
+			memcpy(ia_results->rkDemosaicLP.thvar_divided,
+					ia_results->adpf.RKDemosaicLpResult.thvar_divided,
+					sizeof(ia_results->rkDemosaicLP.thvar_divided));
+			
+            ia_results->active |= CAMIA10_DEMOSAICLP_MASK;		
+		}
+
+		if (ia_results->adpf.actives & ADPF_RKIESHARP_MASK)
+        {
+        	ia_results->rkIEsharp.iesharpen_en = ia_results->adpf.RKIESharpResult.iesharpen_en;	
+			ia_results->rkIEsharp.coring_thr = ia_results->adpf.RKIESharpResult.coring_thr;	
+			ia_results->rkIEsharp.full_range = ia_results->adpf.RKIESharpResult.full_range;	
+			ia_results->rkIEsharp.switch_avg = ia_results->adpf.RKIESharpResult.switch_avg;	
+			memcpy(ia_results->rkIEsharp.yavg_thr,
+					ia_results->adpf.RKIESharpResult.yavg_thr,
+					sizeof(ia_results->rkIEsharp.yavg_thr));
+			memcpy(ia_results->rkIEsharp.delta1,
+					ia_results->adpf.RKIESharpResult.delta1,
+					sizeof(ia_results->rkIEsharp.delta1));
+			memcpy(ia_results->rkIEsharp.delta2,
+					ia_results->adpf.RKIESharpResult.delta2,
+					sizeof(ia_results->rkIEsharp.delta2));
+			memcpy(ia_results->rkIEsharp.maxnumber,
+					ia_results->adpf.RKIESharpResult.maxnumber,
+					sizeof(ia_results->rkIEsharp.maxnumber));
+			memcpy(ia_results->rkIEsharp.minnumber,
+					ia_results->adpf.RKIESharpResult.minnumber,
+					sizeof(ia_results->rkIEsharp.minnumber));
+			memcpy(ia_results->rkIEsharp.gauss_flat_coe,
+					ia_results->adpf.RKIESharpResult.gauss_flat_coe,
+					sizeof(ia_results->rkIEsharp.gauss_flat_coe));
+			memcpy(ia_results->rkIEsharp.gauss_noise_coe,
+					ia_results->adpf.RKIESharpResult.gauss_noise_coe,
+					sizeof(ia_results->rkIEsharp.gauss_noise_coe));
+			memcpy(ia_results->rkIEsharp.gauss_other_coe,
+					ia_results->adpf.RKIESharpResult.gauss_other_coe,
+					sizeof(ia_results->rkIEsharp.gauss_other_coe));
+			memcpy(ia_results->rkIEsharp.uv_gauss_flat_coe,
+					ia_results->adpf.RKIESharpResult.uv_gauss_flat_coe,
+					sizeof(ia_results->rkIEsharp.uv_gauss_flat_coe));
+			memcpy(ia_results->rkIEsharp.uv_gauss_noise_coe,
+					ia_results->adpf.RKIESharpResult.uv_gauss_noise_coe,
+					sizeof(ia_results->rkIEsharp.uv_gauss_noise_coe));
+			memcpy(ia_results->rkIEsharp.uv_gauss_other_coe,
+					ia_results->adpf.RKIESharpResult.uv_gauss_other_coe,
+					sizeof(ia_results->rkIEsharp.uv_gauss_other_coe));		
+			memcpy(ia_results->rkIEsharp.p_grad,
+					ia_results->adpf.RKIESharpResult.p_grad,
+					sizeof(ia_results->rkIEsharp.p_grad));
+			memcpy(ia_results->rkIEsharp.sharp_factor,
+					ia_results->adpf.RKIESharpResult.sharp_factor,
+					sizeof(ia_results->rkIEsharp.sharp_factor));
+			memcpy(ia_results->rkIEsharp.line1_filter_coe,
+					ia_results->adpf.RKIESharpResult.line1_filter_coe,
+					sizeof(ia_results->rkIEsharp.line1_filter_coe));
+			memcpy(ia_results->rkIEsharp.line2_filter_coe,
+					ia_results->adpf.RKIESharpResult.line2_filter_coe,
+					sizeof(ia_results->rkIEsharp.line2_filter_coe));
+			memcpy(ia_results->rkIEsharp.line3_filter_coe,
+					ia_results->adpf.RKIESharpResult.line3_filter_coe,
+					sizeof(ia_results->rkIEsharp.line3_filter_coe));
+			memcpy(ia_results->rkIEsharp.lap_mat_coe,
+					ia_results->adpf.RKIESharpResult.lap_mat_coe,
+					sizeof(ia_results->rkIEsharp.lap_mat_coe));
+			
+			
+            ia_results->active |= CAMIA10_RKIESHARP_MASK;		
+		}
+
     }
 
     if (mCamIAEngine->getAWDRResults(&ia_results->awdr) == RET_SUCCESS)
     {
         if (ia_results->awdr.actives & AWDR_WDR_MAXGAIN_LEVEL_MASK)
         {
-            wdr_cfg.wdr_gain_max_value = ia_results->awdr.Wdr_MaxGain_level_RegValue;
-            mWdrEnabled = HAL_ISP_ACTIVE_DEFAULT;
-            mWdrNeededUpdate = BOOL_TRUE;
-            runISPManual(ia_results, BOOL_FALSE);
-            ia_results->wdr.wdr_gain_max_value = wdr_cfg.wdr_gain_max_value;
-            ia_results->wdr.enabled = BOOL_TRUE;
+        	ia_results->wdr.enabled = ia_results->awdr.wdr_enable;
+			ia_results->wdr.mode = (CameraIcWdrMode_t)(ia_results->awdr.mode);
+			memcpy(ia_results->wdr.segment,
+					ia_results->awdr.wdr_dx,
+					sizeof(ia_results->wdr.segment));
+
+			memcpy(ia_results->wdr.wdr_block_y,
+					ia_results->awdr.wdr_block_dy,
+					sizeof(ia_results->wdr.wdr_block_y));
+
+			memcpy(ia_results->wdr.wdr_global_y,
+					ia_results->awdr.wdr_global_dy,
+					sizeof(ia_results->wdr.wdr_global_y));
+
+			ia_results->wdr.wdr_noiseratio = ia_results->awdr.wdr_noiseratio;
+			ia_results->wdr.wdr_bestlight = ia_results->awdr.wdr_bestlight;
+			ia_results->wdr.wdr_gain_off1 = ia_results->awdr.wdr_gain_off1;
+			ia_results->wdr.wdr_pym_cc = ia_results->awdr.wdr_pym_cc;
+			ia_results->wdr.wdr_epsilon = ia_results->awdr.wdr_epsilon;
+			ia_results->wdr.wdr_lvl_en = ia_results->awdr.wdr_lvl_en;
+			ia_results->wdr.wdr_flt_sel = ia_results->awdr.wdr_flt_sel;
+			ia_results->wdr.wdr_gain_max_clip_enable = ia_results->awdr.wdr_gain_max_clip_enable;
+			ia_results->wdr.wdr_gain_max_value = ia_results->awdr.wdr_gain_max_value;
+			ia_results->wdr.wdr_bavg_clip = ia_results->awdr.wdr_bavg_clip;
+			ia_results->wdr.wdr_nonl_segm = ia_results->awdr.wdr_nonl_segm;
+			ia_results->wdr.wdr_nonl_open = ia_results->awdr.wdr_nonl_open;
+			ia_results->wdr.wdr_nonl_mode1 = ia_results->awdr.wdr_nonl_mode1;
+			ia_results->wdr.wdr_coe0 = ia_results->awdr.wdr_coe0;
+			ia_results->wdr.wdr_coe1 = ia_results->awdr.wdr_coe1;
+			ia_results->wdr.wdr_coe2 = ia_results->awdr.wdr_coe2;
+			ia_results->wdr.wdr_coe_off = ia_results->awdr.wdr_coe_off;
+			
             ia_results->active |= CAMIA10_WDR_MASK;
         }
     }
@@ -292,8 +434,10 @@ bool IspEngine::configure(const Configuration& config)
     if ((mCamIA_DyCfg.aec_cfg.win.right_width == 0) ||
             (mCamIA_DyCfg.aec_cfg.win.bottom_height == 0))
     {
-        mCamIA_DyCfg.aec_cfg.win.right_width = 2048;
-        mCamIA_DyCfg.aec_cfg.win.bottom_height = 2048;
+        mCamIA_DyCfg.aec_cfg.win.right_width =
+            config.sensor_mode.isp_input_width;
+        mCamIA_DyCfg.aec_cfg.win.bottom_height =
+            config.sensor_mode.isp_input_height;
         mCamIA_DyCfg.aec_cfg.win.left_hoff = 0;
         mCamIA_DyCfg.aec_cfg.win.top_voff = 0;
     }
@@ -304,24 +448,15 @@ bool IspEngine::configure(const Configuration& config)
         if ((mCamIA_DyCfg.afc_cfg.win_a.right_width == 0) ||
                 (mCamIA_DyCfg.afc_cfg.win_a.bottom_height == 0))
         {
-            int width, height, x, y;
-            int outWidth, outHeight;
+            // set default afc win to 0x0@0,0, means
+            // default win is decided by af algorithm
+            mCamIA_DyCfg.afc_cfg.win_a.left_hoff = 0;
+            mCamIA_DyCfg.afc_cfg.win_a.top_voff = 0;
+            mCamIA_DyCfg.afc_cfg.win_a.right_width = 0;
+            mCamIA_DyCfg.afc_cfg.win_a.bottom_height = 0;
 
-            outWidth = 2048;
-            outHeight = 2048;
-            width  = outWidth * 0.15;
-            height = outHeight * 0.15;
-            x = ( outWidth  >> 1 ) - ( width  >> 1 );
-            y = ( outHeight >> 1 ) - ( height >> 1 );
-
-            mCamIA_DyCfg.afc_cfg.win_a.left_hoff = x;
-            mCamIA_DyCfg.afc_cfg.win_a.top_voff = y;
-            mCamIA_DyCfg.afc_cfg.win_a.right_width = x + width;
-            mCamIA_DyCfg.afc_cfg.win_a.bottom_height = y + height;
             mCamIA_DyCfg.afc_cfg.win_num = 1;
-            mCamIA_DyCfg.afc_cfg.mode == HAL_AF_MODE_CONTINUOUS_VIDEO;
-
-            LOGD("%s: af default win %d, %d, %d, %d", __func__, x, y, width, height);
+            mCamIA_DyCfg.afc_cfg.mode = HAL_AF_MODE_CONTINUOUS_PICTURE;
         }
     }
 
@@ -455,7 +590,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mHstNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP hst !", __func__);
+            LOGE("%s:can't config ISP hst !", __func__);
             goto config_end;
         }
     }
@@ -490,7 +625,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mAecNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP aec !", __func__);
+            LOGE("%s:can't config ISP aec !", __func__);
             goto config_end;
         }
     }
@@ -516,7 +651,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mLscNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP lsc !", __func__);
+            LOGE("%s:can't config ISP lsc !", __func__);
             goto config_end;
         }
     }
@@ -542,7 +677,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mAwbGainNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP awb gain !", __func__);
+            LOGE("%s:can't config ISP awb gain !", __func__);
             goto config_end;
         }
     }
@@ -568,7 +703,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mDpccNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP dpcc !", __func__);
+            LOGE("%s:can't config ISP dpcc !", __func__);
             goto config_end;
         }
     }
@@ -594,7 +729,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mSdgNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP sdg !", __func__);
+            LOGE("%s:can't config ISP sdg !", __func__);
             goto config_end;
         }
     }
@@ -620,7 +755,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mCtkNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP ctk !", __func__);
+            LOGE("%s:can't config ISP ctk !", __func__);
             goto config_end;
         }
     }
@@ -654,7 +789,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mAwbMeNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP awb measure !", __func__);
+            LOGE("%s:can't config ISP awb measure !", __func__);
             goto config_end;
         }
     }
@@ -680,7 +815,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mAfcNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP afc !", __func__);
+            LOGE("%s:can't config ISP afc !", __func__);
             goto config_end;
         }
     }
@@ -706,7 +841,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mDpfNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP dpf !", __func__);
+            LOGE("%s:can't config ISP dpf !", __func__);
             goto config_end;
         }
     }
@@ -732,7 +867,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mDpfStrengthNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP dpf strength!", __func__);
+            LOGE("%s:can't config ISP dpf strength!", __func__);
             goto config_end;
         }
     }
@@ -761,7 +896,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mCprocNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP cproc!", __func__);
+            LOGE("%s:can't config ISP cproc!", __func__);
             goto config_end;
         }
     }
@@ -787,7 +922,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mIeNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP ie!", __func__);
+            LOGE("%s:can't config ISP ie!", __func__);
             goto config_end;
         }
     }
@@ -818,7 +953,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mGocNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP goc!", __func__);
+            LOGE("%s:can't config ISP goc!", __func__);
             goto config_end;
         }
     }
@@ -830,7 +965,7 @@ bool IspEngine::configureISP(const void* config)
             mFltNeededUpdate = BOOL_TRUE;
             mFltEnabled = HAL_ISP_ACTIVE_SETTING;
             flt_cfg = *cfg->flt_cfg;
-            ALOGE("%s:HAL_ISP_FLT_MASK HAL_ISP_ACTIVE_SETTING!", __func__);
+            LOGE("%s:HAL_ISP_FLT_MASK HAL_ISP_ACTIVE_SETTING!", __func__);
         }
         else if (!cfg->enabled[HAL_ISP_FLT_ID])
         {
@@ -845,7 +980,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mFltNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP flt!", __func__);
+            LOGE("%s:can't config ISP flt!", __func__);
             goto config_end;
         }
     }
@@ -871,7 +1006,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mBdmNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP bdm!", __func__);
+            LOGE("%s:can't config ISP bdm!", __func__);
             goto config_end;
         }
     }
@@ -897,7 +1032,7 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mBlsNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config bls !", __func__);
+            LOGE("%s:can't config bls !", __func__);
             goto config_end;
         }
     }
@@ -923,11 +1058,106 @@ bool IspEngine::configureISP(const void* config)
         else
         {
             mWdrNeededUpdate = BOOL_FALSE;
-            ALOGE("%s:can't config ISP bdm!", __func__);
+            LOGE("%s:can't config ISP bdm!", __func__);
             goto config_end;
         }
     }
 
+	if (cfg->updated_mask & HAL_ISP_3DNR_MASK) {
+	    if (cfg->enabled[HAL_ISP_3DNR_ID] && cfg->dsp_3dnr_cfg) 
+		{
+	      m3DnrNeededUpdate = BOOL_TRUE;
+	      m3DnrEnabled = HAL_ISP_ACTIVE_SETTING;
+	      dsp_3dnr_cfg = *cfg->dsp_3dnr_cfg;
+	    } 
+		else if (!cfg->enabled[HAL_ISP_3DNR_ID]) 
+    	{
+	      m3DnrNeededUpdate = BOOL_TRUE;
+	      m3DnrEnabled = HAL_ISP_ACTIVE_FALSE;
+	    } 
+		else if (cfg->enabled[HAL_ISP_3DNR_ID]) 
+	    {
+	      m3DnrNeededUpdate = BOOL_TRUE;
+	      m3DnrEnabled = HAL_ISP_ACTIVE_DEFAULT;
+	    } 
+		else 
+	    {
+	      m3DnrNeededUpdate = BOOL_FALSE;
+	      LOGE("%s:can't config dsp 3dnr!", __func__);
+	    }
+	}
+
+	if (cfg->updated_mask & HAL_ISP_NEW_3DNR_MASK) {
+	    if (cfg->enabled[HAL_ISP_NEW_3DNR_ID] && cfg->newDsp3DNR_cfg) 
+		{
+	      mNew3DnrNeededUpdate = BOOL_TRUE;
+	      mNew3DnrEnabled = HAL_ISP_ACTIVE_SETTING;
+	      new_dsp_3dnr_cfg = *cfg->newDsp3DNR_cfg;
+	    } 
+		else if (!cfg->enabled[HAL_ISP_NEW_3DNR_ID]) 
+		{
+	      mNew3DnrNeededUpdate = BOOL_TRUE;
+	      mNew3DnrEnabled = HAL_ISP_ACTIVE_FALSE;
+	    } 
+		else if (cfg->enabled[HAL_ISP_NEW_3DNR_ID]) 
+		{
+	      mNew3DnrNeededUpdate = BOOL_TRUE;
+	      mNew3DnrEnabled = HAL_ISP_ACTIVE_DEFAULT;
+	    } 
+		else 
+		{
+	      mNew3DnrNeededUpdate = BOOL_FALSE;
+	      LOGE("%s:can't config new dsp 3dnr!", __func__);
+	    }
+  	}
+
+	if (cfg->updated_mask & HAL_ISP_DEMOSAICLP_MASK) {
+		if (cfg->enabled[HAL_ISP_DEMOSAICLP_ID] && cfg->demosaicLP_cfg) 
+		{
+	      mDemosaicLPNeededUpdate = BOOL_TRUE;
+	      mDemosaicLPEnable = HAL_ISP_ACTIVE_SETTING;
+	      demosaiclp_cfg = *cfg->demosaicLP_cfg;
+	    } 
+		else if (!cfg->enabled[HAL_ISP_DEMOSAICLP_ID]) 
+		{
+	      mDemosaicLPNeededUpdate = BOOL_TRUE;
+	      mDemosaicLPEnable = HAL_ISP_ACTIVE_FALSE;
+	    } 
+		else if (cfg->enabled[HAL_ISP_DEMOSAICLP_ID]) 
+		{
+	      mDemosaicLPNeededUpdate = BOOL_TRUE;
+	      mDemosaicLPEnable = HAL_ISP_ACTIVE_DEFAULT;
+	    } 
+		else 
+		{
+	      mDemosaicLPNeededUpdate = BOOL_FALSE;
+	      LOGE("%s:can't config new dsp 3dnr!", __func__);
+	    }
+	}
+
+	if (cfg->updated_mask & HAL_ISP_RK_IESHARP_MASK) {
+		if (cfg->enabled[HAL_ISP_RKIESHARP_ID] && cfg->rkIEsharp_cfg) 
+		{
+	      mrkIEsharpNeededUpdate = BOOL_TRUE;
+	      mrkIEsharpEnable = HAL_ISP_ACTIVE_SETTING;
+	      rkIEsharp_cfg = *cfg->rkIEsharp_cfg;
+	    } 
+		else if (!cfg->enabled[HAL_ISP_RKIESHARP_ID]) 
+		{
+	      mrkIEsharpNeededUpdate = BOOL_TRUE;
+	      mrkIEsharpEnable = HAL_ISP_ACTIVE_FALSE;
+	    } 
+		else if (cfg->enabled[HAL_ISP_RKIESHARP_ID]) 
+		{
+	      mrkIEsharpNeededUpdate = BOOL_TRUE;
+	      mrkIEsharpEnable = HAL_ISP_ACTIVE_DEFAULT;
+	    } 
+		else 
+		{
+	      mrkIEsharpNeededUpdate = BOOL_FALSE;
+	      LOGE("%s:can't config new dsp 3dnr!", __func__);
+	    }
+	}
     /* should reconfig 3A algorithm ?*/
 config_end:
     osMutexUnlock(&mApiLock);
@@ -952,7 +1182,7 @@ bool IspEngine::start()
     LOGD("%s: startMeasurements\n", __func__);
     if (!startMeasurements())
     {
-        ALOGE("%s failed to start measurements", __func__);
+        LOGE("%s failed to start measurements", __func__);
         --mStartCnt;
         ret = false;
         goto end;
@@ -985,7 +1215,7 @@ bool IspEngine::setISPDeviceFd(int ispFd)
 {
     if (ispFd <= 0 )
     {
-        ALOGE("%s: invalid isp device file description(%d)/n",
+        LOGE("%s: invalid isp device file description(%d)/n",
               __func__,
               ispFd);
     }
@@ -1002,7 +1232,7 @@ bool IspEngine::initISPStream(const char* ispDev)
     mIspFd = open(ispDev, O_RDWR | O_NONBLOCK);
     if (mIspFd < 0)
     {
-        ALOGE("%s: Cannot open %s (error : %s)\n",
+        LOGE("%s: Cannot open %s (error : %s)\n",
               __func__,
               ispDev,
               strerror(errno));
@@ -1014,7 +1244,7 @@ bool IspEngine::initISPStream(const char* ispDev)
     req.memory = V4L2_MEMORY_MMAP;
     if (ioctl(mIspFd, VIDIOC_REQBUFS, &req) < 0)
     {
-        ALOGE("%s: VIDIOC_REQBUFS failed, strerror: %s",
+        LOGE("%s: VIDIOC_REQBUFS failed, strerror: %s",
               __func__,
               strerror(errno));
         return false;
@@ -1022,12 +1252,12 @@ bool IspEngine::initISPStream(const char* ispDev)
 
     v4l2_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     v4l2_buf.memory = V4L2_MEMORY_MMAP;
-    for (int i = 0; i < req.count; i++)
+    for (unsigned int i = 0; i < req.count; i++)
     {
         v4l2_buf.index = i;
         if (ioctl(mIspFd, VIDIOC_QUERYBUF, &v4l2_buf) < 0)
         {
-            ALOGE("%s: VIDIOC_QUERYBUF failed\n", __func__);
+            LOGE("%s: VIDIOC_QUERYBUF failed\n", __func__);
             return false;
         }
 
@@ -1039,13 +1269,13 @@ bool IspEngine::initISPStream(const char* ispDev)
                               v4l2_buf.m.offset);
         if (mIspStatBuf[i] == MAP_FAILED)
         {
-            ALOGE("%s mmap() failed\n", __func__);
+            LOGE("%s mmap() failed\n", __func__);
             return false;
         }
 
         if (ioctl(mIspFd, VIDIOC_QBUF, &v4l2_buf) < 0)
         {
-            ALOGE("QBUF failed index %d", v4l2_buf.index);
+            LOGE("QBUF failed index %d", v4l2_buf.index);
             return false;
         }
     }
@@ -1068,7 +1298,7 @@ bool IspEngine::getMeasurement(struct v4l2_buffer& v4l2_buf)
         ret = poll(fds, 1, timeout_ms);
         if (ret <= 0)
         {
-            ALOGE("%s: poll error, %s",
+            LOGE("%s: poll error, %s",
                   __FUNCTION__,
                   strerror(errno));
             return false;
@@ -1111,7 +1341,7 @@ bool IspEngine::releaseMeasurement(struct v4l2_buffer* v4l2_buf)
 {
     if (ioctl(mIspFd, VIDIOC_QBUF, v4l2_buf) < 0)
     {
-        ALOGE("%s: QBUF failed", __func__);
+        LOGE("%s: QBUF failed", __func__);
         return false;
     }
 
@@ -1126,7 +1356,7 @@ bool IspEngine::stopMeasurements()
     LOGD("%s: going to STREAMOFF", __func__);
     if (ioctl(mIspFd, VIDIOC_STREAMOFF, &type) < 0)
     {
-        ALOGE("%s: VIDIOC_STREAMON failed\n", __func__);
+        LOGE("%s: VIDIOC_STREAMON failed\n", __func__);
         return false;
     }
 
@@ -1140,9 +1370,9 @@ bool IspEngine::startMeasurements()
     //LOGD("%s: mIspFd: %d",
     //  __func__,
     //  mIspFd);
-    if (ret = ioctl(mIspFd, VIDIOC_STREAMON, &type) < 0)
+    if ((ret = ioctl(mIspFd, VIDIOC_STREAMON, &type)) < 0)
     {
-        ALOGE("%s: VIDIOC_STREAMON failed, %s\n", __func__,
+        LOGE("%s: VIDIOC_STREAMON failed, %s\n", __func__,
               strerror(ret));
         return false;
     }
@@ -1153,8 +1383,9 @@ bool IspEngine::startMeasurements()
 
 bool IspEngine::runISPManual(struct CamIA10_Results* ia_results, bool_t lock)
 {
-    struct HAL_ISP_cfg_s  manCfg = {0};
+    struct HAL_ISP_cfg_s  manCfg;
 
+    memset(&manCfg, 0, sizeof(struct HAL_ISP_cfg_s));
     if (lock)
         osMutexLock(&mApiLock);
 
@@ -1377,6 +1608,39 @@ bool IspEngine::runISPManual(struct CamIA10_Results* ia_results, bool_t lock)
         mWdrNeededUpdate = BOOL_FALSE;
     }
 
+	if (m3DnrNeededUpdate) 
+	{
+        manCfg.dsp_3dnr_cfg = &dsp_3dnr_cfg;
+        manCfg.updated_mask |= HAL_ISP_3DNR_MASK;
+        manCfg.enabled[HAL_ISP_3DNR_ID] = m3DnrEnabled;
+        m3DnrNeededUpdate = BOOL_FALSE;
+    }
+  
+    /*new 3dnr */
+    if (mNew3DnrNeededUpdate) 
+	{
+        manCfg.newDsp3DNR_cfg = &new_dsp_3dnr_cfg;
+        manCfg.updated_mask |= HAL_ISP_NEW_3DNR_MASK;
+        manCfg.enabled[HAL_ISP_NEW_3DNR_ID] = mNew3DnrEnabled;
+        mNew3DnrNeededUpdate = BOOL_FALSE;
+    }
+  
+	if (mDemosaicLPNeededUpdate)
+	{
+		manCfg.demosaicLP_cfg = &demosaiclp_cfg;
+		manCfg.updated_mask |= HAL_ISP_DEMOSAICLP_MASK;
+		manCfg.enabled[HAL_ISP_DEMOSAICLP_ID] = mDemosaicLPEnable;
+		mDemosaicLPNeededUpdate = BOOL_FALSE;
+	}
+
+	if (mrkIEsharpNeededUpdate)
+	{
+		manCfg.rkIEsharp_cfg = &rkIEsharp_cfg;
+		manCfg.updated_mask |= HAL_ISP_RK_IESHARP_MASK;
+		manCfg.enabled[HAL_ISP_RKIESHARP_ID] = mrkIEsharpEnable;
+		mrkIEsharpNeededUpdate = BOOL_FALSE;
+	}
+
     if (lock)
         osMutexUnlock(&mApiLock);
     if (mCamIAEngine.get() &&
@@ -1486,7 +1750,7 @@ int IspEngine::switchSubDevIrCutMode(int mode)
         //mCamHwItf->setIrCutState(1);
     }
 
-    //ALOGE("%s: 111 lightmode:%d", __func__, mCamIA_DyCfg.LightMode);
+    //LOGE("%s: 111 lightmode:%d", __func__, mCamIA_DyCfg.LightMode);
     configureISP(&cfg);
     return 0;
 }
@@ -1639,10 +1903,122 @@ bool IspEngine::runIA(struct CamIA10_DyCfg* ia_dcfg,
                 ia_results->active |= CAMIA10_BDM_MASK;
             }
 
-            if (ia_results->adpf.actives & ADPF_DSP_3DNR_MASK)
+            if ((ia_results->adpf.actives & ADPF_DSP_3DNR_MASK) &&
+				(m3DnrEnabled == HAL_ISP_ACTIVE_DEFAULT) )
             {
                 ia_results->active |= CAMIA10_DSP_3DNR_MASK;
             }
+
+			if ((ia_results->adpf.actives & ADPF_NEW_DSP_3DNR_MASK) &&
+		        (mNew3DnrEnabled == HAL_ISP_ACTIVE_DEFAULT)) {
+		        ia_results->active |= CAMIA10_NEW_DSP_3DNR_MASK;
+		    }
+		
+			if (ia_results->adpf.actives & ADPF_DEMOSAICLP_MASK)	        
+			{
+				ia_results->rkDemosaicLP.lp_en = ia_results->adpf.RKDemosaicLpResult.lp_en;
+				ia_results->rkDemosaicLP.rb_filter_en = ia_results->adpf.RKDemosaicLpResult.rb_filter_en;
+				ia_results->rkDemosaicLP.hp_filter_en = ia_results->adpf.RKDemosaicLpResult.hp_filter_en;
+				ia_results->rkDemosaicLP.th_grad = ia_results->adpf.RKDemosaicLpResult.th_grad;
+				ia_results->rkDemosaicLP.th_diff = ia_results->adpf.RKDemosaicLpResult.th_diff;
+				ia_results->rkDemosaicLP.th_csc = ia_results->adpf.RKDemosaicLpResult.th_csc;
+				ia_results->rkDemosaicLP.th_var = ia_results->adpf.RKDemosaicLpResult.th_var;
+				ia_results->rkDemosaicLP.th_var_en = ia_results->adpf.RKDemosaicLpResult.th_var_en;
+				ia_results->rkDemosaicLP.th_csc_en = ia_results->adpf.RKDemosaicLpResult.th_csc_en;
+				ia_results->rkDemosaicLP.th_diff_en = ia_results->adpf.RKDemosaicLpResult.th_diff_en;
+				ia_results->rkDemosaicLP.th_grad_en = ia_results->adpf.RKDemosaicLpResult.th_grad_en;
+				ia_results->rkDemosaicLP.use_old_lp = ia_results->adpf.RKDemosaicLpResult.use_old_lp;
+				ia_results->rkDemosaicLP.similarity_th = ia_results->adpf.RKDemosaicLpResult.similarity_th;
+				ia_results->rkDemosaicLP.flat_level_sel = ia_results->adpf.RKDemosaicLpResult.flat_level_sel;
+				ia_results->rkDemosaicLP.pattern_level_sel = ia_results->adpf.RKDemosaicLpResult.pattern_level_sel;
+				ia_results->rkDemosaicLP.edge_level_sel = ia_results->adpf.RKDemosaicLpResult.edge_level_sel;
+				ia_results->rkDemosaicLP.thgrad_r_fct = ia_results->adpf.RKDemosaicLpResult.thgrad_r_fct;
+				ia_results->rkDemosaicLP.thdiff_r_fct = ia_results->adpf.RKDemosaicLpResult.thdiff_r_fct;
+				ia_results->rkDemosaicLP.thvar_r_fct = ia_results->adpf.RKDemosaicLpResult.thvar_r_fct;
+				ia_results->rkDemosaicLP.thgrad_b_fct = ia_results->adpf.RKDemosaicLpResult.thgrad_b_fct;
+				ia_results->rkDemosaicLP.thdiff_b_fct = ia_results->adpf.RKDemosaicLpResult.thdiff_b_fct;
+				ia_results->rkDemosaicLP.thvar_b_fct = ia_results->adpf.RKDemosaicLpResult.thvar_b_fct;
+				memcpy(ia_results->rkDemosaicLP.lu_divided,
+						ia_results->adpf.RKDemosaicLpResult.lu_divided,
+						sizeof(ia_results->rkDemosaicLP.lu_divided));
+				memcpy(ia_results->rkDemosaicLP.thgrad_divided,
+						ia_results->adpf.RKDemosaicLpResult.thgrad_divided,
+						sizeof(ia_results->rkDemosaicLP.thgrad_divided));
+				memcpy(ia_results->rkDemosaicLP.thdiff_divided,
+						ia_results->adpf.RKDemosaicLpResult.thdiff_divided,
+						sizeof(ia_results->rkDemosaicLP.thdiff_divided));
+				memcpy(ia_results->rkDemosaicLP.thcsc_divided,
+						ia_results->adpf.RKDemosaicLpResult.thcsc_divided,
+						sizeof(ia_results->rkDemosaicLP.thcsc_divided));
+				memcpy(ia_results->rkDemosaicLP.thvar_divided,
+						ia_results->adpf.RKDemosaicLpResult.thvar_divided,
+						sizeof(ia_results->rkDemosaicLP.thvar_divided));
+				
+				ia_results->active |= CAMIA10_DEMOSAICLP_MASK;		
+			}
+	        
+
+			if (ia_results->adpf.actives & ADPF_RKIESHARP_MASK)
+	        {
+	        	ia_results->rkIEsharp.iesharpen_en = ia_results->adpf.RKIESharpResult.iesharpen_en;	
+				ia_results->rkIEsharp.coring_thr = ia_results->adpf.RKIESharpResult.coring_thr;	
+				ia_results->rkIEsharp.full_range = ia_results->adpf.RKIESharpResult.full_range;	
+				ia_results->rkIEsharp.switch_avg = ia_results->adpf.RKIESharpResult.switch_avg;	
+				memcpy(ia_results->rkIEsharp.yavg_thr,
+						ia_results->adpf.RKIESharpResult.yavg_thr,
+						sizeof(ia_results->rkIEsharp.yavg_thr));
+				memcpy(ia_results->rkIEsharp.delta1,
+						ia_results->adpf.RKIESharpResult.delta1,
+						sizeof(ia_results->rkIEsharp.delta1));
+				memcpy(ia_results->rkIEsharp.delta2,
+						ia_results->adpf.RKIESharpResult.delta2,
+						sizeof(ia_results->rkIEsharp.delta2));
+				memcpy(ia_results->rkIEsharp.maxnumber,
+						ia_results->adpf.RKIESharpResult.maxnumber,
+						sizeof(ia_results->rkIEsharp.maxnumber));
+				memcpy(ia_results->rkIEsharp.minnumber,
+						ia_results->adpf.RKIESharpResult.minnumber,
+						sizeof(ia_results->rkIEsharp.minnumber));
+				memcpy(ia_results->rkIEsharp.gauss_flat_coe,
+						ia_results->adpf.RKIESharpResult.gauss_flat_coe,
+						sizeof(ia_results->rkIEsharp.gauss_flat_coe));
+				memcpy(ia_results->rkIEsharp.gauss_noise_coe,
+						ia_results->adpf.RKIESharpResult.gauss_noise_coe,
+						sizeof(ia_results->rkIEsharp.gauss_noise_coe));
+				memcpy(ia_results->rkIEsharp.gauss_other_coe,
+						ia_results->adpf.RKIESharpResult.gauss_other_coe,
+						sizeof(ia_results->rkIEsharp.gauss_other_coe));
+				memcpy(ia_results->rkIEsharp.uv_gauss_flat_coe,
+						ia_results->adpf.RKIESharpResult.uv_gauss_flat_coe,
+						sizeof(ia_results->rkIEsharp.uv_gauss_flat_coe));
+				memcpy(ia_results->rkIEsharp.uv_gauss_noise_coe,
+						ia_results->adpf.RKIESharpResult.uv_gauss_noise_coe,
+						sizeof(ia_results->rkIEsharp.uv_gauss_noise_coe));
+				memcpy(ia_results->rkIEsharp.uv_gauss_other_coe,
+						ia_results->adpf.RKIESharpResult.uv_gauss_other_coe,
+						sizeof(ia_results->rkIEsharp.uv_gauss_other_coe));		
+				memcpy(ia_results->rkIEsharp.p_grad,
+						ia_results->adpf.RKIESharpResult.p_grad,
+						sizeof(ia_results->rkIEsharp.p_grad));
+				memcpy(ia_results->rkIEsharp.sharp_factor,
+						ia_results->adpf.RKIESharpResult.sharp_factor,
+						sizeof(ia_results->rkIEsharp.sharp_factor));
+				memcpy(ia_results->rkIEsharp.line1_filter_coe,
+						ia_results->adpf.RKIESharpResult.line1_filter_coe,
+						sizeof(ia_results->rkIEsharp.line1_filter_coe));
+				memcpy(ia_results->rkIEsharp.line2_filter_coe,
+						ia_results->adpf.RKIESharpResult.line2_filter_coe,
+						sizeof(ia_results->rkIEsharp.line2_filter_coe));
+				memcpy(ia_results->rkIEsharp.line3_filter_coe,
+						ia_results->adpf.RKIESharpResult.line3_filter_coe,
+						sizeof(ia_results->rkIEsharp.line3_filter_coe));
+				memcpy(ia_results->rkIEsharp.lap_mat_coe,
+						ia_results->adpf.RKIESharpResult.lap_mat_coe,
+						sizeof(ia_results->rkIEsharp.lap_mat_coe));
+			
+			
+            ia_results->active |= CAMIA10_RKIESHARP_MASK;		
+		}
 
         }
 
@@ -1650,12 +2026,38 @@ bool IspEngine::runIA(struct CamIA10_DyCfg* ia_dcfg,
         {
             if (ia_results->awdr.actives & AWDR_WDR_MAXGAIN_LEVEL_MASK)
             {
-                wdr_cfg.wdr_gain_max_value = ia_results->awdr.Wdr_MaxGain_level_RegValue;
-                mWdrEnabled = HAL_ISP_ACTIVE_DEFAULT;
-                mWdrNeededUpdate = BOOL_TRUE;
-                runISPManual(ia_results, BOOL_FALSE);
-                ia_results->wdr.wdr_gain_max_value = wdr_cfg.wdr_gain_max_value;
-                ia_results->wdr.enabled = BOOL_TRUE;
+            	ia_results->wdr.enabled = ia_results->awdr.wdr_enable;
+				ia_results->wdr.mode = (CameraIcWdrMode_t)(ia_results->awdr.mode);
+				memcpy(ia_results->wdr.segment,
+						ia_results->awdr.wdr_dx,
+						sizeof(ia_results->wdr.segment));
+
+				memcpy(ia_results->wdr.wdr_block_y,
+						ia_results->awdr.wdr_block_dy,
+						sizeof(ia_results->wdr.wdr_block_y));
+
+				memcpy(ia_results->wdr.wdr_global_y,
+						ia_results->awdr.wdr_global_dy,
+						sizeof(ia_results->wdr.wdr_global_y));
+
+				ia_results->wdr.wdr_noiseratio = ia_results->awdr.wdr_noiseratio;
+				ia_results->wdr.wdr_bestlight = ia_results->awdr.wdr_bestlight;
+				ia_results->wdr.wdr_gain_off1 = ia_results->awdr.wdr_gain_off1;
+				ia_results->wdr.wdr_pym_cc = ia_results->awdr.wdr_pym_cc;
+				ia_results->wdr.wdr_epsilon = ia_results->awdr.wdr_epsilon;
+				ia_results->wdr.wdr_lvl_en = ia_results->awdr.wdr_lvl_en;
+				ia_results->wdr.wdr_flt_sel = ia_results->awdr.wdr_flt_sel;
+				ia_results->wdr.wdr_gain_max_clip_enable = ia_results->awdr.wdr_gain_max_clip_enable;
+				ia_results->wdr.wdr_gain_max_value = ia_results->awdr.wdr_gain_max_value;
+				ia_results->wdr.wdr_bavg_clip = ia_results->awdr.wdr_bavg_clip;
+				ia_results->wdr.wdr_nonl_segm = ia_results->awdr.wdr_nonl_segm;
+				ia_results->wdr.wdr_nonl_open = ia_results->awdr.wdr_nonl_open;
+				ia_results->wdr.wdr_nonl_mode1 = ia_results->awdr.wdr_nonl_mode1;
+				ia_results->wdr.wdr_coe0 = ia_results->awdr.wdr_coe0;
+				ia_results->wdr.wdr_coe1 = ia_results->awdr.wdr_coe1;
+				ia_results->wdr.wdr_coe2 = ia_results->awdr.wdr_coe2;
+				ia_results->wdr.wdr_coe_off = ia_results->awdr.wdr_coe_off;
+			
                 ia_results->active |= CAMIA10_WDR_MASK;
             }
         }

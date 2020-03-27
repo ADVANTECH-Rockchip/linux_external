@@ -152,12 +152,6 @@ static const MppBufSlotOps set_val_op[SLOT_PROP_BUTT] = {
     SLOT_SET_BUFFER,
 };
 
-static const MppBufSlotOps clr_val_op[SLOT_PROP_BUTT] = {
-    SLOT_CLR_EOS,
-    SLOT_CLR_FRAME,
-    SLOT_CLR_BUFFER,
-};
-
 typedef union SlotStatus_u {
     RK_U32 val;
     struct {
@@ -486,16 +480,24 @@ static void check_entry_unused(MppBufSlotsImpl *impl, MppBufSlotEntry *entry)
 
 static void clear_slots_impl(MppBufSlotsImpl *impl)
 {
-    for (RK_U32 i = 0; i < MPP_ARRAY_ELEMS(impl->queue); i++) {
-        mpp_assert(list_empty(&impl->queue[i]));
-    }
     MppBufSlotEntry *slot = (MppBufSlotEntry *)impl->slots;
     RK_S32 i;
-    for (i = 0; i < impl->buf_count; i++, slot++) {
-        if (slot->status.on_used)
+
+    for (i = 0; i < (RK_S32)MPP_ARRAY_ELEMS(impl->queue); i++) {
+        if (!list_empty(&impl->queue[i]))
             dump_slots(impl);
-        mpp_assert(!slot->status.on_used);
+
+        mpp_assert(list_empty(&impl->queue[i]));
     }
+
+    for (i = 0; i < impl->buf_count; i++, slot++) {
+        mpp_assert(!slot->status.on_used);
+        if (slot->status.on_used) {
+            dump_slots(impl);
+            mpp_buf_slot_reset(impl, i);
+        }
+    }
+
     impl->used_count = 0;
 
     if (impl->info)
@@ -825,9 +827,10 @@ MPP_RET mpp_buf_slot_set_prop(MppBufSlots slots, RK_S32 index, SlotPropType type
         dst->eos = slot->eos;
 
         if (mpp_frame_info_cmp(impl->info, impl->info_set)) {
-            impl->info_changed = 1;
-#ifdef RKPLATFORM
             MppFrameImpl *old = (MppFrameImpl *)impl->info;
+
+            impl->info_changed = 1;
+
             if (old->width || old->height) {
                 mpp_dbg(MPP_DBG_INFO, "info change found\n");
                 mpp_dbg(MPP_DBG_INFO,
@@ -839,7 +842,6 @@ MPP_RET mpp_buf_slot_set_prop(MppBufSlots slots, RK_S32 index, SlotPropType type
                     "new width %4d height %4d stride hor %4d ver %4d fmt %4d\n",
                     dst->width, dst->height, dst->hor_stride, dst->ver_stride,
                     dst->fmt);
-#endif
             // info change found here
         }
     } break;

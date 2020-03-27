@@ -7,7 +7,7 @@
 #include "cam_ia10_engine_api.h"
 #include "cameric.h"
 #include <awb/awb.h>
-#include <awb/awbConvert.h>
+//#include <awb/awbConvert.h>
 #include <base/xcam_3a_description.h>
 
 class CamIA10Engine: public CamIA10EngineItf {
@@ -19,7 +19,7 @@ class CamIA10Engine: public CamIA10EngineItf {
   virtual RESULT deinit();
   virtual RESULT restart();
 
-  virtual RESULT initStatic(char* aiqb_data_file);
+  virtual RESULT initStatic(char* aiqb_data_file, const char* sensor_entity_name, int isp_ver);
   virtual RESULT initDynamic(struct CamIA10_DyCfg* cfg);
   virtual RESULT setStatistics(struct CamIA10_Stats* stats);
 
@@ -28,8 +28,8 @@ class CamIA10Engine: public CamIA10EngineItf {
   virtual RESULT updateAfConfig(struct CamIA10_DyCfg* cfg);
 
   virtual RESULT runAe(XCamAeParam *param, AecResult_t* result, bool first = false);
-  virtual RESULT runAwb(XCamAwbParam *param, CamIA10_AWB_Result_t* result);
-  virtual RESULT runAf(XCamAfParam *param, XCam3aResultFocus* result);
+  virtual RESULT runAwb(XCamAwbParam *param, CamIA10_AWB_Result_t* result, bool first = false);
+  virtual RESULT runAf(XCamAfParam *param, XCam3aResultFocus* result, bool first = false);
 
   virtual void dumpAe();
   virtual void dumpAwb();
@@ -43,16 +43,18 @@ class CamIA10Engine: public CamIA10EngineItf {
 
   virtual RESULT runAWB(HAL_AwbCfg* config = NULL);
   virtual RESULT getAWBResults(CamIA10_AWB_Result_t* result);
-
+  virtual void   tuningToolConfigAwbParams(AwbConfig_t* awbParams);
   virtual RESULT runADPF();
   virtual RESULT getADPFResults(AdpfResult_t* result);
-
+  virtual void   tuningToolForceConfigDpf();
   virtual RESULT runAF(HAL_AfcCfg* config = NULL);
   virtual RESULT getAFResults(XCam3aResultFocus* result);
 
   virtual RESULT runAWDR();
   virtual RESULT getAWDRResults(AwdrResult_t* result);
-
+  virtual RESULT getCalibdbHandle(CamCalibDbHandle_t *handle);
+  virtual uint32_t getCalibdbMagicVerCode();
+  virtual RESULT clearStatic();
   /* manual ISP configs*/
   virtual RESULT runManISP(struct HAL_ISP_cfg_s* manCfg, struct CamIA10_Results* result);
   virtual void mapSensorExpToHal(
@@ -60,18 +62,6 @@ class CamIA10Engine: public CamIA10EngineItf {
       int sensorInttime,
       float& halGain,
       float& halInttime);
-  virtual void mapHalWinToRef(
-      uint16_t in_hOff, uint16_t in_vOff,
-      uint16_t in_width, uint16_t in_height,
-      uint16_t drvWidth, uint16_t drvHeight,
-      uint16_t& out_hOff, uint16_t& out_vOff,
-      uint16_t& out_width, uint16_t& out_height);
-  virtual void mapHalWinToIsp(
-    uint16_t in_width, uint16_t in_height,
-    uint16_t in_hOff, uint16_t in_vOff,
-    uint16_t drvWidth, uint16_t drvHeight,
-    uint16_t& out_width, uint16_t& out_height,
-    uint16_t& out_hOff, uint16_t& out_vOff);
 
    struct CamIA10_Stats mStats;
    char g_aiqb_data_file[256];
@@ -109,8 +99,8 @@ class CamIA10Engine: public CamIA10EngineItf {
   );
 
   int mFrameId = 0;
-  CalibDb calidb;
   CamCalibDbHandle_t  hCamCalibDb;
+  uint32_t magicVerCode;
   bool mInitDynamic;
   struct CamIA10_DyCfg  dCfg;
   struct CamIA10_DyCfg  dCfgShd;
@@ -148,17 +138,31 @@ class CamIA10Engine: public CamIA10EngineItf {
   CamIA10_AWB_Result_t curAwbResult;
   AecResult_t      lastAecResult;
   AecResult_t      curAecResult;
+  XCam3aResultFocus lastAfResult;
   bool_t mStatisticsUpdated;
 
   bool_t  mWdrEnabledState;
   enum LIGHT_MODE mLightMode;
-
  private:
   RESULT initAEC();
   RESULT initAWB();
   RESULT initADPF();
   RESULT initAF();
   RESULT initAWDR();
+  RESULT runManIspForBW(struct CamIA10_Results* result);
+  RESULT runManIspForPreIsp(struct CamIA10_Results* result);
+  RESULT runManIspForOTP(struct CamIA10_Results* result);
+  RESULT runManIspForFlash(struct CamIA10_Results* result);
+  const char* mSensorEntityName;
+  int mIspVer;
+  int mXMLIspOutputType;
+  CamOTPGlobal_t* mOTPInfo;
+  int mLock3AForStillCap;
+  // ae algo converged result may be different from the
+  // reported to upper layer, for flash still capture usecase
+  // we should report ae converged statet after both ae and awb
+  // converged
+  bool mAeAlgoConvRst;
 };
 
 #endif

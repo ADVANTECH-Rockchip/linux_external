@@ -63,7 +63,7 @@ static MPP_RET jpege_callback(void *ctx, void *feedback)
     return MPP_OK;
 }
 
-static MPP_RET jpege_init(void *ctx, ControllerCfg *cfg)
+static MPP_RET jpege_init(void *ctx, EncImplCfg *cfg)
 {
     JpegeCtx *p = (JpegeCtx *)ctx;
 
@@ -112,7 +112,7 @@ static MPP_RET jpege_flush(void *ctx)
     return MPP_OK;
 }
 
-static MPP_RET jpege_config(void *ctx, RK_S32 cmd, void *param)
+static MPP_RET jpege_config(void *ctx, MpiCmd cmd, void *param)
 {
     MPP_RET ret = MPP_OK;
 
@@ -121,16 +121,22 @@ static MPP_RET jpege_config(void *ctx, RK_S32 cmd, void *param)
     return ret;
 }
 
-const ControlApi api_jpege_controller = {
-    .name = "jpege_control",
-    .coding = MPP_VIDEO_CodingMJPEG,
-    .ctx_size = sizeof(JpegeCtx),
-    .flag = 0,
-    .init = jpege_init,
-    .deinit = jpege_deinit,
-    .encode = jpege_encode,
-    .reset = jpege_reset,
-    .flush = jpege_flush,
-    .config = jpege_config,
-    .callback = jpege_callback,
+const EncImplApi api_jpege_controller = {
+    .name       = "jpege_control",
+    .coding     = MPP_VIDEO_CodingMJPEG,
+    .ctx_size   = sizeof(JpegeCtx),
+    .flag       = 0,
+    .init       = jpege_init,
+    .deinit     = jpege_deinit,
+    .proc_cfg   = jpege_config,
+    .gen_hdr    = NULL,
+    .proc_dpb   = NULL,
+    .proc_rc    = NULL,
+    .proc_hal   = jpege_encode,
+    .update_dpb = NULL,
+    .update_hal = NULL,
+    .update_rc  = NULL,
+    .reset      = jpege_reset,
+    .flush      = jpege_flush,
+    .callback   = jpege_callback,
 };

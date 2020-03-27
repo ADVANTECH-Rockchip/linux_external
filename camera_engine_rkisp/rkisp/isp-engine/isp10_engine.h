@@ -29,6 +29,14 @@ struct CamIsp10Config {
   bool_t enabled[HAL_ISP_MODULE_MAX_ID_ID + 1];
   int flt_denoise_level;
   int flt_sharp_level;
+
+  struct cifisp_wdr_config wdr_config;
+  Dsp3DnrResult_t Dsp3DnrSetConfig;
+  NewDsp3DnrResult_t NewDsp3DnrSetConfig;
+  
+  struct cifisp_demosaiclp_config demosaicLp_config;
+  struct cifisp_rkiesharp_config rkIESharp_config;
+  
 };
 
 struct CamIsp10ConfigSet {
@@ -44,6 +52,7 @@ class Isp10Engine: public IspEngine {
 
   virtual bool init(const char* tuningFile,
                     const char* ispDev,
+                    int isp_ver,
                     int devFd);
   virtual bool deInit();
   virtual void transDrvMetaDataToHal(const void* drvMeta, struct HAL_Buffer_MetaData* halMeta);
@@ -61,7 +70,23 @@ class Isp10Engine: public IspEngine {
       struct isp_supplemental_sensor_mode_data* drvCfg,
       CamIA10_SensorModeData* iaCfg
   );
-
+  virtual void getCalibdbHandle(CamCalibDbHandle_t *handle)
+  {
+      mCamIAEngine->getCalibdbHandle(handle);
+  }
+  virtual uint32_t getCalibdbMagicVerCode()
+  {
+      return mCamIAEngine->getCalibdbMagicVerCode();
+  }
+  virtual void setTuningToolAwbParams(AwbConfig_t* paramm)
+  {
+      mCamIAEngine->tuningToolConfigAwbParams(paramm);
+  }
+  virtual void setTuningToolAdpfParams()
+  {
+      mCamIAEngine->tuningToolForceConfigDpf();
+  }
+  virtual void clearStatic();
  protected:
   virtual bool initISPStream(const char* ispDev);
 #if 1

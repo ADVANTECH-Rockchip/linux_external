@@ -18,9 +18,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#ifdef RKPLATFORM
 #include <unistd.h>
-#endif
 
 #include "mpp_common.h"
 #include "mpp_platform.h"
@@ -33,7 +31,7 @@
 #include "hal_h264e_rkv.h"
 #include "hal_h264e_vepu1.h"
 
-RK_U32 h264e_hal_log_mode = 0;
+RK_U32 hal_h264e_debug = 0;
 
 MPP_RET hal_h264e_init(void *hal, MppHalCfg *cfg)
 {
@@ -46,7 +44,7 @@ MPP_RET hal_h264e_init(void *hal, MppHalCfg *cfg)
     H264eHwCfg *hw_cfg = &ctx->hw_cfg;
     RK_U32 vcodec_type = 0;
 
-    mpp_env_get_u32("h264e_hal_debug", &h264e_hal_log_mode, 0x00000001);
+    mpp_env_get_u32("hal_h264e_debug", &hal_h264e_debug, 0x00000001);
 
     vcodec_type = mpp_get_vcodec_type();
     if (vcodec_type & HAVE_RKVENC) {
@@ -124,8 +122,6 @@ MPP_RET hal_h264e_init(void *hal, MppHalCfg *cfg)
     ref->i_long_term_en = H264E_LONGTERM_REF_EN;
     ref->hw_longterm_mode = 0;
     ref->i_long_term_internal = 0;
-    ref->i_frame_packing = -1;
-
 
     ctx->cfg = cfg->cfg;
     ctx->set = cfg->set;
@@ -184,7 +180,7 @@ MPP_RET hal_h264e_flush(void *hal)
     return api->flush(hal);
 }
 
-MPP_RET hal_h264e_control(void *hal, RK_S32 cmd_type, void *param)
+MPP_RET hal_h264e_control(void *hal, MpiCmd cmd_type, void *param)
 {
     H264eHalContext *ctx = (H264eHalContext *)hal;
     MppHalApi *api = &ctx->api;

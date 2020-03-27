@@ -1,5 +1,6 @@
 #ifndef _RKTOOLS_H
 #define _RKTOOLS_H
+#include "common.h"
 
 #define PATH_LEN 50
 #define usb_path "/mnt/udisk/"
@@ -35,5 +36,7 @@ static const char *typeName[] = {
 
 char* getSerial();
 void setFlashPoint();
+extern Volume* volume_for_path(const char* path);
+int isMtdDevice();
 
 #endif

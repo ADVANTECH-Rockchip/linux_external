@@ -41,11 +41,12 @@ V4l2Device::V4l2Device (const char *name)
     , _capture_mode (0)
     , _buf_type (V4L2_BUF_TYPE_VIDEO_CAPTURE)
     , _memory_type (V4L2_MEMORY_MMAP)
+    , _planes (NULL)
     , _fps_n (0)
     , _fps_d (0)
     , _active (false)
     , _buf_count (XCAM_V4L2_DEFAULT_BUFFER_COUNT)
-    , _planes (NULL)
+    , _queued_bufcnt(0)
 {
     if (name)
         _name = strndup (name, XCAM_MAX_STR_SIZE);
@@ -191,7 +192,9 @@ V4l2Device::open ()
     }
 #endif
     struct v4l2_capability cap;
-    query_cap(cap);
+    // only video node cay query cap
+    if (_name && strstr(_name, "video"))
+        query_cap(cap);
 
     return XCAM_RETURN_NO_ERROR;
 }
@@ -219,22 +222,37 @@ V4l2Device::io_control (int cmd, void *arg)
 }
 
 int
-V4l2Device::poll_event (int timeout_msec)
+V4l2Device::poll_event (int timeout_msec, int stop_fd)
 {
-    struct pollfd poll_fd;
+    int num_fds = stop_fd == -1 ? 1 : 2;
+    struct pollfd poll_fds[num_fds];
     int ret = 0;
 
     XCAM_ASSERT (_fd > 0);
 
-    xcam_mem_clear (poll_fd);
-    poll_fd.fd = _fd;
-    poll_fd.events = (POLLPRI | POLLIN | POLLERR | POLLNVAL | POLLHUP);
+    memset(poll_fds, 0, sizeof(poll_fds));
+    poll_fds[0].fd = _fd;
+    poll_fds[0].events = (POLLPRI | POLLIN | POLLERR | POLLNVAL | POLLHUP);
 
-    ret = poll (&poll_fd, 1, timeout_msec);
-    if (ret > 0 && (poll_fd.revents & (POLLERR | POLLNVAL | POLLHUP))) {
+    if (stop_fd != -1) {
+        poll_fds[1].fd = stop_fd;
+        poll_fds[1].events = POLLPRI | POLLIN;
+        poll_fds[1].revents = 0;
+    }
+
+    ret = poll (poll_fds, num_fds, timeout_msec);
+    if (stop_fd != -1) {
+        if ((poll_fds[1].revents & POLLIN) || (poll_fds[1].revents & POLLPRI)) {
+            XCAM_LOG_DEBUG ("%s: Poll returning from flush", __FUNCTION__);
+            return POLL_STOP_RET;
+        }
+    }
+
+    if (ret > 0 && (poll_fds[0].revents & (POLLERR | POLLNVAL | POLLHUP))) {
         XCAM_LOG_DEBUG ("v4l2 subdev(%s) polled error", XCAM_STR(_name));
         return -1;
     }
+
     return ret;
 
 }
@@ -475,7 +493,7 @@ V4l2Device::start (bool need_queue_bufs)
     XCAM_FAIL_RETURN (
         ERROR, ret == XCAM_RETURN_NO_ERROR, ret,
         "device(%s) start failed", XCAM_STR (_name));
-
+    _queued_bufcnt = 0;
     //alloc buffers
     ret = init_buffer_pool ();
     XCAM_FAIL_RETURN (
@@ -515,6 +533,12 @@ XCamReturn
 V4l2Device::stop ()
 {
     XCAM_LOG_INFO ("device(%s) stop, already start: %d", XCAM_STR (_name), _active);
+
+    while (poll_event (0, -1) > 0) {
+        SmartPtr<V4l2Buffer> buf = get_buffer_by_index (0);
+        if (buf.ptr())
+            dequeue_buffer(buf);
+    }
 
     // stream off
     if (_active) {
@@ -727,7 +751,7 @@ V4l2Device::fini_buffer_pool()
 {
     uint32_t i = 0;
 
-    for (; i < _buf_count; i++) {
+    for (; i < _buf_pool.size(); i++) {
         release_buffer(_buf_pool [i]);
     }
 
@@ -736,11 +760,11 @@ V4l2Device::fini_buffer_pool()
     return XCAM_RETURN_NO_ERROR;
 }
 
-const struct v4l2_buffer&
+SmartPtr<V4l2Buffer>
 V4l2Device::get_buffer_by_index (int index) {
     SmartPtr<V4l2Buffer> &buf = _buf_pool [index];
 
-    return buf->get_buf();
+    return buf;
 }
 
 XCamReturn
@@ -799,6 +823,7 @@ V4l2Device::dequeue_buffer(SmartPtr<V4l2Buffer> &buf)
     } else {
         buf->set_length (v4l2_buf.length); 
     }
+    _queued_bufcnt--;
 
     return XCAM_RETURN_NO_ERROR;
 }
@@ -816,10 +841,14 @@ V4l2Device::queue_buffer (SmartPtr<V4l2Buffer> &buf)
         XCAM_STR (_name), v4l2_buf.index, v4l2_buf.memory,
         v4l2_buf.type, v4l2_buf.m.planes[0].length, v4l2_buf.m.planes[0].m.fd);
 
+    if (v4l2_buf.type == V4L2_BUF_TYPE_META_OUTPUT)
+        v4l2_buf.bytesused = v4l2_buf.length;
+
     if (io_control (VIDIOC_QBUF, &v4l2_buf) < 0) {
         XCAM_LOG_ERROR("fail to enqueue buffer index:%d.", v4l2_buf.index);
         return XCAM_RETURN_ERROR_IOCTL;
     }
+    _queued_bufcnt++;
     return XCAM_RETURN_NO_ERROR;
 }
 

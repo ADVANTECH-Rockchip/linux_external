@@ -14,11 +14,20 @@
 #include <fcntl.h>
 #include <signal.h>
 
+#ifdef PCBA_3308
+#include "mic_test_Linux/vibrate_test.h"
+#include "mic_test_Linux/record_test.h"
+#endif
+
+extern int* recordTestWr(int audio_data[], int audio_length);
+extern int* vibrateTestWr(int audio_data[], int audio_length);
+
 #define LOG_TAG "echo_ringmic_test"
 #include "common.h"
 
 #define AUDIO_CHANNAL_CNT 8
 #define RINGMIC_BAD_ERROR 93 /* has bad mic */
+
 
 #define DEBUG_ON 0
 #if DEBUG_ON
@@ -73,6 +82,8 @@ int *bytesToInt(char *src, int *length)
 	*length = int_len;
 	return ret;
 }
+
+#ifdef PCBA_PX3SE
 int linear_amplification(void *data, void *out, int bytes)
 {
     int i = 0, j = 0;
@@ -96,6 +107,57 @@ int linear_amplification(void *data, void *out, int bytes)
 	}
     return 0;
 }
+#endif
+
+#ifdef PCBA_3308
+int linear_amplification(void *data, void *out, int bytes)
+{
+    int i = 0, j = 0;
+	int mChannels = AUDIO_CHANNAL_CNT;
+	for (i = 0; i < bytes / 2; ) {
+		for (j = 0; j < mChannels; j++) {
+			short raw = (*((short *)data + i + j));
+			int tmp_data = (int)raw;
+#if 1
+			tmp_data = tmp_data << 4;
+			if(tmp_data > 32767) {
+				tmp_data = 32767;
+			} else if(tmp_data < -32768) {
+				tmp_data = -32768;
+			}
+#endif
+			*((short *)out + i + j) = (short)tmp_data;
+		}
+		i += mChannels;
+	}
+    return 0;
+}
+#endif
+
+#ifdef PCBA_3229GVA
+int linear_amplification(void *data, void *out, int bytes)
+{
+    int i = 0, j = 0;
+	int mChannels = AUDIO_CHANNAL_CNT;
+	for (i = 0; i < bytes / 2; ) {
+		for (j = 0; j < mChannels; j++) {
+			short raw = (*((short *)data + i + j));
+			int tmp_data = (int)raw;
+#if 1
+			tmp_data = tmp_data << 7;
+			if(tmp_data > 32767) {
+				tmp_data = 32767;
+			} else if(tmp_data < -32768) {
+				tmp_data = -32768;
+			}
+#endif
+			*((short *)out + i + j) = (short)tmp_data;
+		}
+		i += mChannels;
+	}
+    return 0;
+}
+#endif
 
 int preProcessBuffer(void *data, void *out, int bytes)
 {
@@ -150,8 +212,9 @@ int ringmic_test(char *result, int flag)
 
 	/*
 	 * According to flag choose to perform "recording test"
-	 * or "vibration test".
+	 * or "vibration test". recording at least 10 seconds.
 	 */
+#ifdef PCBA_PX3SE
 	if (flag) {
 		log_info("Start vibration test.\n");
 		sprintf(path, "%s", "/tmp/ringmic_vibration.pcm");
@@ -176,6 +239,34 @@ int ringmic_test(char *result, int flag)
 	/* recording at least 10 seconds.*/
 	log_info("Recording...\n");
 	sleep(15);
+#endif
+
+#ifdef PCBA_3308
+	if (flag) {
+		log_info("Start vibration test.\n");
+		sprintf(path, "%s", "/tmp/ringmic_vibration.pcm");
+		/* Play the specified file, and recording. */
+		system("killall -9 arecord");
+		system("rm /tmp/ringmic_vibration.pcm");
+		system("aplay /data/vibration.wav &");
+		usleep(200000);
+		system("arecord -t raw -f S16_LE -c 8 -r 16000 -d 15 /tmp/ringmic_vibration.pcm");
+	} else {
+		log_info("Start record test.\n");
+		sprintf(path, "%s", "/tmp/ringmic_record.pcm");
+		/* Play the specified file, and recording. */
+		system("killall -9 arecord");
+		system("rm /tmp/ringmic_record.pcm");
+		system("aplay /data/rectest_400hz.wav &");
+		usleep(200000);
+		system("arecord -t raw -f S16_LE -c 8 -r 16000 -d 15 /tmp/ringmic_record.pcm");
+	}
+#endif
+
+#ifdef PCBA_3229GVA
+//TODO:
+......
+#endif
 	system("killall -9 arecord");
 	system("killall aplay");
 
@@ -204,6 +295,7 @@ int ringmic_test(char *result, int flag)
 	}
 	close(fd);
 
+#ifdef PCBA_PX3SE
 	/* Increase gain */
 	gain_buff = (char *)malloc(rf_len);
 	if (!gain_buff) {
@@ -215,6 +307,22 @@ int ringmic_test(char *result, int flag)
 	linear_amplification(rf_buff, gain_buff, rf_len);
 	memcpy(rf_buff, gain_buff, rf_len);
 	free(gain_buff);
+#endif
+#ifdef PCBA_PX3SE
+	FILE *fp;
+	if (flag)
+		fp = fopen("/tmp/gain-vib.pcm", "wb");
+	else
+		fp = fopen("/tmp/gain-rec.pcm", "wb");
+	if (fp) {
+		fwrite(rf_buff, 1, rf_len, fp);
+		fclose(fp);
+	}
+#endif
+#ifdef PCBA_3229GVA
+//TODO:
+......
+#endif
 
 	/* Add channel numbers to the original recording file */
 	pre_len = add_channel(rf_buff, &pre_buff, rf_len);
@@ -224,6 +332,18 @@ int ringmic_test(char *result, int flag)
 	}
 	free(rf_buff);
 
+#ifdef PCBA_3308
+    FILE *fp;
+    if (flag)
+        fp = fopen("/tmp/addchan-vib.pcm", "wb");
+    else
+        fp = fopen("/tmp/addchan-rec.pcm", "wb");
+    if (fp) {
+        fwrite(pre_buff, 1, pre_len, fp);
+        fclose(fp);
+    }
+#endif
+
 	buffer = bytesToInt(pre_buff, &pre_len);
 	if (!buffer) {
 		log_err("bytesToInt() failed!\n");
@@ -232,9 +352,29 @@ int ringmic_test(char *result, int flag)
 	}
 	free(pre_buff);
 
+#ifdef PCBA_3308
+    if (flag)
+        fp = fopen("/tmp/bytesToInt-vib.pcm", "wb");
+    else
+        fp = fopen("/tmp/bytesToInt-rec.pcm", "wb");
+    if (fp) {
+        fwrite((int *)buffer+16000, 4, pre_len - 32000, fp);
+        fclose(fp);
+    }
+
+#endif
 	/* Call library interface */
 	if (!flag) {
+    #ifdef PCBA_PX3SE
 		record_ret = recordTestWr((int *)buffer, pre_len - 1280);
+    #endif
+    #ifdef PCBA_3308
+        record_ret = recordTestWr((int *)buffer + 16000, pre_len - 32000);
+    #endif
+    #ifdef PCBA_3229GVA
+        //TODO:
+        record_ret =
+    #endif
 		printf("\n");
 		for (i = 0; i < AUDIO_CHANNAL_CNT; i++) {
 			if (*(record_ret + i)) {
@@ -248,7 +388,16 @@ int ringmic_test(char *result, int flag)
 
 		system("rm -rf /tmp/ringmic_record.pcm");
 	} else {
+    #ifdef PCBA_PX3SE
 		record_ret = vibrateTestWr((int *)buffer, pre_len - 1280);
+    #endif
+    #ifdef PCBA_3308
+        record_ret = vibrateTestWr((int *)buffer + 16000, pre_len - 32000);
+    #endif
+    #ifdef PCBA_3229GVA
+        //TODO:
+        record_ret =
+    #endif
 		printf("\n");
 		for (i = 0; i < AUDIO_CHANNAL_CNT; i++) {
 			if (*(record_ret + i)) {
@@ -276,9 +425,16 @@ int main()
 	char *start = NULL;
 	int ispass = 1;
 	int i = 0, ret = 0;
-
+#ifdef PCBA_PX3SE
 	system("amixer set Playback 30%");
-
+#endif
+#ifdef PCBA_3308
+	system("amixer set Master Playback 50%");
+#endif
+#ifdef PCBA_3229GVA
+    //TODO:
+......
+#endif
 	start = buf;
 	memcpy(start, "vibration:", strlen("vibration:"));
 	start = start + strlen("vibration:");

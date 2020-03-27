@@ -17,11 +17,11 @@
 #ifndef __MPP_H__
 #define __MPP_H__
 
-#include "mpp_list.h"
 #include "mpp_queue.h"
+#include "mpp_task_impl.h"
+
 #include "mpp_dec.h"
 #include "mpp_enc.h"
-#include "mpp_task.h"
 #include "mpp_impl.h"
 
 #define MPP_DBG_FUNCTION                    (0x00000001)
@@ -36,6 +36,8 @@
  */
 #define MPP_INPUT_ENQUEUE                   (0x00000001)
 #define MPP_OUTPUT_DEQUEUE                  (0x00000002)
+#define MPP_INPUT_DEQUEUE                   (0x00000004)
+#define MPP_OUTPUT_ENQUEUE                  (0x00000008)
 #define MPP_RESET                           (0xFFFFFFFF)
 
 /* mpp dec event flags */
@@ -47,11 +49,14 @@
 #define MPP_DEC_NOTIFY_TASK_ALL_DONE        (0x00000080)
 #define MPP_DEC_NOTIFY_TASK_HND_VALID       (0x00000100)
 #define MPP_DEC_NOTIFY_TASK_PREV_DONE       (0x00000200)
+#define MPP_DEC_NOTIFY_BUFFER_MATCH         (0x00000400)
 #define MPP_DEC_RESET                       (MPP_RESET)
 
 /* mpp enc event flags */
 #define MPP_ENC_NOTIFY_FRAME_ENQUEUE        (MPP_INPUT_ENQUEUE)
 #define MPP_ENC_NOTIFY_PACKET_DEQUEUE       (MPP_OUTPUT_DEQUEUE)
+#define MPP_ENC_NOTIFY_FRAME_DEQUEUE        (MPP_INPUT_DEQUEUE)
+#define MPP_ENC_NOTIFY_PACKET_ENQUEUE       (MPP_OUTPUT_ENQUEUE)
 #define MPP_ENC_RESET                       (MPP_RESET)
 
 /*
@@ -142,20 +147,9 @@ public:
     MppPollType     mOutputTimeout;
 
     MppTask         mInputTask;
-    /*
-     * There are two threads for each decoder/encoder: codec thread and hal thread
-     *
-     * codec thread generate protocol syntax structure and send to hardware
-     * hal thread wait hardware return and do corresponding process
-     *
-     * Two threads work parallelly so that all decoder/encoder will share this
-     * acceleration mechanism
-     */
-    MppThread       *mThreadCodec;
-    MppThread       *mThreadHal;
 
-    MppDec          *mDec;
-    MppEnc          *mEnc;
+    MppDec          mDec;
+    MppEnc          mEnc;
 
 private:
     void clear();

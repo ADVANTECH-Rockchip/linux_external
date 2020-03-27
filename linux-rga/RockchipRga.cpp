@@ -28,9 +28,11 @@
 #include "version.h"
 #include "normal/NormalRga.h"
 
+#if LIBDRM
 #include <drm.h>
 #include "drm_mode.h"
 #include "xf86drm.h"
+#endif
 
 
 // ---------------------------------------------------------------------------
@@ -54,6 +56,9 @@ int RockchipRga::RkRgaInit()
 {
     int ret = 0;
 
+    if (mSupportRga)
+        return 0;
+
     ret = RgaInit(&mContext);
     if(ret == 0)
         mSupportRga = true;
@@ -63,30 +68,91 @@ int RockchipRga::RkRgaInit()
     return ret;
 }
 
-int RockchipRga::RkRgaGetAllocBuffer(bo_t *bo_info, int width, int height, int bpp)
+void RockchipRga::RkRgaDeInit()
 {
+    if (mSupportRga)
+        RgaDeInit(mContext);
+
+    mSupportRga = false;
+}
+
+int RockchipRga::RkRgaAllocBuffer(int drm_fd, bo_t *bo_info, int width,
+                                  int height, int bpp) {
+#if LIBDRM
     struct drm_mode_create_dumb arg;
     int ret;
+
     memset(&arg, 0, sizeof(arg));
     arg.bpp = bpp;
     arg.width = width;
     arg.height = height;
 
-    bo_info->fd = open("/dev/dri/card0", O_RDWR, 0);
-    
-    ret = drmIoctl(bo_info->fd, DRM_IOCTL_MODE_CREATE_DUMB, &arg);
+    ret = drmIoctl(drm_fd, DRM_IOCTL_MODE_CREATE_DUMB, &arg);
     if (ret) {
         fprintf(stderr, "failed to create dumb buffer: %s\n", strerror(errno));
         return ret;
     }
+
     bo_info->handle = arg.handle;
     bo_info->size = arg.size;
     bo_info->pitch = arg.pitch;
+
+    return 0;
+#else
+    return -1;
+#endif
+}
+
+int RockchipRga::RkRgaFreeBuffer(int drm_fd, bo_t *bo_info) {
+#if LIBDRM
+    struct drm_mode_destroy_dumb arg;
+    int ret;
+
+    if (bo_info->handle <= 0)
+        return -EINVAL;
+    memset(&arg, 0, sizeof(arg));
+    arg.handle = bo_info->handle;
+    ret = drmIoctl(drm_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &arg);
+    if (ret){
+        fprintf(stderr, "failed to destroy dumb buffer: %s\n", strerror(errno));
+        return -errno;
+    }
+    bo_info->handle = 0;
+
+    return 0;
+#else
+    return -1;
+#endif
+}
+
+int RockchipRga::RkRgaGetAllocBuffer(bo_t *bo_info, int width, int height, int bpp)
+{
+    static const char* card = "/dev/dri/card0";
+    int ret;
+    int drm_fd;
+    int flag = O_RDWR;
+#ifdef O_CLOEXEC
+    flag |= O_CLOEXEC;
+#endif
+    bo_info->fd = -1;
+    bo_info->handle = 0;
+    drm_fd = open(card, flag);
+    if (drm_fd < 0) {
+        fprintf(stderr, "Fail to open %s: %m\n", card);
+        return -errno;
+    }
+    ret = RkRgaAllocBuffer(drm_fd, bo_info, width, height, bpp);
+    if (ret) {
+        close(drm_fd);
+        return ret;
+    }
+    bo_info->fd = drm_fd;
     return 0;
 }
 
 int RockchipRga::RkRgaGetMmap(bo_t *bo_info)
 {
+#if LIBDRM
     struct drm_mode_map_dumb arg;
     void *map;
     int ret;
@@ -101,6 +167,9 @@ int RockchipRga::RkRgaGetMmap(bo_t *bo_info)
        return -EINVAL;
     bo_info->ptr = map;
     return 0;
+#else
+    return -1;
+#endif
 }
 
 int RockchipRga::RkRgaUnmap(bo_t *bo_info)
@@ -112,23 +181,24 @@ int RockchipRga::RkRgaUnmap(bo_t *bo_info)
 
 int RockchipRga::RkRgaFree(bo_t *bo_info)
 {
-    struct drm_mode_destroy_dumb arg;
     int ret;
-    memset(&arg, 0, sizeof(arg));
-    arg.handle = bo_info->handle;
-    ret = drmIoctl(bo_info->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &arg);
-    if (ret){
-        fprintf(stderr, "failed to destroy dumb buffer: %s\n", strerror(errno));
+    if (bo_info->fd < 0)
         return -EINVAL;
-    }
-    return 0;
+    ret = RkRgaFreeBuffer(bo_info->fd, bo_info);
+    close(bo_info->fd);
+    bo_info->fd = -1;
+    return ret;
 }
 
 int RockchipRga::RkRgaGetBufferFd(bo_t *bo_info, int *fd)
 {
+#if LIBDRM
     int ret = 0;
     ret = drmPrimeHandleToFD(bo_info->fd, bo_info->handle, 0, fd);
     return ret;
+#else
+    return -1;
+#endif
 }
 
 int RockchipRga::RkRgaBlit(rga_info *src, rga_info *dst, rga_info *src1)

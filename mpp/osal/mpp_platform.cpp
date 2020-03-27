@@ -14,9 +14,7 @@
  * limitations under the License.
  */
 
-#ifdef RKPLATFORM
 #include <fcntl.h>
-#endif
 #include <string.h>
 
 #include "mpp_env.h"
@@ -46,6 +44,7 @@ typedef enum RockchipSocType_e {
     ROCKCHIP_SOC_RK3326,
     ROCKCHIP_SOC_RK3128H,
     ROCKCHIP_SOC_PX30,
+    ROCKCHIP_SOC_RK1808,
     ROCKCHIP_SOC_BUTT,
 } RockchipSocType;
 
@@ -73,6 +72,7 @@ static const MppVpuType mpp_vpu_version[] = {
     { "rv1108",  ROCKCHIP_SOC_RV1108,   HAVE_VPU2 | HAVE_RKVDEC | HAVE_RKVENC, },
     { "rk3326",  ROCKCHIP_SOC_RK3326,   HAVE_VPU2 | HAVE_HEVC_DEC, },
     { "px30",    ROCKCHIP_SOC_RK3326,   HAVE_VPU2 | HAVE_HEVC_DEC, },
+    { "rk1808",  ROCKCHIP_SOC_RK1808,   HAVE_VPU2, },
 };
 
 /* For vpu1 / vpu2 */
@@ -156,7 +156,6 @@ MppPlatformService::MppPlatformService()
       vcodec_type(0),
       vcodec_capability(0)
 {
-#ifdef RKPLATFORM
     /* judge vdpu support version */
     RK_S32 fd = -1;
 
@@ -252,7 +251,6 @@ MppPlatformService::MppPlatformService()
         vcodec_type &= ~(HAVE_VPU1 | HAVE_VPU2);
 
     mpp_dbg(MPP_DBG_PLATFORM, "vcodec type %08x\n", vcodec_type);
-#endif
 }
 
 MppPlatformService::~MppPlatformService()
@@ -286,13 +284,11 @@ RK_U32 mpp_get_2d_hw_flag(void)
 {
     RK_U32 flag = 0;
 
-#ifdef RKPLATFORM
     if (!access("/dev/rga", F_OK))
         flag |= HAVE_RGA;
 
     if (!access("/dev/iep", F_OK))
         flag |= HAVE_IEP;
-#endif
 
     return flag;
 }
@@ -300,7 +296,7 @@ RK_U32 mpp_get_2d_hw_flag(void)
 const char *mpp_get_platform_dev_name(MppCtxType type, MppCodingType coding, RK_U32 platform)
 {
     const char *dev = NULL;
-#ifdef RKPLATFORM
+
     if ((platform & HAVE_RKVDEC) && (type == MPP_CTX_DEC) &&
         (coding == MPP_VIDEO_CodingAVC ||
          coding == MPP_VIDEO_CodingHEVC ||
@@ -325,11 +321,6 @@ const char *mpp_get_platform_dev_name(MppCtxType type, MppCodingType coding, RK_
     } else {
         dev = mpp_find_device(mpp_vpu_dev);
     }
-#else
-    (void)type;
-    (void)coding;
-    (void)platform;
-#endif
 
     return dev;
 }
@@ -337,7 +328,6 @@ const char *mpp_get_platform_dev_name(MppCtxType type, MppCodingType coding, RK_
 const char *mpp_get_vcodec_dev_name(MppCtxType type, MppCodingType coding)
 {
     const char *dev = NULL;
-#ifdef RKPLATFORM
     RockchipSocType soc_type = MppPlatformService::get_instance()->get_soc_type();
 
     switch (soc_type) {
@@ -485,10 +475,6 @@ const char *mpp_get_vcodec_dev_name(MppCtxType type, MppCodingType coding)
         dev = mpp_get_platform_dev_name(type, coding, vcodec_type);
     } break;
     }
-#else
-    (void)type;
-    (void)coding;
-#endif
 
     return dev;
 }

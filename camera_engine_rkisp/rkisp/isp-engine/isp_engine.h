@@ -5,7 +5,7 @@
 #include <cam_ia_api/cam_ia10_engine_api.h>
 #include <sys/poll.h>
 #include <base/xcam_3a_description.h>
-#include <base/log.h>
+#include <base/xcam_log.h>
 
 using namespace std;
 
@@ -18,6 +18,7 @@ public:
     virtual ~IspEngine();
     virtual bool init(const char* tuningFile,
                       const char* ispDev,
+                      int isp_ver,
                       int devFd);
     virtual bool deInit();
     virtual bool configure(const Configuration& config);
@@ -28,8 +29,8 @@ public:
     virtual int setStatistics(struct CamIA10_Stats* ia_stats);
     virtual int updateDynamicConfig(struct CamIA10_DyCfg* ia_dcfg);
     virtual int runAe(XCamAeParam *param, AecResult_t* result, bool first = false);
-    virtual int runAwb(XCamAwbParam *param, CamIA10_AWB_Result_t* result);
-    virtual int runAf(XCamAfParam *param, XCam3aResultFocus* result);
+    virtual int runAwb(XCamAwbParam *param, CamIA10_AWB_Result_t* result, bool first = false);
+    virtual int runAf(XCamAfParam *param, XCam3aResultFocus* result, bool first = false);
     virtual bool getIAResult(struct CamIA10_Results* ia_results);
     virtual void setExternalAEHandlerDesc(XCamAEDescription* desc);
     virtual void setExternalAWBHandlerDesc(XCamAWBDescription* desc);
@@ -66,6 +67,7 @@ protected:
     bool mStreaming;
     unsigned short mFramesToDrop;
     int mInitialized;
+    int mIspVer;
     shared_ptr<CamIA10EngineItf> mCamIAEngine;
     //manual isp related,
     //notice that 3A algorithm result will be covered by manual isp settings
@@ -142,6 +144,27 @@ protected:
     enum HAL_ISP_ACTIVE_MODE  mBdmEnabled;
     /* used for switchSubDevIrCutMode*/
     enum HAL_WB_MODE mLastWbMode;
+
+	 /* dsp 3dnr by JiangMingJun  */ 
+    struct HAL_3DnrCfg dsp_3dnr_cfg;
+    bool_t m3DnrNeededUpdate;
+    enum HAL_ISP_ACTIVE_MODE  m3DnrEnabled;
+
+	//dsp new 3dnr by LuoNing
+	struct HAL_New3DnrCfg_s new_dsp_3dnr_cfg;
+    bool_t mNew3DnrNeededUpdate;
+    enum HAL_ISP_ACTIVE_MODE  mNew3DnrEnabled;
+  
+
+	//rkisp12 demosaiclp
+	struct HAL_ISP_demosaiclp_cfg_s demosaiclp_cfg;
+	bool_t mDemosaicLPNeededUpdate;
+	enum HAL_ISP_ACTIVE_MODE mDemosaicLPEnable;
+
+	//rkisp12 rk IEsharp
+	struct HAL_ISP_RKIEsharp_cfg_s rkIEsharp_cfg;
+	bool_t mrkIEsharpNeededUpdate;
+	enum HAL_ISP_ACTIVE_MODE mrkIEsharpEnable;
 private:
 
 };

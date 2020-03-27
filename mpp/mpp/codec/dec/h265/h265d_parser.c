@@ -27,12 +27,13 @@
 
 #define MODULE_TAG "H265D_PARSER"
 
-#include "mpp_bitread.h"
-#include "h265d_parser.h"
-#include "mpp_mem.h"
 #include "mpp_env.h"
-#include "h265d_syntax.h"
+#include "mpp_mem.h"
+#include "mpp_bitread.h"
 #include "mpp_packet_impl.h"
+
+#include "h265d_parser.h"
+#include "h265d_syntax.h"
 #include "h265d_api.h"
 
 #define START_CODE 0x000001 ///< start_code_prefix_one_3bytes
@@ -489,15 +490,15 @@ static RK_S32 set_sps(HEVCContext *s, const HEVCSPS *sps)
     s->h265dctx->sample_aspect_ratio = sps->vui.sar;
 
     if (sps->vui.video_signal_type_present_flag)
-        s->h265dctx->color_range = sps->vui.video_full_range_flag ? MPPCOL_RANGE_JPEG
-                                   : MPPCOL_RANGE_MPEG;
+        s->h265dctx->color_range = sps->vui.video_full_range_flag ?
+                                   MPP_FRAME_RANGE_JPEG : MPP_FRAME_RANGE_MPEG;
     else
-        s->h265dctx->color_range = MPPCOL_RANGE_MPEG;
+        s->h265dctx->color_range = MPP_FRAME_RANGE_MPEG;
 
     if (sps->vui.colour_description_present_flag) {
         s->h265dctx->colorspace      = sps->vui.matrix_coeffs;
     } else {
-        s->h265dctx->colorspace      = MPPCOL_SPC_UNSPECIFIED;
+        s->h265dctx->colorspace      = MPP_FRAME_SPC_UNSPECIFIED;
     }
 
     s->sps = sps;
@@ -1099,9 +1100,7 @@ static RK_S32 hls_nal_unit(HEVCContext *s)
     BitReadCtx_t*gb = &s->HEVClc->gb;
     RK_S32 value = 0;
 
-    READ_ONEBIT(gb, &value);
-    if ( value != 0)
-        return  MPP_ERR_STREAM;
+    READ_ONEBIT(gb, &value); /*this bit should be zero*/
 
     READ_BITS(gb, 6, &s->nal_unit_type);
 
@@ -1179,8 +1178,12 @@ static RK_S32 mpp_hevc_output_frame(void *ctx, int flush)
 
 static RK_S32 hevc_frame_start(HEVCContext *s)
 {
-
     int ret;
+
+    if (s->ref) {
+        mpp_log_f("found two frame in one packet do nothing!\n");
+        return 0;
+    }
 
     s->is_decoded        = 0;
     s->first_nal_type    = s->nal_unit_type;
@@ -1196,7 +1199,7 @@ static RK_S32 hevc_frame_start(HEVCContext *s)
     if (ret < 0)
         goto fail;
 
-    if (s->miss_ref_flag) {
+    if (!s->h265dctx->disable_error && s->miss_ref_flag) {
         if (!IS_IRAP(s)) {
             mpp_frame_set_errinfo(s->frame, MPP_FRAME_ERR_UNKNOW);
             s->ref->error_flag = 1;
@@ -1256,20 +1259,6 @@ static RK_S32 parser_nal_unit(HEVCContext *s, const RK_U8 *nal, int length)
 
     s->nuh_layer_id = ret;
     h265d_dbg(H265D_DBG_GLOBAL, "s->nal_unit_type = %d,len = %d \n", s->nal_unit_type, length);
-    //mpp_log("s->nal_unit_type = %d,len = %d \n", s->nal_unit_type, length);
-#if 0
-    if (fp != NULL) {
-        if (s->nal_unit_type >= 32 && s->nal_unit_type <= 34) {
-            RK_U32 nal_1 = 0x01000000;
-            fwrite(&nal_1, 1, 4, fp);
-            fwrite(nal, 1, length, fp);
-        }
-    }
-    if (s->nb_frame > 1088 && (s->nal_unit_type >= 16 && s->nal_unit_type <= 21)) {
-        start_write = 1;
-        mpp_log("start %d", s->nb_frame);
-    }
-#endif
 
     switch (s->nal_unit_type) {
     case NAL_VPS:
@@ -1298,7 +1287,7 @@ static RK_S32 parser_nal_unit(HEVCContext *s, const RK_U8 *nal, int length)
         ret = mpp_hevc_decode_nal_sei(s);
         if (ret < 0) {
             mpp_err("mpp_hevc_decode_nal_sei error ret = %d", ret);
-            goto fail;
+            //goto fail;
         }
         break;
     case NAL_TRAIL_R:
@@ -1317,13 +1306,10 @@ static RK_S32 parser_nal_unit(HEVCContext *s, const RK_U8 *nal, int length)
     case NAL_RADL_R:
     case NAL_RASL_N:
     case NAL_RASL_R:
-#if 0
-        if (fp != NULL && (s->nb_frame < 1200) && start_write) {
-            RK_U32 nal_1 = 0x01000000;
-            fwrite(&nal_1, 1, 4, fp);
-            fwrite(nal, 1, length, fp);
+        if (s->task == NULL) {
+            s->extra_has_frame = 1;
+            break;
         }
-#endif
         h265d_dbg(H265D_DBG_FUNCTION, "hls_slice_header in");
         ret = hls_slice_header(s);
         h265d_dbg(H265D_DBG_FUNCTION, "hls_slice_header out");
@@ -1345,7 +1331,8 @@ static RK_S32 parser_nal_unit(HEVCContext *s, const RK_U8 *nal, int length)
             s->poc <= s->max_ra) {
             s->is_decoded = 0;
             break;
-        } else if ((s->poc < s->max_ra) && !IS_IRAP(s)) { //when seek to I slice skip the stream small then I slic poc
+        } else if (!s->h265dctx->disable_error &&
+                   (s->poc < s->max_ra) && !IS_IRAP(s)) { //when seek to I slice skip the stream small then I slic poc
             s->is_decoded = 0;
             break;
         } else {
@@ -1398,9 +1385,8 @@ static RK_S32 parser_nal_unit(HEVCContext *s, const RK_U8 *nal, int length)
 
     return 0;
 fail:
-    // if (s->h265dctx->err_recognition & AV_EF_EXPLODE)
-    //   return ret;
-    return 0;
+
+    return ret;
 }
 
 
@@ -1692,7 +1678,7 @@ MPP_RET h265d_prepare(void *ctx, MppPacket pkt, HalDecTask *task)
     void *pos = NULL;
     RK_S32 length = 0;
 
-    //task->valid = 0;
+    task->valid = 0;
     s->eos = mpp_packet_get_eos(pkt);
     if (sc != NULL) {
         sc->eos = s->eos;
@@ -1707,10 +1693,14 @@ MPP_RET h265d_prepare(void *ctx, MppPacket pkt, HalDecTask *task)
 
         h265dctx->extradata_size = length;
         h265dctx->extradata = buf;
+        s->extra_has_frame = 0;
+        s->task = NULL;
         hevc_parser_extradata(s);
-        pos = buf + length;
-        mpp_packet_set_pos(pkt, pos);
-        return MPP_OK;
+        if (!s->extra_has_frame) {
+            pos = buf + length;
+            mpp_packet_set_pos(pkt, pos);
+            return MPP_OK;
+        }
     }
 
     if (h265dctx->need_split && !s->is_nalff) {
@@ -1787,16 +1777,18 @@ MPP_RET h265d_parse(void *ctx, HalDecTask *task)
     H265dContext_t *h265dctx = (H265dContext_t *)ctx;
     HEVCContext *s = h265dctx->priv_data;
 
+    task->valid = 0;
     s->got_frame = 0;
     s->task = task;
     s->ref = NULL;
     ret    = parser_nal_units(s);
     if (ret < 0) {
         if (ret ==  MPP_ERR_STREAM) {
-            mpp_log("current stream is no right skip it");
+            mpp_log("current stream is no right skip it %p\n", s->ref);
             ret = 0;
         }
-        return ret;
+        // return ret;
+        task->flags.parse_err = 1;
     }
     h265d_dbg(H265D_DBG_GLOBAL, "decode poc = %d", s->poc);
     if (s->ref) {
@@ -1804,7 +1796,6 @@ MPP_RET h265d_parse(void *ctx, HalDecTask *task)
         s->task->syntax.data = s->hal_pic_private;
         s->task->syntax.number = 1;
         s->task->valid = 1;
-
     }
     if (s->eos) {
         h265d_flush(ctx);
@@ -1998,7 +1989,7 @@ MPP_RET h265d_reset(void *ctx)
     return MPP_OK;
 }
 
-MPP_RET h265d_control(void *ctx, RK_S32 cmd, void *param)
+MPP_RET h265d_control(void *ctx, MpiCmd cmd, void *param)
 {
     H265dContext_t *h265dctx = (H265dContext_t *)ctx;
 
@@ -2016,6 +2007,7 @@ MPP_RET h265d_control(void *ctx, RK_S32 cmd, void *param)
 MPP_RET h265d_callback(void *ctx, void *err_info)
 {
     H265dContext_t *h265dctx = (H265dContext_t *)ctx;
+    HalDecTask *task_dec = (HalDecTask *)err_info;
 
     if (!h265dctx->disable_error) {
         HEVCContext *s = (HEVCContext *)h265dctx->priv_data;
@@ -2027,10 +2019,10 @@ MPP_RET h265d_callback(void *ctx, void *err_info)
             s->max_ra = INT_MAX;
         }
         // s->miss_ref_flag = 1;
-        mpp_buf_slot_get_prop(s->slots, s->ref->slot_index, SLOT_FRAME_PTR, &frame);
+        mpp_buf_slot_get_prop(s->slots, task_dec->output, SLOT_FRAME_PTR, &frame);
         mpp_frame_set_errinfo(frame, MPP_FRAME_ERR_UNKNOW);
         for (i = 0; i < MPP_ARRAY_ELEMS(s->DPB); i++) {
-            if (s->DPB[i].slot_index == s->ref->slot_index) {
+            if (s->DPB[i].slot_index == task_dec->output) {
                 s->DPB[i].error_flag = 1;
             }
         }

@@ -16,6 +16,7 @@
 #include <stdint.h>
 #include <sys/cdefs.h>
 #include "rga.h"
+#include "RockchipRgaMacro.h"
 
 /*****************************************************************************/
 
@@ -87,7 +88,8 @@ typedef struct rga_info {
 	int color;
 	int testLog;
 	int mmuFlag;
-	int reserve[128];
+	int scale_mode;
+	int reserve[124];
 } rga_info_t;
 
 
@@ -119,6 +121,16 @@ static inline int rga_set_rect(rga_rect_t *rect,
 	rect->format = f;
 
 	return 0;
+}
+
+static inline void rga_set_rotation(rga_info_t *info, int angle)
+{
+    if (angle == 90)
+        info->rotation = HAL_TRANSFORM_ROT_90;
+    else if (angle == 180)
+        info->rotation = HAL_TRANSFORM_ROT_180;
+    else if (angle == 270)
+        info->rotation = HAL_TRANSFORM_ROT_270;
 }
 /*****************************************************************************/
 

@@ -1,5 +1,6 @@
 # vim: syntax=cmake
 include_directories(.)
+include_directories(../../rkenc/common/)
 include_directories(../../rkenc/h264e/)
 include_directories(../../vpu/h264e/)
 
@@ -10,6 +11,7 @@ set(HAL_H264E_HDR
 
 # hal h264 encoder sourse
 set(HAL_H264E_SRC
+    h264e_stream.c
     hal_h264e_com.c
     hal_h264e_api.c
     )

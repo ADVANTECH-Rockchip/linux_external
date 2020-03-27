@@ -33,8 +33,10 @@
 #include "hal_avsd_api.h"
 #include "hal_avsd_reg.h"
 
-
 RK_U32 avsd_hal_debug = 0;
+
+MPP_RET hal_avsd_start(void *decoder, HalTaskInfo *task);
+MPP_RET hal_avsd_wait(void *decoder, HalTaskInfo *task);
 
 static RK_U32 avsd_ver_align(RK_U32 val)
 {
@@ -114,7 +116,7 @@ MPP_RET hal_avsd_init(void *decoder, MppHalCfg *cfg)
     //!< callback function to parser module
     p_hal->init_cb = cfg->hal_int_cb;
     //!< mpp_device_init
-#ifdef RKPLATFORM
+
     MppDevCfg dev_cfg = {
         .type = MPP_CTX_DEC,            /* type */
         .coding = MPP_VIDEO_CodingAVS,  /* coding */
@@ -126,19 +128,15 @@ MPP_RET hal_avsd_init(void *decoder, MppHalCfg *cfg)
         mpp_err("mpp_device_init failed. ret: %d\n", ret);
         return ret;
     }
-#endif
+
     //< get buffer group
     if (p_hal->buf_group == NULL) {
-        RK_U32 buf_size = 0;
-#ifdef RKPLATFORM
-        mpp_log_f("mpp_buffer_group_get_internal used ion In");
+        RK_U32 buf_size = (1920 * 1088) / 16;
+
         FUN_CHECK(ret = mpp_buffer_group_get_internal(&p_hal->buf_group, MPP_BUFFER_TYPE_ION));
-#else
-        FUN_CHECK(ret = mpp_buffer_group_get_internal(&p_hal->buf_group, MPP_BUFFER_TYPE_NORMAL));
-#endif
-        buf_size = (1920 * 1088) / 16;
         FUN_CHECK(ret = mpp_buffer_get(p_hal->buf_group, &p_hal->mv_buf, buf_size));
     }
+
     mpp_slots_set_prop(p_hal->frame_slots, SLOTS_HOR_ALIGN, avsd_hor_align);
     mpp_slots_set_prop(p_hal->frame_slots, SLOTS_VER_ALIGN, avsd_ver_align);
     mpp_slots_set_prop(p_hal->frame_slots, SLOTS_LEN_ALIGN, avsd_len_align);
@@ -178,14 +176,11 @@ MPP_RET hal_avsd_deinit(void *decoder)
     INP_CHECK(ret, NULL == decoder);
 
     //!< mpp_device_init
-#ifdef RKPLATFORM
     if (p_hal->dev_ctx) {
         ret = mpp_device_deinit(p_hal->dev_ctx);
-        if (MPP_OK != ret) {
+        if (ret)
             mpp_err("mpp_device_deinit failed. ret: %d\n", ret);
-        }
     }
-#endif
     if (p_hal->mv_buf) {
         FUN_CHECK(ret = mpp_buffer_put(p_hal->mv_buf));
     }
@@ -248,18 +243,17 @@ MPP_RET hal_avsd_start(void *decoder, HalTaskInfo *task)
     AVSD_HAL_TRACE("In.");
     INP_CHECK(ret, NULL == decoder);
 
-    if (task->dec.flags.parse_err ||
-        task->dec.flags.ref_err) {
+    if (task->dec.flags.parse_err || task->dec.flags.ref_err) {
         goto __RETURN;
     }
 
     p_hal->frame_no++;
-#ifdef RKPLATFORM
-    if (mpp_device_send_reg(p_hal->dev_ctx, p_hal->p_regs, AVSD_REGISTERS)) {
+
+    ret = mpp_device_send_reg(p_hal->dev_ctx, p_hal->p_regs, AVSD_REGISTERS);
+    if (ret) {
         ret = MPP_ERR_VPUHW;
         mpp_err_f("Avs decoder FlushRegs fail. \n");
     }
-#endif
 
 __RETURN:
     AVSD_HAL_TRACE("Out.");
@@ -285,14 +279,13 @@ MPP_RET hal_avsd_wait(void *decoder, HalTaskInfo *task)
         task->dec.flags.ref_err) {
         goto __SKIP_HARD;
     }
-#ifdef RKPLATFORM
+
     mpp_device_wait_reg(p_hal->dev_ctx, p_hal->p_regs, AVSD_REGISTERS);
-#endif
 
 __SKIP_HARD:
     if (p_hal->init_cb.callBack) {
-        IOCallbackCtx m_ctx = { 0 };
-        m_ctx.device_id = HAL_VDPU;
+        IOCallbackCtx m_ctx = { 0, NULL, NULL, 0 };
+        m_ctx.device_id = DEV_VDPU;
         if (!((AvsdRegs_t *)p_hal->p_regs)->sw01.dec_rdy_int) {
             m_ctx.hard_err = 1;
         }
@@ -341,42 +334,6 @@ MPP_RET hal_avsd_reset(void *decoder)
 
     return ret = MPP_OK;
 }
-/*!
-***********************************************************************
-* \brief
-*    flush
-***********************************************************************
-*/
-//extern "C"
-MPP_RET hal_avsd_flush(void *decoder)
-{
-    MPP_RET ret = MPP_ERR_UNKNOW;
-
-    AVSD_HAL_TRACE("In.");
-
-    (void)decoder;
-    return ret = MPP_OK;
-}
-/*!
-***********************************************************************
-* \brief
-*    control
-***********************************************************************
-*/
-//extern "C"
-MPP_RET hal_avsd_control(void *decoder, RK_S32 cmd_type, void *param)
-{
-    MPP_RET ret = MPP_ERR_UNKNOW;
-
-    AVSD_HAL_TRACE("In.");
-
-    (void)decoder;
-    (void)cmd_type;
-    (void)param;
-
-    return ret = MPP_OK;
-}
-
 
 const MppHalApi hal_api_avsd = {
     .name = "avsd_rkdec",
@@ -390,8 +347,6 @@ const MppHalApi hal_api_avsd = {
     .start = hal_avsd_start,
     .wait = hal_avsd_wait,
     .reset = hal_avsd_reset,
-    .flush = hal_avsd_flush,
-    .control = hal_avsd_control,
+    .flush = NULL,
+    .control = NULL,
 };
-
-

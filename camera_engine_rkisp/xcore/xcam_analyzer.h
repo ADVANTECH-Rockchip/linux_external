@@ -44,6 +44,7 @@ public:
         _stats_queue.pause_pop ();
     }
     bool push_stats (const SmartPtr<VideoBuffer> &buffer);
+    void pause (bool pause);
 
 protected:
     virtual bool started ();
@@ -55,6 +56,8 @@ protected:
 private:
     XAnalyzer              *_analyzer;
     SafeList<VideoBuffer>   _stats_queue;
+    XCam::Mutex     _mutex;
+    bool _paused;
 };
 
 class AnalyzerCallback {
@@ -89,6 +92,7 @@ public:
     };
     XCamReturn start ();
     XCamReturn stop ();
+    XCamReturn pause (bool pause);
     XCamReturn push_buffer (const SmartPtr<VideoBuffer> &buffer);
 
     uint32_t get_width () const {
@@ -127,6 +131,7 @@ public:
         _isp_params_device = (V4l2Device*)dev;
     }
 
+    virtual XCamReturn configure () = 0;
     //SmartPtr<V4l2Device>        _ispdevice;
     //SmartPtr<V4l2Device>        _device;
     V4l2Device* _device;
@@ -141,7 +146,7 @@ protected:
     virtual XCamReturn internal_deinit () = 0;
 
     // in analyzer thread
-    virtual XCamReturn configure () = 0;
+    //virtual XCamReturn configure () = 0;
     virtual XCamReturn analyze (const SmartPtr<VideoBuffer> &buffer) = 0;
 
 protected:

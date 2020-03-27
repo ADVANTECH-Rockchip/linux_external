@@ -132,6 +132,8 @@ enum {
 	profile_max = 8
 };
 
+#define A2DP_SIGNAL	0x01
+#define A2DP_MEDIA	0x02
 //profile info data
 typedef struct {
 	struct list_head list;
@@ -140,6 +142,7 @@ typedef struct {
 	uint16_t dcid;
 	uint16_t scid;
 	uint8_t profile_index;
+	uint8_t flags;
 } rtk_prof_info, *prtk_prof_info;
 
 //profile info for each connection
@@ -150,6 +153,8 @@ typedef struct rtl_hci_conn {
 	uint8_t profile_bitmap;
 	int8_t profile_refcount[8];
 } rtk_conn_prof, *prtk_conn_prof;
+
+#ifdef RTB_SOFTWARE_MAILBOX
 
 struct rtl_btinfo {
 	u8 cmd;
@@ -178,6 +183,7 @@ struct rtl_btinfo_ctl {
 	uint8_t polling_time;
 	uint8_t autoreport_enable;
 };
+#endif /* RTB_SOFTWARE_MAILBOX */
 
 #define MAX_LEN_OF_HCI_EV	32
 #define NUM_RTL_HCI_EV		32
@@ -200,19 +206,25 @@ struct rtl_coex_struct {
 	struct list_head conn_hash;	//hash for connections
 	struct list_head profile_list;	//hash for profile info
 	struct hci_dev *hdev;
+#ifdef RTB_SOFTWARE_MAILBOX
 	struct socket *udpsock;
 	struct sockaddr_in addr;
 	struct sockaddr_in wifi_addr;
 	struct timer_list polling_timer;
+#endif
 	struct timer_list a2dp_count_timer;
 	struct timer_list pan_count_timer;
 	struct timer_list hogp_count_timer;
+#ifdef RTB_SOFTWARE_MAILBOX
 	struct workqueue_struct *sock_wq;
-	struct workqueue_struct *fw_wq;
 	struct delayed_work sock_work;
+#endif
+	struct workqueue_struct *fw_wq;
 	struct delayed_work fw_work;
 	struct delayed_work l2_work;
+#ifdef RTB_SOFTWARE_MAILBOX
 	struct sock *sk;
+#endif
 	struct urb *urb;
 	spinlock_t spin_lock_sock;
 	spinlock_t spin_lock_profile;
@@ -226,6 +238,7 @@ struct rtl_coex_struct {
 	uint8_t ispairing;
 	uint8_t isinquirying;
 	uint8_t ispaging;
+#ifdef RTB_SOFTWARE_MAILBOX
 	uint8_t wifi_state;
 	uint8_t autoreport;
 	uint8_t polling_enable;
@@ -233,10 +246,13 @@ struct rtl_coex_struct {
 	uint8_t piconet_id;
 	uint8_t mode;
 	uint8_t afh_map[10];
+#endif
 	uint16_t hci_reversion;
 	uint16_t lmp_subversion;
+#ifdef RTB_SOFTWARE_MAILBOX
 	uint8_t wifi_on;
 	uint8_t sock_open;
+#endif
 	unsigned long cmd_last_tx;
 
 	/* hci ev buff */

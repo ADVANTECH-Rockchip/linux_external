@@ -18,6 +18,7 @@
 
 #include <string.h>
 
+#include "mpp_mem.h"
 #include "mpp_log.h"
 #include "utils.h"
 
@@ -57,16 +58,28 @@ void dump_mpp_frame_to_file(MppFrame frame, FILE *fp)
 
     switch (fmt) {
     case MPP_FMT_YUV422SP : {
-        RK_U32 i;
+        /* YUV422SP -> YUV422P for better display */
+        RK_U32 i, j;
         RK_U8 *base_y = base;
         RK_U8 *base_c = base + h_stride * v_stride;
+        RK_U8 *tmp = mpp_malloc(RK_U8, h_stride * height * 2);
+        RK_U8 *tmp_u = tmp;
+        RK_U8 *tmp_v = tmp + width * height / 2;
 
-        for (i = 0; i < height; i++, base_y += h_stride) {
+        for (i = 0; i < height; i++, base_y += h_stride)
             fwrite(base_y, 1, width, fp);
-        }
+
         for (i = 0; i < height; i++, base_c += h_stride) {
-            fwrite(base_c, 1, width, fp);
+            for (j = 0; j < width / 2; j++) {
+                tmp_u[j] = base_c[2 * j + 0];
+                tmp_v[j] = base_c[2 * j + 1];
+            }
+            tmp_u += width / 2;
+            tmp_v += width / 2;
         }
+
+        fwrite(tmp, 1, width * height, fp);
+        mpp_free(tmp);
     } break;
     case MPP_FMT_YUV420SP : {
         RK_U32 i;
@@ -79,6 +92,55 @@ void dump_mpp_frame_to_file(MppFrame frame, FILE *fp)
         for (i = 0; i < height / 2; i++, base_c += h_stride) {
             fwrite(base_c, 1, width, fp);
         }
+    } break;
+    case MPP_FMT_YUV420P : {
+        RK_U32 i;
+        RK_U8 *base_y = base;
+        RK_U8 *base_c = base + h_stride * v_stride;
+
+        for (i = 0; i < height; i++, base_y += h_stride) {
+            fwrite(base_y, 1, width, fp);
+        }
+        for (i = 0; i < height / 2; i++, base_c += h_stride / 2) {
+            fwrite(base_c, 1, width / 2, fp);
+        }
+        for (i = 0; i < height / 2; i++, base_c += h_stride / 2) {
+            fwrite(base_c, 1, width / 2, fp);
+        }
+    } break;
+    case MPP_FMT_YUV444SP : {
+        /* YUV444SP -> YUV444P for better display */
+        RK_U32 i, j;
+        RK_U8 *base_y = base;
+        RK_U8 *base_c = base + h_stride * v_stride;
+        RK_U8 *tmp = mpp_malloc(RK_U8, h_stride * height * 2);
+        RK_U8 *tmp_u = tmp;
+        RK_U8 *tmp_v = tmp + width * height;
+
+        for (i = 0; i < height; i++, base_y += h_stride)
+            fwrite(base_y, 1, width, fp);
+
+        for (i = 0; i < height; i++, base_c += h_stride * 2) {
+            for (j = 0; j < width; j++) {
+                tmp_u[j] = base_c[2 * j + 0];
+                tmp_v[j] = base_c[2 * j + 1];
+            }
+            tmp_u += width;
+            tmp_v += width;
+        }
+
+        fwrite(tmp, 1, width * height * 2, fp);
+        mpp_free(tmp);
+    } break;
+    case MPP_FMT_YUV400: {
+        RK_U32 i;
+        RK_U8 *base_y = base;
+        RK_U8 *tmp = mpp_malloc(RK_U8, h_stride * height);
+
+        for (i = 0; i < height; i++, base_y += h_stride)
+            fwrite(base_y, 1, width, fp);
+
+        mpp_free(tmp);
     } break;
     default : {
         mpp_err("not supported format %d\n", fmt);
@@ -347,4 +409,13 @@ MPP_RET fill_yuv_image(RK_U8 *buf, RK_U32 width, RK_U32 height,
     } break;
     }
     return ret;
+}
+
+RK_S32 parse_config_line(const char *str, OpsLine *info)
+{
+    RK_S32 cnt = sscanf(str, "%*[^,],%d,%[^,],%llu,%llu\n",
+                        &info->index, info->cmd,
+                        &info->value1, &info->value2);
+
+    return cnt;
 }

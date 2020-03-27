@@ -1167,6 +1167,10 @@ static RK_S32 decode_vui(HEVCContext *s, HEVCSPS *sps)
 
     h265d_dbg(H265D_DBG_FUNCTION, "Decoding VUI\n");
 
+    vui->colour_primaries = MPP_FRAME_PRI_UNSPECIFIED;
+    vui->transfer_characteristic = MPP_FRAME_TRC_UNSPECIFIED;
+    vui->matrix_coeffs = MPP_FRAME_SPC_UNSPECIFIED;
+
     READ_ONEBIT(gb, &sar_present);
     if (sar_present) {
         RK_U8 sar_idx = 0;
@@ -1200,8 +1204,8 @@ static RK_S32 decode_vui(HEVCContext *s, HEVCSPS *sps)
             //      vui->colour_primaries = RKCOL_PRI_UNSPECIFIED;
             //  if (vui->transfer_characteristic >= RKCOL_TRC_NB)
             //      vui->transfer_characteristic = RKCOL_TRC_UNSPECIFIED;
-            if (vui->matrix_coeffs >= MPPCOL_SPC_NB)
-                vui->matrix_coeffs = MPPCOL_SPC_UNSPECIFIED;
+            if (vui->matrix_coeffs >= MPP_FRAME_SPC_NB)
+                vui->matrix_coeffs = MPP_FRAME_SPC_UNSPECIFIED;
         }
     }
 
@@ -1452,11 +1456,6 @@ RK_S32 mpp_hevc_decode_nal_sps(HEVCContext *s)
 
     READ_UE(gb, &sps->width);
     READ_UE(gb, &sps->height);
-#if 0
-    if ((ret = av_image_check_size(sps->width,
-                                   sps->height, 0, s->h265dctx)) < 0)
-        goto err;
-#endif
 
     READ_ONEBIT(gb, &value);
 
@@ -1945,6 +1944,18 @@ int mpp_hevc_decode_nal_pps(HEVCContext *s)
     READ_ONEBIT(gb, &pps->transquant_bypass_enable_flag);
     READ_ONEBIT(gb, &pps->tiles_enabled_flag);
     READ_ONEBIT(gb, &pps->entropy_coding_sync_enabled_flag);
+
+    // check support solution
+    {
+        RK_S32 max_supt_width = MAX_WIDTH;
+        RK_S32 max_supt_height = pps->tiles_enabled_flag ? MAX_HEIGHT : MAX_WIDTH;
+
+        if (sps->width > max_supt_width || sps->height > max_supt_height) {
+            mpp_err("cannot support %dx%d, max solution %dx%d\n",
+                    sps->width, sps->height, max_supt_width, max_supt_height);
+            goto err;
+        }
+    }
 
     if (pps->tiles_enabled_flag) {
         READ_UE(gb, &pps->num_tile_columns);

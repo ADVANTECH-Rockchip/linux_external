@@ -29,17 +29,7 @@
 
 #include "drmrga.h"
 
-/* flip source image horizontally (around the vertical axis) */                                                                                                     
-#define HAL_TRANSFORM_FLIP_H     0x01
-/* flip source image vertically (around the horizontal axis)*/                                                                                                      
-#define HAL_TRANSFORM_FLIP_V     0x02
-/* rotate source image 90 degrees clockwise */                                                                                                                      
-#define HAL_TRANSFORM_ROT_90     0x04
-/* rotate source image 180 degrees */                                                                                                                               
-#define HAL_TRANSFORM_ROT_180    0x03
-/* rotate source image 270 degrees clockwise */                                                                                                                     
-#define HAL_TRANSFORM_ROT_270    0x07
-
+#include "RockchipRgaMacro.h"
 
 //////////////////////////////////////////////////////////////////////////////////
 
@@ -55,6 +45,10 @@ public:
     ~RockchipRga();
 
     int         RkRgaInit();
+    void        RkRgaDeInit();
+    int         RkRgaAllocBuffer(int drm_fd /* input */, bo_t *bo_info,
+                                 int width, int height, int bpp);
+    int         RkRgaFreeBuffer(int drm_fd /* input */, bo_t *bo_info);
     int         RkRgaGetAllocBuffer(bo_t *bo_info, int width, int height, int bpp);
     int         RkRgaGetMmap(bo_t *bo_info);
     int         RkRgaUnmap(bo_t *bo_info);

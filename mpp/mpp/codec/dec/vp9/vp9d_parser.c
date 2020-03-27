@@ -15,17 +15,20 @@
 * limitations under the License.
 */
 #include <stdlib.h>
-#include "mpp_packet.h"
-#include "mpp_packet_impl.h"
+
+#include <string.h>
+
+#include "mpp_env.h"
 #include "mpp_mem.h"
 #include "mpp_log.h"
+#include "mpp_common.h"
+#include "mpp_bitread.h"
+#include "mpp_packet_impl.h"
+
 #include "vp9data.h"
 #include "vp9d_codec.h"
 #include "vp9d_parser.h"
-#include "mpp_common.h"
-#include "mpp_bitread.h"
-#include "mpp_env.h"
-#include "string.h"
+
 /**
  * Clip a signed integer into the -(2^p),(2^p-1) range.
  * @param  a value to clip
@@ -93,16 +96,6 @@ const RK_U32 vpx_inverse[257] = {
     16777216
 };
 
-static const RK_U8 bwh_tab[2][N_BS_SIZES][2] = {
-    {
-        { 16, 16 }, { 16, 8 }, { 8, 16 }, { 8, 8 }, { 8, 4 }, { 4, 8 },
-        { 4, 4 }, { 4, 2 }, { 2, 4 }, { 2, 2 }, { 2, 1 }, { 1, 2 }, { 1, 1 },
-    }, {
-        { 8, 8 }, { 8, 4 }, { 4, 8 }, { 4, 4 }, { 4, 2 }, { 2, 4 },
-        { 2, 2 }, { 2, 1 }, { 1, 2 }, { 1, 1 }, { 1, 1 }, { 1, 1 }, { 1, 1 },
-    }
-};
-
 static void split_parse_frame(SplitContext_t *ctx, RK_U8 *buf, RK_S32 size)
 {
     VP9ParseContext *s = (VP9ParseContext *)ctx->priv_data;
@@ -161,11 +154,11 @@ RK_S32 vp9d_split_frame(SplitContext_t *ctx,
 #define case_n(a, rd) \
             case a: \
                 while (n_frames--) { \
-                    RK_S32 sz = rd; \
+                    RK_U32 sz = rd; \
                     idx += a; \
-                    if (sz > size) { \
+                    if (sz == 0 || sz > (RK_U32)size) { \
                         s->n_frames = 0; \
-                        *out_size = size; \
+                        *out_size = size > full_size ? full_size : size; \
                         *out_data = data; \
                         mpp_err("Superframe packet size too big: %u > %d\n", \
                                sz, size); \
@@ -377,7 +370,6 @@ MPP_RET vp9d_parser_deinit(Vp9CodecContext *vp9_ctx)
 {
     VP9Context *s = vp9_ctx->priv_data;
     vp9_frame_free(s);
-    mpp_free(s->intra_pred_data[0]);
     mpp_free(s->c_b);
     s->c_b_size = 0;
     MPP_FREE(vp9_ctx->priv_data);
@@ -430,12 +422,8 @@ __BITREAD_ERR:
 static RK_S32 update_size(Vp9CodecContext *ctx, RK_S32 w, RK_S32 h, RK_S32 fmt)
 {
     VP9Context *s = ctx->priv_data;
-    RK_U8 *p;
-    RK_S32 bytesperpixel = s->bytesperpixel;
 
-    //av_assert0(w > 0 && h > 0);
-
-    if (s->intra_pred_data[0] && w == ctx->width && h == ctx->height && ctx->pix_fmt == fmt)
+    if (w == ctx->width && h == ctx->height && ctx->pix_fmt == fmt)
         return 0;
 
     ctx->width   = w;
@@ -446,43 +434,13 @@ static RK_S32 update_size(Vp9CodecContext *ctx, RK_S32 w, RK_S32 h, RK_S32 fmt)
     s->cols      = (w + 7) >> 3;
     s->rows      = (h + 7) >> 3;
 
-#define assign(var, type, n) var = (type) p; p += s->sb_cols * (n) * sizeof(*var)
-    mpp_free(s->intra_pred_data[0]);
-    // FIXME we slightly over-allocate here for subsampled chroma, but a little
-    // bit of padding shouldn't affect performance...
-    p = mpp_malloc(RK_U8, s->sb_cols * (128 + 192 * bytesperpixel +
-                                        sizeof(*s->lflvl) +
-                                        16 * sizeof(*s->above_mv_ctx)));
-    if (!p)
-        return MPP_ERR_NOMEM;
-    assign(s->intra_pred_data[0],  RK_U8 *,             64 * bytesperpixel);
-    assign(s->intra_pred_data[1],  RK_U8 *,             64 * bytesperpixel);
-    assign(s->intra_pred_data[2],  RK_U8 *,             64 * bytesperpixel);
-    assign(s->above_y_nnz_ctx,     RK_U8 *,             16);
-    assign(s->above_mode_ctx,      RK_U8 *,             16);
-    assign(s->above_mv_ctx,        Vpxmv(*)[2],          16);
-    assign(s->above_uv_nnz_ctx[0], RK_U8 *,             16);
-    assign(s->above_uv_nnz_ctx[1], RK_U8 *,             16);
-    assign(s->above_partition_ctx, RK_U8 *,              8);
-    assign(s->above_skip_ctx,      RK_U8 *,              8);
-    assign(s->above_txfm_ctx,      RK_U8 *,              8);
-    assign(s->above_segpred_ctx,   RK_U8 *,              8);
-    assign(s->above_intra_ctx,     RK_U8 *,              8);
-    assign(s->above_comp_ctx,      RK_U8 *,              8);
-    assign(s->above_ref_ctx,       RK_U8 *,              8);
-    assign(s->above_filter_ctx,    RK_U8 *,              8);
-    assign(s->lflvl,               struct VP9Filter *,     1);
-#undef assign
-
     // these will be re-allocated a little later
-
     if (s->bpp != s->last_bpp) {
         s->last_bpp = s->bpp;
     }
 
     return 0;
 }
-
 
 static RK_S32 inv_recenter_nonneg(RK_S32 v, RK_S32 m)
 {
@@ -912,7 +870,7 @@ static RK_S32 decode_parser_header(Vp9CodecContext *ctx,
                      s->uvdc_qdelta == 0 && s->uvac_qdelta == 0;
 
     /* segmentation header info */
-
+    s->segmentation.update_map = 0;
     s->segmentation.ignore_refmap = 0;
     if ((s->segmentation.enabled = mpp_get_bit1(&s->gb))) {
         vp9d_dbg(VP9D_DBG_HEADER, "segmentation_enabled 1");

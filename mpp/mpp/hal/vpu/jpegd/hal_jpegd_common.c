@@ -20,19 +20,45 @@
 #include <string.h>
 #include <stdint.h>
 
-#include "mpp_buffer.h"
+#include "mpp_env.h"
 #include "mpp_log.h"
-#include "mpp_err.h"
 #include "mpp_mem.h"
 #include "mpp_bitread.h"
-#include "mpp_dec.h"
-#include "mpp_buffer.h"
-#include "mpp_env.h"
 #include "mpp_bitput.h"
 
+#include "hal_task.h"
 #include "jpegd_syntax.h"
 #include "jpegd_api.h"
 #include "hal_jpegd_common.h"
+
+RK_U32 jpegd_vdpu_tail_0xFF_patch(MppBuffer stream, RK_U32 length)
+{
+    RK_U8 *p = mpp_buffer_get_ptr(stream);
+    RK_U8 *end = p + length;
+
+    if (end[-1] == 0xD9 && end[-2] == 0xFF) {
+        end -= 2;
+
+        do {
+            if (end[-1] == 0xFF) {
+                end--;
+                length--;
+                continue;
+            }
+            if (end[-1] == 0x00 && end [-2] == 0xFF) {
+                end -= 2;
+                length -= 2;
+                continue;
+            }
+            break;
+        } while (1);
+
+        end[0] = 0xff;
+        end[1] = 0xD9;
+    }
+
+    return length;
+}
 
 void jpegd_write_qp_ac_dc_table(JpegdHalCtx *ctx,
                                 JpegdSyntax*syntax)
@@ -208,17 +234,17 @@ void jpegd_write_qp_ac_dc_table(JpegdHalCtx *ctx,
     return;
 }
 
-void jpegd_setup_output_fmt(JpegdHalCtx *ctx, JpegdSyntax *syntax)
+void jpegd_setup_output_fmt(JpegdHalCtx *ctx, JpegdSyntax *s, RK_S32 output)
 {
     jpegd_dbg_func("enter\n");
     RK_U32 pp_in_fmt = 0;
-    JpegdSyntax *s = syntax;
     PPInfo *pp_info = &(ctx->pp_info);
+    MppFrame frm = NULL;
 
     if (ctx->set_output_fmt_flag && (ctx->output_fmt != s->output_fmt)) {
         /* Using pp to convert all format to yuv420sp */
         switch (s->output_fmt) {
-        case MPP_FMT_YUV400SP:
+        case MPP_FMT_YUV400:
             pp_in_fmt = PP_IN_FORMAT_YUV400;
             break;
         case MPP_FMT_YUV420SP:
@@ -252,6 +278,10 @@ void jpegd_setup_output_fmt(JpegdHalCtx *ctx, JpegdSyntax *syntax)
         ctx->output_fmt = s->output_fmt;
         pp_info->pp_enable = 0;
     }
+
+    mpp_buf_slot_get_prop(ctx->frame_slots, output,
+                          SLOT_FRAME_PTR, &frm);
+    mpp_frame_set_fmt(frm, ctx->output_fmt);
 
     jpegd_dbg_func("exit\n");
     return;

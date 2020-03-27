@@ -15,14 +15,14 @@
  */
 
 #define MODULE_TAG "m2vd_parser"
+
 #include <string.h>
+
+#include "mpp_env.h"
+#include "mpp_packet_impl.h"
 
 #include "m2vd_parser.h"
 #include "m2vd_codec.h"
-
-#include "mpp_packet_impl.h"
-#include "mpp_frame.h"
-#include "mpp_env.h"
 
 #define VPU_BITSTREAM_START_CODE (0x42564b52)  /* RKVB, rockchip video bitstream */
 
@@ -80,6 +80,25 @@ static int frame_period_Table[16] = {
     1,
     1,
     1
+};
+
+static const MppFrameRational mpeg2_aspect[16] = {
+    {0, 1},
+    {1, 1},
+    {4, 3},
+    {16, 9},
+    {221, 100},
+    {0, 1},
+    {0, 1},
+    {0, 1},
+    {0, 1},
+    {0, 1},
+    {0, 1},
+    {0, 1},
+    {0, 1},
+    {0, 1},
+    {0, 1},
+    {0, 1},
 };
 
 static inline RK_S32 m2vd_get_readbits(BitReadCtx_t *bx)
@@ -333,7 +352,7 @@ MPP_RET m2vd_parser_flush(void *ctx)
     M2VDParserContext *p = (M2VDParserContext *)c->parse_ctx;
     m2vd_dbg_func("FUN_I");
 
-    if ((p->frame_ref0->slot_index != 0xff) && !p->frame_ref0->flags) {
+    if ((p->frame_ref0->slot_index != 0xff) && p->frame_ref0->flags) {
         mpp_buf_slot_set_flag(p->frame_slots, p->frame_ref0->slot_index,
                               SLOT_QUEUE_USE);
         mpp_buf_slot_enqueue(p->frame_slots, p->frame_ref0->slot_index,
@@ -351,7 +370,7 @@ MPP_RET m2vd_parser_flush(void *ctx)
 *   control/perform
 ***********************************************************************
 */
-MPP_RET m2vd_parser_control(void *ctx, RK_S32 cmd_type, void *param)
+MPP_RET m2vd_parser_control(void *ctx, MpiCmd cmd_type, void *param)
 {
     MPP_RET ret = MPP_OK;
     m2vd_dbg_func("FUN_I");
@@ -1049,7 +1068,7 @@ static MPP_RET m2vd_decode_head(M2VDParserContext *ctx)
 
 static MPP_RET m2vd_alloc_frame(M2VDParserContext *ctx)
 {
-    RK_U64 pts = (RK_U64)(ctx->pts / 1000);
+    RK_U64 pts = ctx->pts;
     if (ctx->resetFlag && ctx->pic_head.picture_coding_type != M2VD_CODING_TYPE_I) {
         mpp_log("[m2v]: resetFlag[%d] && picture_coding_type[%d] != I_TYPE", ctx->resetFlag, ctx->pic_head.picture_coding_type);
         return MPP_NOK;
@@ -1062,7 +1081,8 @@ static MPP_RET m2vd_alloc_frame(M2VDParserContext *ctx)
         (ctx->frame_cur->slot_index == 0xff)) {
         RK_S64 Time = 0;
         if (ctx->PreGetFrameTime != pts) {
-            RK_U32 tmp_frame_period;
+            RK_S32 tmp_frame_period;
+
             if (ctx->GroupFrameCnt) {
                 ctx->GroupFrameCnt = ctx->GroupFrameCnt + ctx->pic_head.temporal_reference;
             } else if (ctx->pic_head.temporal_reference == (RK_S32)ctx->PreChangeTime_index)
@@ -1086,7 +1106,8 @@ static MPP_RET m2vd_alloc_frame(M2VDParserContext *ctx)
 
             if ((pts > ctx->PreGetFrameTime) && (ctx->GroupFrameCnt > 0)) {
                 tmp_frame_period = (tmp_frame_period * 256) / ctx->GroupFrameCnt;
-                if ((tmp_frame_period > 4200) && (tmp_frame_period < 11200) && (abs(ctx->frame_period - tmp_frame_period) > 128)) {
+                if ((tmp_frame_period > 4200) && (tmp_frame_period < 11200) &&
+                    (abs(ctx->frame_period - tmp_frame_period) > 128)) {
                     if (abs(ctx->preframe_period - tmp_frame_period) > 128)
                         ctx->preframe_period = tmp_frame_period;
                     else
@@ -1151,7 +1172,7 @@ static MPP_RET m2vd_alloc_frame(M2VDParserContext *ctx)
             mpp_frame_set_hor_stride(ctx->frame_cur->f, ctx->display_width);
             mpp_frame_set_ver_stride(ctx->frame_cur->f, ctx->display_height);
             mpp_frame_set_errinfo(ctx->frame_cur->f, 0);
-            mpp_frame_set_pts(ctx->frame_cur->f, Time * 1000);
+            mpp_frame_set_pts(ctx->frame_cur->f, Time);
             ctx->frame_cur->flags = M2V_OUT_FLAG;
             if (ctx->seq_ext_head.progressive_sequence) {
                 frametype = MPP_FRAME_FLAG_FRAME;
@@ -1163,6 +1184,9 @@ static MPP_RET m2vd_alloc_frame(M2VDParserContext *ctx)
                     frametype |= MPP_FRAME_FLAG_BOT_FIRST;
             }
             mpp_frame_set_mode(ctx->frame_cur->f, frametype);
+
+            if (ctx->seq_head.aspect_ratio_information >= 0 && ctx->seq_head.aspect_ratio_information < 16)
+                mpp_frame_set_sar(ctx->frame_cur->f, mpeg2_aspect[ctx->seq_head.aspect_ratio_information]);
 
             mpp_buf_slot_get_unused(ctx->frame_slots, &ctx->frame_cur->slot_index);
             mpp_buf_slot_set_prop(ctx->frame_slots, ctx->frame_cur->slot_index, SLOT_FRAME, ctx->frame_cur->f);

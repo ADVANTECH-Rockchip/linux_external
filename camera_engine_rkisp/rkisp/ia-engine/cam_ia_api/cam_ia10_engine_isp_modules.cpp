@@ -1,11 +1,12 @@
 #include "cam_ia10_engine_isp_modules.h"
 #include <ebase/utl_fixfloat.h>
 #include <string.h>
-#include <base/log.h>
+#include <base/xcam_log.h>
+#include <math.h>
 
 #define ISP_CHECK_NULL(p) \
   if(!p) { \
-    ALOGE("%s:%s is NULL!",__func__,#p);\
+    LOGE("%s:%s is NULL!",__func__,#p);\
     return RET_FAILURE;\
   }
 
@@ -25,10 +26,10 @@ RESULT cam_ia10_isp_bls_config
   } else if (enable_mode == HAL_ISP_ACTIVE_SETTING) {
     ISP_CHECK_NULL(bls_cfg);
     bls_result->enabled = BOOL_TRUE;
-    bls_result->isp_bls_a_fixed = bls_cfg->fixed_blue;
-    bls_result->isp_bls_b_fixed = bls_cfg->fixed_greenB;
-    bls_result->isp_bls_c_fixed = bls_cfg->fixed_greenR;
-    bls_result->isp_bls_d_fixed = bls_cfg->fixed_red;
+    bls_result->isp_bls_a_fixed = bls_cfg->fixed_red;
+    bls_result->isp_bls_b_fixed = bls_cfg->fixed_greenR;
+    bls_result->isp_bls_c_fixed = bls_cfg->fixed_greenB;
+    bls_result->isp_bls_d_fixed = bls_cfg->fixed_blue;
     //TODO
     //bls_result->num_win
     //bls_result->Window1
@@ -40,26 +41,26 @@ RESULT cam_ia10_isp_bls_config
     bls_result->enabled = BOOL_TRUE;
     result = CamCalibDbGetResolutionNameByWidthHeight(hCamCalibDb, width, height,  &res_name);
     if (RET_SUCCESS != result) {
-      ALOGE("%s: resolution (%dx%d) not found in database\n", __FUNCTION__, width, height);
+      LOGE("%s: resolution (%dx%d) not found in database\n", __FUNCTION__, width, height);
       return (result);
     }
     // get BLS calibration profile from database
     result = CamCalibDbGetBlsProfileByResolution(hCamCalibDb, res_name, &pBlsProfile);
     if (result != RET_SUCCESS) {
-      ALOGE("%s: BLS profile %s not available (%d)\n", __FUNCTION__, res_name, result);
+      LOGE("%s: BLS profile %s not available (%d)\n", __FUNCTION__, res_name, result);
       return (result);
     }
     DCT_ASSERT(NULL != pBlsProfile);
-    bls_result->isp_bls_d_fixed   =  pBlsProfile->level.uCoeff[CAM_4CH_COLOR_COMPONENT_RED];
-    bls_result->isp_bls_c_fixed   =  pBlsProfile->level.uCoeff[CAM_4CH_COLOR_COMPONENT_GREENR];
-    bls_result->isp_bls_b_fixed   =  pBlsProfile->level.uCoeff[CAM_4CH_COLOR_COMPONENT_GREENB];
-    bls_result->isp_bls_a_fixed   =  pBlsProfile->level.uCoeff[CAM_4CH_COLOR_COMPONENT_BLUE];
+    bls_result->isp_bls_a_fixed   =  pBlsProfile->level.uCoeff[CAM_4CH_COLOR_COMPONENT_RED];
+    bls_result->isp_bls_b_fixed   =  pBlsProfile->level.uCoeff[CAM_4CH_COLOR_COMPONENT_GREENR];
+    bls_result->isp_bls_c_fixed   =  pBlsProfile->level.uCoeff[CAM_4CH_COLOR_COMPONENT_GREENB];
+    bls_result->isp_bls_d_fixed   =  pBlsProfile->level.uCoeff[CAM_4CH_COLOR_COMPONENT_BLUE];
     //TODO
     //bls_result->num_win
     //bls_result->Window1
     //bls_result->Window2
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -116,13 +117,13 @@ RESULT cam_ia10_isp_dpcc_config
     dpcc_result->enabled = BOOL_TRUE;
     result = CamCalibDbGetResolutionNameByWidthHeight(hCamCalibDb, width, height,  &res_name);
     if (RET_SUCCESS != result) {
-      ALOGE("%s: resolution (%dx%d) not found in database\n", __FUNCTION__, width, height);
+      LOGE("%s: resolution (%dx%d) not found in database\n", __FUNCTION__, width, height);
       return (result);
     }
     // get dpf-profile from calibration database
     result = CamCalibDbGetDpccProfileByResolution(hCamCalibDb, res_name, &pDpccProfile);
     if (result != RET_SUCCESS) {
-      ALOGE("%s: Getting DPCC profile for resolution %s from calibration database failed (%d)\n",
+      LOGE("%s: Getting DPCC profile for resolution %s from calibration database failed (%d)\n",
             __FUNCTION__, res_name, result);
       return (result);
     }
@@ -156,7 +157,7 @@ RESULT cam_ia10_isp_dpcc_config
     dpcc_result->isp_dpcc_ro_limits       = pDpccProfile->isp_dpcc_ro_limits;
     dpcc_result->isp_dpcc_rnd_offs        = pDpccProfile->isp_dpcc_rnd_offs;
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -173,7 +174,7 @@ RESULT cam_ia10_isp_sdg_config
   if (enable_mode == HAL_ISP_ACTIVE_FALSE) {
     sdg_result->enabled = BOOL_FALSE;
   } else if (enable_mode == HAL_ISP_ACTIVE_SETTING) {
-    int ind = 0;
+    unsigned int ind = 0;
     ISP_CHECK_NULL(sdg_cfg);
     sdg_result->enabled = BOOL_TRUE;
 
@@ -197,7 +198,7 @@ RESULT cam_ia10_isp_sdg_config
 
   } else if (enable_mode == HAL_ISP_ACTIVE_DEFAULT) {
     //default is active
-    int ind = 0;
+    unsigned int ind = 0;
     int16_t  def_curve[CAMERIC_DEGAMMA_CURVE_SIZE] = {
       0x0000, 0x0100, 0x0200, 0x0300,
       0x0400, 0x0500, 0x0600, 0x0700,
@@ -215,7 +216,7 @@ RESULT cam_ia10_isp_sdg_config
     }
 
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -594,16 +595,16 @@ RESULT cam_ia10_isp_flt_config
 	 
   } else if (enable_mode == HAL_ISP_ACTIVE_DEFAULT) {
     //flt_result->enabled = BOOL_FALSE;
-    struct HAL_ISP_flt_cfg_s flt_default_cfg = {2, 5};
+    struct HAL_ISP_flt_cfg_s flt_default_cfg = {2, 5, 0};
     cam_ia10_isp_flt_config(hCamCalibDb, HAL_ISP_ACTIVE_SETTING, &flt_default_cfg, drv_width, drv_height, flt_result);
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
 
 }
-#ifdef RK_ISP10
+#if 0
 static uint16_t cam_ia_goc_def_gamma_y[CAMERIC_ISP_GAMMA_CURVE_SIZE] = {
   0x000, 0x049, 0x089, 0x0B7,
   0x0DF, 0x11F, 0x154, 0x183,
@@ -612,7 +613,9 @@ static uint16_t cam_ia_goc_def_gamma_y[CAMERIC_ISP_GAMMA_CURVE_SIZE] = {
   0x3FF,
 };
 //[0 73 137 183 223 287 340 387 429 502 565 623 723 810 888 959 1023]
-#else
+#endif
+// only define the 34 segments goc, if other number of segments is
+// required, we could map from this.
 static uint16_t cam_ia_goc_def_gamma_y[CAMERIC_ISP_GAMMA_CURVE_SIZE] = {
   0x000, 0x092, 0x124, 0x1a4,
   0x224, 0x280, 0x2dc, 0x32c,
@@ -624,7 +627,18 @@ static uint16_t cam_ia_goc_def_gamma_y[CAMERIC_ISP_GAMMA_CURVE_SIZE] = {
   0xde0, 0xe6e, 0xefc, 0xf7c,
   0xfff, 0x000
 };
-#endif
+
+void cam_ia10_isp_goc_map_34_to_17
+(
+     uint16_t* goc_in,
+     uint16_t* goc_out
+) {
+    int i;
+
+    for (i = 0; i < 17; i++) {
+        goc_out[i] = goc_in[i * 2] / 4;
+    }
+}
 
 RESULT cam_ia10_isp_goc_config
 (
@@ -632,7 +646,8 @@ RESULT cam_ia10_isp_goc_config
     enum HAL_ISP_ACTIVE_MODE enable_mode,
     struct HAL_ISP_goc_cfg_s* goc_cfg,
     CamerIcIspGocConfig_t* goc_result,
-    bool_t WDR_enable_mode
+    bool_t WDR_enable_mode,
+    int isp_ver
 ) {
   RESULT result = RET_SUCCESS;
   ISP_CHECK_NULL(goc_result);
@@ -642,19 +657,33 @@ RESULT cam_ia10_isp_goc_config
     ISP_CHECK_NULL(goc_cfg);
     goc_result->enabled = BOOL_FALSE;
     goc_result->mode = (CamerIcIspGammaSegmentationMode_t)(goc_cfg->mode);
-    for (ind = 0; (ind < goc_cfg->used_cnt) && \
-         (ind < CAMERIC_ISP_GAMMA_CURVE_SIZE);
-         ind++)
-      goc_result->gamma_y.GammaY[ind] = goc_cfg->gamma_y[ind];
+    if (isp_ver > 0) {
+        if (goc_cfg->used_cnt != 34)
+            LOGE("goc segment count %d is error for isp ver %d",
+                 goc_cfg->used_cnt, isp_ver);
+        for (ind = 0; (ind < goc_cfg->used_cnt); ind++)
+          goc_result->gamma_y.GammaY[ind] = goc_cfg->gamma_y[ind];
+
+    } else {
+        cam_ia10_isp_goc_map_34_to_17(goc_cfg->gamma_y,
+                                      goc_result->gamma_y.GammaY);
+    }
   } else if (enable_mode == HAL_ISP_ACTIVE_SETTING) {
     int ind = 0;
     ISP_CHECK_NULL(goc_cfg);
     goc_result->enabled = BOOL_TRUE;
     goc_result->mode = (CamerIcIspGammaSegmentationMode_t)(goc_cfg->mode);
-    for (ind = 0; (ind < goc_cfg->used_cnt) && \
-         (ind < CAMERIC_ISP_GAMMA_CURVE_SIZE);
-         ind++)
-      goc_result->gamma_y.GammaY[ind] = goc_cfg->gamma_y[ind];
+    if (isp_ver > 0) {
+        if (goc_cfg->used_cnt != 34)
+            LOGE("goc segment count %d is error for isp ver %d",
+                 goc_cfg->used_cnt, isp_ver);
+        for (ind = 0; (ind < goc_cfg->used_cnt); ind++)
+          goc_result->gamma_y.GammaY[ind] = goc_cfg->gamma_y[ind];
+
+    } else {
+        cam_ia10_isp_goc_map_34_to_17(goc_cfg->gamma_y,
+                                      goc_result->gamma_y.GammaY);
+    }
   } else if (enable_mode == HAL_ISP_ACTIVE_DEFAULT) {
     //default gamma 2.2
     //goc_result->enabled = BOOL_TRUE;
@@ -694,10 +723,6 @@ RESULT cam_ia10_isp_goc_config
       for (int index = 0; index < (CAMERIC_ISP_GAMMA_CURVE_SIZE); index++) {
         goc_def_cfg.gamma_y[index] = pGocProfile->GammaY[index];
       }
-    } else if (pGocProfile != NULL && pGocProfile->WdrOn_GammaY[CAMERIC_ISP_GAMMA_CURVE_SIZE / 2 - 1] > 0) {
-      for (int index = 0; index < (CAMERIC_ISP_GAMMA_CURVE_SIZE); index++) {
-        goc_def_cfg.gamma_y[index] = pGocProfile->WdrOn_GammaY[index];
-      }
     } else {
       for (int index = 0; index < (CAMERIC_ISP_GAMMA_CURVE_SIZE); index++) {
         goc_def_cfg.gamma_y[index] = cam_ia_goc_def_gamma_y[index];
@@ -705,9 +730,10 @@ RESULT cam_ia10_isp_goc_config
     }
 
     result = cam_ia10_isp_goc_config(hCamCalibDb, goc_enable_mode,
-                                     &goc_def_cfg, goc_result, WDR_enable_mode);
+                                     &goc_def_cfg, goc_result,
+                                     WDR_enable_mode, isp_ver);
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -740,7 +766,7 @@ RESULT cam_ia10_isp_cproc_config
       cproc_result->hue = (uint8_t)((cproc_cfg->cproc.hue) * 128.0f / 90.0f);
 #if 0
     //ignore sharpness,sharpness was set in flt module
-    ALOGE("%s:set  cproc use_case %d, ct=%f,hue=%f,bt=%d,st=%f", __func__,
+    LOGE("%s:set  cproc use_case %d, ct=%f,hue=%f,bt=%d,st=%f", __func__,
           cproc_cfg->use_case,
           cproc_cfg->cproc.contrast,
           cproc_cfg->cproc.hue,
@@ -754,7 +780,7 @@ RESULT cam_ia10_isp_cproc_config
 
     result = CamCalibDbGetCproc(hCamCalibDb, &cproc_profile);
     if (result != RET_SUCCESS) {
-      ALOGE("fail to get cproc_profile, ret: %d", result);
+      LOGE("fail to get cproc_profile, ret: %d", result);
     }
     if (cproc_profile != NULL) {
       if (cproc_cfg) {
@@ -768,7 +794,7 @@ RESULT cam_ia10_isp_cproc_config
           cproc_data = &cproc_profile->cproc[CAM_CPROC_USECASE_VIDEO];
           range = HAL_ISP_COLOR_RANGE_OUT_BT601;
         } else
-          ALOGE("%s:error uscase %d !", __func__, cproc_cfg->use_case);
+          LOGE("%s:error uscase %d !", __func__, cproc_cfg->use_case);
         if (cproc_data) {
           cproc_result->enabled = BOOL_TRUE;
           cproc_result->LumaIn = (CamerIcCprocLuminanceRangeIn_t)(range);
@@ -782,7 +808,7 @@ RESULT cam_ia10_isp_cproc_config
 		  else
 			cproc_result->hue = (uint8_t)((cproc_cfg->cproc.hue) * 128.0f / 90.0f);
 #if 0
-          ALOGE("%s:set xml cproc use_case %d, ct=%f,hue=%f,bt=%d,st=%f", __func__,
+          LOGE("%s:set xml cproc use_case %d, ct=%f,hue=%f,bt=%d,st=%f", __func__,
                 cproc_cfg->use_case,
                 cproc_data->cproc_contrast,
                 cproc_data->cproc_hue,
@@ -791,17 +817,17 @@ RESULT cam_ia10_isp_cproc_config
 #endif
         }
       } else {
-        ALOGE("%s:cproc_cfg is NULL!", __func__);
+        LOGE("%s:cproc_cfg is NULL!", __func__);
         cproc_result->enabled = BOOL_FALSE;
       }
 
     } else {
-      ALOGE("%s:cproc profile doesn't exist!", __func__);
+      LOGE("%s:cproc profile doesn't exist!", __func__);
       cproc_result->enabled = BOOL_FALSE;
     }
 
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -879,19 +905,10 @@ RESULT cam_ia10_isp_ie_config
   } else if (enable_mode == HAL_ISP_ACTIVE_DEFAULT) {
     ie_result->enabled = BOOL_FALSE;
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
-}
-
-void cam_ia10_map_hal_win_to_isp(
-    uint16_t in_width, uint16_t in_height,
-    uint16_t drvWidth, uint16_t drvHeight,
-    uint16_t* out_width, uint16_t*  out_height
-) {
-  *out_width = in_width * drvWidth / HAL_WIN_REF_WIDTH;
-  *out_height = in_height * drvHeight / HAL_WIN_REF_HEIGHT;
 }
 
 /******************************************************************************
@@ -903,28 +920,35 @@ RESULT cam_ia10_isp_hst_update_stepSize
     const CamerIcHistWeights_t  weights,
     const uint16_t              width,
     const uint16_t              height,
+    const int                   isp_ver,
     uint8_t*                     StepSize
 ) {
   uint32_t i;
   uint32_t square;
 
   uint32_t MaxNumOfPixel = 0U;
-
+  uint32_t hist_grid_items, hist_grid_w;
   //TRACE( CAMERIC_ISP_HIST_DRV_INFO, "%s: (enter)\n", __FUNCTION__ );
-  for (i = 0; i < CAMERIC_ISP_HIST_GRID_ITEMS; i++) {
+  if (isp_ver == 0) {
+      hist_grid_items = 25;
+      hist_grid_w = 5;
+  } else {
+      hist_grid_items = 81;
+      hist_grid_w = 9;
+  }
+  for (i = 0; i < hist_grid_items; i++) {
     MaxNumOfPixel += weights[i];
   }
   MaxNumOfPixel = MaxNumOfPixel * \
-                  (((uint32_t)height / CAMERIC_ISP_HIST_GRID_W) * ((uint32_t)width)
-                   / CAMERIC_ISP_HIST_GRID_W);
+                  (((uint32_t)height / hist_grid_w) * ((uint32_t)width)
+                   / hist_grid_w);
 
   switch (mode) {
     case CAMERIC_ISP_HIST_MODE_RGB_COMBINED: {
-      #ifdef RKISP_v12
-      square = ((3 * MaxNumOfPixel) / 0x003FFFFF + 1);
-      #else
-      square = ((3 * MaxNumOfPixel) / 0x000FFFFF + 1);
-      #endif
+      if (isp_ver > 0)
+          square = ((3 * MaxNumOfPixel) / 0x003FFFFF + 1);
+      else
+          square = ((3 * MaxNumOfPixel) / 0x000FFFFF + 1);
       break;
     }
 
@@ -932,16 +956,15 @@ RESULT cam_ia10_isp_hst_update_stepSize
     case CAMERIC_ISP_HIST_MODE_G:
     case CAMERIC_ISP_HIST_MODE_B:
     case CAMERIC_ISP_HIST_MODE_Y: {
-      #ifdef RKISP_v12
-      square = (MaxNumOfPixel / 0x003FFFFF + 1);
-      #else
-      square = (MaxNumOfPixel / 0x000FFFFF + 1);
-      #endif
+      if (isp_ver > 0)
+          square = (MaxNumOfPixel / 0x003FFFFF + 1);
+      else
+          square = (MaxNumOfPixel / 0x000FFFFF + 1);
       break;
     }
 
     default: {
-      ALOGE("%s: Invalid histogram mode (%d) selected\n", __func__, mode);
+      LOGE("%s: Invalid histogram mode (%d) selected\n", __func__, mode);
       return (RET_OUTOFRANGE);
     }
   }
@@ -954,9 +977,62 @@ RESULT cam_ia10_isp_hst_update_stepSize
     }
   }
 
-  //ALOGE("%s: (exit) StepSize=%d\n", __func__, *StepSize);
+  //LOGE("%s: (exit) StepSize=%d\n", __func__, *StepSize);
 
   return (RET_SUCCESS);
+}
+
+void cam_ia10_isp_map_hstw_9x9_to_5x5
+(
+    uint8_t* histw_9x9_in,
+    uint8_t* histw_5x5_out
+) {
+    // 9x9->5x5 can be split to two step:
+    // 1. 9x9 -> 9x5
+    //    do the horizon map firstly, and each element in first line can be
+    //    calculated like this:
+    //      w00_5x5 = w00 * 1.0 + w01 * 0.8 + w02 * 0.0
+    //      w01_5x5 = w01 * 0.2 + w02 * 1.0 + w03 * 0.6
+    //      w02_5x5 = w03 * 0.4 + w04 * 1.0 + w05 * 0.4
+    //      w03_5x5 = w05 * 0.6 + w06 * 1.0 + w07 * 0.2
+    //      w04_5x5 = w07 * 0.8 + w08 * 1.0
+    //    so does other horizon lines.
+    // 2. 9x5 -> 5x5
+    //    do the vertical map, map fomular is the same as above
+    int i, j;
+    // isp v12 weights limit is 0x3f
+    float max_val_9x9 = 1.8*0x3f*2;
+    // isp v10 weights limit is 0x1f
+    float max_val_5x5 = 0x1f;
+    float weights[5][3] = {
+        {1.0 , 0.8 , 0.0},
+        {0.2 , 1.0 , 0.6},
+        {0.4 , 1.0 , 0.4},
+        {0.6 , 1.0 , 0.2},
+        {0.8 , 1.0 , 0.0}
+    };
+    float histw_9x5[45];
+    // 9x9 -> 9x5
+    for (j = 0; j < 9; j++) {
+        for (i = 0; i < 5; i++) {
+           int base_h = i*1.8;
+           histw_9x5[5*j+i] =
+               histw_9x9_in[9*j+base_h]   * weights[i][0] +
+               histw_9x9_in[9*j+base_h+1] * weights[i][1] +
+               ((i == 4) ? 0 : histw_9x9_in[9*j+base_h+2] * weights[i][2]);
+        }
+    }
+    // 9x5 -> 5x5
+    for (j = 0; j < 5; j++) {
+        for (i = 0; i < 5; i++) {
+           int base_v = j*1.8;
+           histw_5x5_out[5*j+i] = ceilf(
+               (histw_9x5[base_v*5+i]     * weights[j][0] +
+               histw_9x5[(base_v+1)*5+i] * weights[j][1] +
+               ((j==4) ? 0 : histw_9x5[(base_v+2)*5+i] * weights[j][2])) *
+               max_val_5x5 / max_val_9x9);
+        }
+    }
 }
 
 RESULT cam_ia10_isp_hst_config
@@ -965,6 +1041,7 @@ RESULT cam_ia10_isp_hst_config
     struct HAL_ISP_hst_cfg_s* hst_cfg,
     uint16_t drv_width,
     uint16_t drv_height,
+    int      isp_ver,
     CamerIcIspHistConfig_t* hst_result
 ) {
   RESULT result = RET_SUCCESS;
@@ -974,7 +1051,6 @@ RESULT cam_ia10_isp_hst_config
   } else if (enable_mode == HAL_ISP_ACTIVE_SETTING) {
     int ind = 0;
     uint8_t step_size = 0;
-    uint16_t step_width, step_height;
     ISP_CHECK_NULL(hst_cfg);
     hst_result->enabled = BOOL_TRUE;
     hst_result->mode = (CamerIcIspHistMode_t)(hst_cfg->mode);
@@ -983,20 +1059,16 @@ RESULT cam_ia10_isp_hst_config
     /* notice: driver will translate to grid (means divided 5)*/
     hst_result->Window.width = hst_cfg->win.right_width;
     hst_result->Window.height = hst_cfg->win.bottom_height;
-    for (; ind < CAMERIC_ISP_HIST_GRID_ITEMS; ind++)
-      hst_result->Weights[ind] = hst_cfg->weight[ind];
-    cam_ia10_map_hal_win_to_isp(
-        hst_cfg->win.right_width,
-        hst_cfg->win.bottom_height,
-        drv_width,
-        drv_height,
-        &step_width,
-        &step_height
-    );
+    if (isp_ver > 0)
+        cam_ia10_isp_map_hstw_9x9_to_5x5(hst_cfg->weight, hst_result->Weights);
+    else
+        for (; ind < CAMERIC_ISP_HIST_GRID_ITEMS; ind++)
+          hst_result->Weights[ind] = hst_cfg->weight[ind];
     cam_ia10_isp_hst_update_stepSize(hst_result->mode,
                                      hst_result->Weights,
-                                     step_width,
-                                     step_height,
+                                     hst_cfg->win.right_width,
+                                     hst_cfg->win.bottom_height,
+                                     isp_ver,
                                      &step_size);
     hst_result->StepSize = step_size;
   } else if (enable_mode == HAL_ISP_ACTIVE_DEFAULT) {
@@ -1009,7 +1081,7 @@ RESULT cam_ia10_isp_hst_config
     for (; ind < CAMERIC_ISP_HIST_GRID_ITEMS; ind++)
       hst_result->Weights[ind] = 0x10;
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -1019,6 +1091,9 @@ RESULT cam_ia10_isp_lsc_config
 (
     enum HAL_ISP_ACTIVE_MODE enable_mode,
     struct HAL_ISP_lsc_cfg_s* lsc_cfg,
+    int width,
+    int height,
+    int isp_ver,
     CamerIcLscConfig_t* lsc_result
 ) {
   RESULT result = RET_SUCCESS;
@@ -1051,7 +1126,7 @@ RESULT cam_ia10_isp_lsc_config
     //controlled by awb algorithm
     lsc_result->enabled = BOOL_FALSE;
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -1093,7 +1168,7 @@ RESULT cam_ia10_isp_awb_gain_config
     awb_gain_result->awb_gain_result->Blue    = UtlFloatToFix_U0208(1.0f);
 #endif
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -1151,7 +1226,7 @@ RESULT cam_ia10_isp_ctk_config
       ctk_result->ctk_offset_result->Red = UtlFloatToFix_S1200((float)(ctk_cfg->ct_offset_r));
     }
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -1199,7 +1274,7 @@ RESULT cam_ia10_isp_awb_meas_config
     //controlled by awb algorithm
     awb_meas_result->enabled = BOOL_FALSE;
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -1237,7 +1312,7 @@ RESULT cam_ia10_isp_aec_config
     *(aec_result->aec_meas_mode) = 1;
     memset(aec_result->meas_win, 0, sizeof(struct Cam_Win));
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -1264,7 +1339,7 @@ RESULT cam_ia10_isp_bdm_config
     bdm_result->enabled = BOOL_TRUE;
     bdm_result->demosaic_th = 4;
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -1319,7 +1394,7 @@ RESULT cam_ia10_isp_wdr_config
     wdr_result->enabled = BOOL_FALSE;
   } else if (enable_mode == HAL_ISP_ACTIVE_SETTING) {
     ISP_CHECK_NULL(wdr_cfg);
-    int index = 0;
+    unsigned int index = 0;
     wdr_result->enabled = BOOL_TRUE;
     wdr_result->mode = (CameraIcWdrMode_t)(wdr_cfg->mode);
     wdr_result->wdr_bavg_clip = wdr_cfg->wdr_bavg_clip;
@@ -1361,7 +1436,7 @@ RESULT cam_ia10_isp_wdr_config
       LOGD("fail to get pWdrGlobal, ret: %d", result);
     }
 
-    int index = 0;
+    unsigned int index = 0;
     wdr_result->enabled = BOOL_TRUE;
     wdr_result->mode = CAMERIC_WDR_MODE_BLOCK;
     if (pWdrGlobal != NULL) {
@@ -1431,7 +1506,7 @@ RESULT cam_ia10_isp_wdr_config
       wdr_result->wdr_coe_off = pWdrGlobal->wdr_coe_off;
     }
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -1450,10 +1525,11 @@ RESULT cam_ia10_isp_dpf_config
     dpf_result->enabled = BOOL_FALSE;
   } else if (enable_mode == HAL_ISP_ACTIVE_SETTING) {
     ISP_CHECK_NULL(dpf_cfg);
+    dpf_result->enabled = BOOL_TRUE;
   } else if (enable_mode == HAL_ISP_ACTIVE_DEFAULT) {
     dpf_result->enabled = BOOL_FALSE;
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
@@ -1479,12 +1555,245 @@ RESULT cam_ia10_isp_dpf_strength_config
   } else if (enable_mode == HAL_ISP_ACTIVE_DEFAULT) {
     dpf_streng_result->enabled = BOOL_FALSE;
   } else {
-    ALOGE("%s:error enable mode %d!", __func__, enable_mode);
+    LOGE("%s:error enable mode %d!", __func__, enable_mode);
     result = RET_FAILURE;
   }
   return result;
 }
 
+RESULT cam_ia10_isp_demosaicLp_config
+(
+	CamCalibDbHandle_t hCamCalibDb,
+    enum HAL_ISP_ACTIVE_MODE enable_mode,
+    struct HAL_ISP_demosaiclp_cfg_s* demosaicLP_cfg,
+    uint16_t drv_width,
+    uint16_t drv_height,
+    CamerIcRKDemosaicLP_t* demosaicLP_result
+) 
+{
+  RESULT result = RET_SUCCESS;
+  ISP_CHECK_NULL(demosaicLP_result);
+  if (enable_mode == HAL_ISP_ACTIVE_FALSE) {
+    demosaicLP_result->lp_en = BOOL_FALSE;
+  } else if (enable_mode == HAL_ISP_ACTIVE_SETTING) {
+	ISP_CHECK_NULL(demosaicLP_cfg);
+	demosaicLP_result->lp_en = demosaicLP_cfg->lp_en;
+	demosaicLP_result->use_old_lp = demosaicLP_cfg->use_old_lp;
+	demosaicLP_result->rb_filter_en = demosaicLP_cfg->rb_filter_en;
+	demosaicLP_result->hp_filter_en = demosaicLP_cfg->hp_filter_en;
+	demosaicLP_result->edge_level_sel = demosaicLP_cfg->edge_level_sel;
+	demosaicLP_result->flat_level_sel = demosaicLP_cfg->flat_level_sel;
+	demosaicLP_result->pattern_level_sel = demosaicLP_cfg->pattern_level_sel;
+	demosaicLP_result->th_var_en = demosaicLP_cfg->th_var_en;
+	demosaicLP_result->th_csc_en = demosaicLP_cfg->th_csc_en;
+	demosaicLP_result->th_diff_en = demosaicLP_cfg->th_diff_en;
+	demosaicLP_result->th_grad_en = demosaicLP_cfg->th_grad_en;
+	demosaicLP_result->thgrad_r_fct = demosaicLP_cfg->thgrad_r_fct;
+	demosaicLP_result->thdiff_r_fct = demosaicLP_cfg->thdiff_r_fct;
+	demosaicLP_result->thvar_r_fct = demosaicLP_cfg->thvar_r_fct;
+	demosaicLP_result->thgrad_b_fct = demosaicLP_cfg->thgrad_b_fct;
+	demosaicLP_result->thdiff_b_fct = demosaicLP_cfg->thdiff_b_fct;
+	demosaicLP_result->thvar_b_fct = demosaicLP_cfg->thvar_b_fct;
+	demosaicLP_result->similarity_th = demosaicLP_cfg->similarity_th;
+	demosaicLP_result->th_var = demosaicLP_cfg->th_var;
+	demosaicLP_result->th_csc = demosaicLP_cfg->th_csc;
+	demosaicLP_result->th_diff = demosaicLP_cfg->th_diff;
+	demosaicLP_result->th_grad = demosaicLP_cfg->th_grad;
+
+	memcpy(demosaicLP_result->lu_divided, demosaicLP_cfg->lu_divided, sizeof(demosaicLP_result->lu_divided));
+	memcpy(demosaicLP_result->thgrad_divided, demosaicLP_cfg->thgrad_divided, sizeof(demosaicLP_result->thgrad_divided));
+	memcpy(demosaicLP_result->thcsc_divided, demosaicLP_cfg->thcsc_divided, sizeof(demosaicLP_result->thcsc_divided));
+	memcpy(demosaicLP_result->thdiff_divided, demosaicLP_cfg->thdiff_divided, sizeof(demosaicLP_result->thdiff_divided));
+	memcpy(demosaicLP_result->thvar_divided, demosaicLP_cfg->thvar_divided, sizeof(demosaicLP_result->thvar_divided));
+	
+  } else if (enable_mode == HAL_ISP_ACTIVE_DEFAULT) {
+	CamDpfProfile_t* pDpfProfile_t = NULL;
+	CamResolutionName_t ResName;   
+	result = CamCalibDbGetResolutionNameByWidthHeight(hCamCalibDb, drv_width, drv_height, &ResName);
+	if (RET_SUCCESS != result) {
+	  LOGD("%s: resolution (%dx%d) not found in database\n", drv_width, drv_height);
+	}else{
+	  result = CamCalibDbGetDpfProfileByResolution(hCamCalibDb, ResName, &pDpfProfile_t);
+	  if (RET_SUCCESS != result) {
+	    LOGD("%s: get dpf fail (%dx%d) (%s) not found in database\n", drv_width, drv_height, ResName);
+	  } 
+	}
+
+	int no_filter;
+	CamFilterProfile_t* pFilterProfile = NULL;
+	CamDemosaicLpProfile_t *pDemosaicLpConf = NULL;
+	enum LIGHT_MODE LightMode = (enum LIGHT_MODE)demosaicLP_cfg->light_mode;
+	
+	result = CamCalibDbGetNoOfFilterProfile(hCamCalibDb, pDpfProfile_t, &no_filter);
+	
+	if(result != RET_SUCCESS){
+		LOGD("fail to get no FilterProfile, ret: %d", result);
+	}else{
+		if(no_filter > 0 && pDpfProfile_t != NULL){
+			if(LightMode <= LIGHT_MODE_MIN ||  LightMode >= LIGHT_MODE_MAX || LightMode > no_filter)
+				LightMode = LIGHT_MODE_DAY;
+		    result = CamCalibDbGetFilterProfileByIdx(hCamCalibDb, pDpfProfile_t, LightMode, &pFilterProfile);
+		    if (result != RET_SUCCESS) {
+		      LOGD("fail to get filter profile fail ret: %d", result);
+		    }else{
+				pDemosaicLpConf = &pFilterProfile->DemosaicLpConf;
+		    }
+		}
+	}
+
+	if(pDemosaicLpConf != NULL){
+		demosaicLP_result->lp_en = pDemosaicLpConf->lp_en;
+		demosaicLP_result->use_old_lp = pDemosaicLpConf->use_old_lp;
+		demosaicLP_result->rb_filter_en = pDemosaicLpConf->rb_filter_en;
+		demosaicLP_result->hp_filter_en = pDemosaicLpConf->hp_filter_en;
+		demosaicLP_result->edge_level_sel = pDemosaicLpConf->edge_level_sel[0];
+		demosaicLP_result->flat_level_sel = pDemosaicLpConf->flat_level_sel[0];
+		demosaicLP_result->pattern_level_sel = pDemosaicLpConf->pattern_level_sel[0];
+		demosaicLP_result->th_var_en = pDemosaicLpConf->th_var_en;
+		demosaicLP_result->th_csc_en = pDemosaicLpConf->th_csc_en;
+		demosaicLP_result->th_diff_en = pDemosaicLpConf->th_diff_en;
+		demosaicLP_result->th_grad_en = pDemosaicLpConf->th_grad_en;
+		demosaicLP_result->thgrad_r_fct = pDemosaicLpConf->thgrad_r_fct[0];
+		demosaicLP_result->thdiff_r_fct = pDemosaicLpConf->thdiff_r_fct[0];
+		demosaicLP_result->thvar_r_fct = pDemosaicLpConf->thvar_r_fct[0];
+		demosaicLP_result->thgrad_b_fct = pDemosaicLpConf->thgrad_b_fct[0];
+		demosaicLP_result->thdiff_b_fct = pDemosaicLpConf->thdiff_b_fct[0];
+		demosaicLP_result->thvar_b_fct = pDemosaicLpConf->thvar_b_fct[0];
+		demosaicLP_result->similarity_th = pDemosaicLpConf->similarity_th[0];
+		demosaicLP_result->th_var = pDemosaicLpConf->th_var[0];
+		demosaicLP_result->th_csc = pDemosaicLpConf->th_csc[0];
+		demosaicLP_result->th_diff = pDemosaicLpConf->th_diff[0];
+		demosaicLP_result->th_grad = pDemosaicLpConf->th_grad[0];
+		
+		demosaicLP_result->thgrad_divided[0] = pDemosaicLpConf->thH_divided0[0];
+		demosaicLP_result->thgrad_divided[1] = pDemosaicLpConf->thH_divided1[0];
+		demosaicLP_result->thgrad_divided[2] = pDemosaicLpConf->thH_divided2[0];
+		demosaicLP_result->thgrad_divided[3] = pDemosaicLpConf->thH_divided3[0];
+		demosaicLP_result->thgrad_divided[4] = pDemosaicLpConf->thH_divided4[0];
+
+		demosaicLP_result->thcsc_divided[0] = pDemosaicLpConf->thCSC_divided0[0];
+		demosaicLP_result->thcsc_divided[1] = pDemosaicLpConf->thCSC_divided1[0];
+		demosaicLP_result->thcsc_divided[2] = pDemosaicLpConf->thCSC_divided2[0];
+		demosaicLP_result->thcsc_divided[3] = pDemosaicLpConf->thCSC_divided3[0];
+		demosaicLP_result->thcsc_divided[4] = pDemosaicLpConf->thCSC_divided4[0];
+
+		demosaicLP_result->thvar_divided[0] = pDemosaicLpConf->varTh_divided0[0];
+		demosaicLP_result->thvar_divided[1] = pDemosaicLpConf->varTh_divided1[0];
+		demosaicLP_result->thvar_divided[2] = pDemosaicLpConf->varTh_divided2[0];
+		demosaicLP_result->thvar_divided[3] = pDemosaicLpConf->varTh_divided3[0];
+		demosaicLP_result->thvar_divided[4] = pDemosaicLpConf->varTh_divided4[0];
+
+		demosaicLP_result->thdiff_divided[0] = pDemosaicLpConf->diff_divided0[0];
+		demosaicLP_result->thdiff_divided[1] = pDemosaicLpConf->diff_divided1[0];
+		demosaicLP_result->thdiff_divided[2] = pDemosaicLpConf->diff_divided2[0];
+		demosaicLP_result->thdiff_divided[3] = pDemosaicLpConf->diff_divided3[0];
+		demosaicLP_result->thdiff_divided[4] = pDemosaicLpConf->diff_divided4[0];
+		
+		demosaicLP_result->lu_divided[0] = pDemosaicLpConf->lu_divided[0];
+		demosaicLP_result->lu_divided[1] = pDemosaicLpConf->lu_divided[1];
+		demosaicLP_result->lu_divided[2] = pDemosaicLpConf->lu_divided[2];
+		demosaicLP_result->lu_divided[3] = pDemosaicLpConf->lu_divided[3];
+	}else{
+		demosaicLP_result->lp_en = 0;
+		demosaicLP_result->use_old_lp = 0;
+		demosaicLP_result->rb_filter_en = 0;
+		demosaicLP_result->hp_filter_en = 0;
+	}	
+	
+  } else{
+	LOGE("%s:error enable mode %d!", __func__, enable_mode);
+    result = RET_FAILURE;
+  }
+
+  return result;
+}
+
+RESULT cam_ia10_isp_rkIEsharp_config
+(
+	CamCalibDbHandle_t hCamCalibDb,
+    enum HAL_ISP_ACTIVE_MODE enable_mode,
+    struct HAL_ISP_RKIEsharp_cfg_s* rkIEsharp_cfg,
+    uint16_t drv_width,
+    uint16_t drv_height,
+    CamerIcRKIeSharpConfig_t* rkIEsharp_result
+) 
+{
+  RESULT result = RET_SUCCESS;
+  ISP_CHECK_NULL(rkIEsharp_result);
+  if (enable_mode == HAL_ISP_ACTIVE_FALSE) {
+    rkIEsharp_result->iesharpen_en = 0;
+  } else if (enable_mode == HAL_ISP_ACTIVE_SETTING) {
+	ISP_CHECK_NULL(rkIEsharp_cfg);
+	rkIEsharp_result->iesharpen_en = rkIEsharp_cfg->iesharpen_en;
+	rkIEsharp_result->coring_thr = rkIEsharp_cfg->coring_thr;
+	rkIEsharp_result->full_range = rkIEsharp_cfg->full_range;
+	rkIEsharp_result->switch_avg = rkIEsharp_cfg->switch_avg;
+	memcpy(rkIEsharp_result->maxnumber, rkIEsharp_cfg->maxnumber, sizeof(rkIEsharp_result->maxnumber));
+	memcpy(rkIEsharp_result->minnumber, rkIEsharp_cfg->minnumber, sizeof(rkIEsharp_result->minnumber));
+	memcpy(rkIEsharp_result->yavg_thr, rkIEsharp_cfg->yavg_thr, sizeof(rkIEsharp_result->yavg_thr));
+	memcpy(rkIEsharp_result->delta1, rkIEsharp_cfg->delta1, sizeof(rkIEsharp_result->delta1));
+	memcpy(rkIEsharp_result->delta2, rkIEsharp_cfg->delta2, sizeof(rkIEsharp_result->delta2));
+	memcpy(rkIEsharp_result->gauss_flat_coe, rkIEsharp_cfg->gauss_flat_coe, sizeof(rkIEsharp_result->gauss_flat_coe));
+	memcpy(rkIEsharp_result->gauss_noise_coe, rkIEsharp_cfg->gauss_noise_coe, sizeof(rkIEsharp_result->gauss_noise_coe));
+	memcpy(rkIEsharp_result->gauss_other_coe, rkIEsharp_cfg->gauss_other_coe, sizeof(rkIEsharp_result->gauss_other_coe));
+	memcpy(rkIEsharp_result->uv_gauss_flat_coe, rkIEsharp_cfg->uv_gauss_flat_coe, sizeof(rkIEsharp_result->uv_gauss_flat_coe));
+	memcpy(rkIEsharp_result->uv_gauss_noise_coe, rkIEsharp_cfg->uv_gauss_noise_coe, sizeof(rkIEsharp_result->uv_gauss_noise_coe));
+	memcpy(rkIEsharp_result->uv_gauss_other_coe, rkIEsharp_cfg->uv_gauss_other_coe, sizeof(rkIEsharp_result->uv_gauss_other_coe));
+	memcpy(rkIEsharp_result->p_grad, rkIEsharp_cfg->p_grad, sizeof(rkIEsharp_result->p_grad));
+	memcpy(rkIEsharp_result->sharp_factor, rkIEsharp_cfg->sharp_factor, sizeof(rkIEsharp_result->sharp_factor));
+	memcpy(rkIEsharp_result->line1_filter_coe, rkIEsharp_cfg->line1_filter_coe, sizeof(rkIEsharp_result->line1_filter_coe));
+	memcpy(rkIEsharp_result->line2_filter_coe, rkIEsharp_cfg->line2_filter_coe, sizeof(rkIEsharp_result->line2_filter_coe));
+	memcpy(rkIEsharp_result->line3_filter_coe, rkIEsharp_cfg->line3_filter_coe, sizeof(rkIEsharp_result->line3_filter_coe));
+	
+  } else if (enable_mode == HAL_ISP_ACTIVE_DEFAULT) {
+	CamResolutionName_t res_name = {0};
+    CamIesharpenProfile_t*        pIEsharpProfile = NULL;
+    //get configs from xml
+	
+    result = CamCalibDbGetResolutionNameByWidthHeight(hCamCalibDb, drv_width, drv_height,  &res_name);
+    if (RET_SUCCESS != result) {
+      LOGE("%s: resolution (%dx%d) not found in database\n", __FUNCTION__, drv_width, drv_height);
+      return (result);
+    }
+    // get dpf-profile from calibration database
+    CamIesharpenProfile_t *pIesharpenProfile = NULL;
+    result = CamCalibDbGetRKsharpenProfileByResolution(hCamCalibDb, res_name, &pIesharpenProfile);
+    if (result != RET_SUCCESS) {
+      LOGE("%s: Getting rk ie sharp profile for resolution %s from calibration database failed (%d)\n",
+            __FUNCTION__, res_name, result);
+    }
+
+	if(pIesharpenProfile != NULL){
+		rkIEsharp_result->iesharpen_en = pIesharpenProfile->iesharpen_en;
+		rkIEsharp_result->coring_thr = pIesharpenProfile->coring_thr;
+		rkIEsharp_result->full_range = pIesharpenProfile->full_range;
+		rkIEsharp_result->switch_avg = pIesharpenProfile->switch_avg;
+		memcpy(rkIEsharp_result->maxnumber, pIesharpenProfile->pmaxnumber, sizeof(rkIEsharp_result->maxnumber));
+		memcpy(rkIEsharp_result->minnumber, pIesharpenProfile->pminnumber, sizeof(rkIEsharp_result->minnumber));
+		memcpy(rkIEsharp_result->yavg_thr, pIesharpenProfile->yavg_thr, sizeof(rkIEsharp_result->yavg_thr));
+		memcpy(rkIEsharp_result->delta1, pIesharpenProfile->P_delta1, sizeof(rkIEsharp_result->delta1));
+		memcpy(rkIEsharp_result->delta2, pIesharpenProfile->P_delta2, sizeof(rkIEsharp_result->delta2));
+		memcpy(rkIEsharp_result->gauss_flat_coe, pIesharpenProfile->gauss_flat_coe, sizeof(rkIEsharp_result->gauss_flat_coe));
+		memcpy(rkIEsharp_result->gauss_noise_coe, pIesharpenProfile->gauss_noise_coe, sizeof(rkIEsharp_result->gauss_noise_coe));
+		memcpy(rkIEsharp_result->gauss_other_coe, pIesharpenProfile->gauss_other_coe, sizeof(rkIEsharp_result->gauss_other_coe));
+		memcpy(rkIEsharp_result->uv_gauss_flat_coe, pIesharpenProfile->uv_gauss_flat_coe, sizeof(rkIEsharp_result->uv_gauss_flat_coe));
+		memcpy(rkIEsharp_result->uv_gauss_noise_coe, pIesharpenProfile->uv_gauss_noise_coe, sizeof(rkIEsharp_result->uv_gauss_noise_coe));
+		memcpy(rkIEsharp_result->uv_gauss_other_coe, pIesharpenProfile->uv_gauss_other_coe, sizeof(rkIEsharp_result->uv_gauss_other_coe));
+		memcpy(rkIEsharp_result->p_grad, pIesharpenProfile->lgridconf.p_grad, sizeof(rkIEsharp_result->p_grad));
+		memcpy(rkIEsharp_result->sharp_factor, pIesharpenProfile->lgridconf.sharp_factor, sizeof(rkIEsharp_result->sharp_factor));
+		memcpy(rkIEsharp_result->line1_filter_coe, pIesharpenProfile->lgridconf.line1_filter_coe, sizeof(rkIEsharp_result->line1_filter_coe));
+		memcpy(rkIEsharp_result->line2_filter_coe, pIesharpenProfile->lgridconf.line2_filter_coe, sizeof(rkIEsharp_result->line2_filter_coe));
+		memcpy(rkIEsharp_result->line3_filter_coe, pIesharpenProfile->lgridconf.line3_filter_coe, sizeof(rkIEsharp_result->line3_filter_coe));
+	}else{
+		rkIEsharp_result->iesharpen_en = 0;
+	}
+  } else{
+	LOGE("%s:error enable mode %d!", __func__, enable_mode);
+    result = RET_FAILURE;
+  }
+  
+  return result;
+}
 
 /*
 

@@ -35,6 +35,7 @@ extern "C" {
 
 namespace XCam {
 #define FMT_NUM_PLANES 1
+#define POLL_STOP_RET 3
 
 class V4l2Buffer;
 
@@ -82,6 +83,8 @@ public:
     }
 
     bool set_buffer_count (uint32_t buf_count);
+    int get_buffer_count () { return _buf_count;}
+    int get_queued_bufcnt () { return _queued_bufcnt;}
 
     // set_framerate must before set_format
     bool set_framerate (uint32_t n, uint32_t d);
@@ -103,9 +106,9 @@ public:
     virtual XCamReturn start (bool need_queue_bufs = true);
     virtual XCamReturn stop ();
 
-    int poll_event (int timeout_msec);
+    int poll_event (int timeout_msec, int stop_fd);
     
-    const struct v4l2_buffer& get_buffer_by_index (int index);
+    SmartPtr<V4l2Buffer> get_buffer_by_index (int index);
     XCamReturn dequeue_buffer (SmartPtr<V4l2Buffer> &buf);
     XCamReturn queue_buffer (SmartPtr<V4l2Buffer> &buf);
 
@@ -148,7 +151,7 @@ protected:
     // buffer pool
     BufferPool          _buf_pool;
     uint32_t            _buf_count;
-
+    uint32_t            _queued_bufcnt;
     XCamReturn buffer_new();
     XCamReturn buffer_del();
 };

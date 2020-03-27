@@ -22,8 +22,8 @@
 
 #include "mpp_log.h"
 #include "mpp_mem.h"
+
 #include "mpi_impl.h"
-#include "mpp.h"
 #include "mpp_info.h"
 #include "mpp_common.h"
 #include "mpp_env.h"
@@ -70,6 +70,12 @@ static MppCodingTypeInfo support_list[] = {
 #endif
 #if HAVE_JPEGE
     {   MPP_CTX_ENC,    MPP_VIDEO_CodingMJPEG,      "enc",  "jpeg",         },
+#endif
+#if HAVE_H265E
+    {   MPP_CTX_ENC,    MPP_VIDEO_CodingHEVC,       "enc",  "h265",         },
+#endif
+#if HAVE_VP8E
+    {   MPP_CTX_ENC,    MPP_VIDEO_CodingVP8,        "enc",  "vp8",          }
 #endif
 };
 

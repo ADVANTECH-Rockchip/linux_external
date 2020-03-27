@@ -4,33 +4,15 @@
  * Copyright (C) 2017 Rockchip Electronics Co., Ltd.
  */
 
-#ifndef _UAPI_RKISP1_CONFIG_H
-#define _UAPI_RKISP1_CONFIG_H
+#ifndef _UAPI_RKISP1_V12_CONFIG_H
+#define _UAPI_RKISP1_V12_CONFIG_H
 
+/*
+ * BELOWS ARE COPIED FROM include/uapi/linux/rkisp1-config_v12.h,
+ * DO NOT EDIT IT.
+ */
 #include <linux/types.h>
 #include <linux/v4l2-controls.h>
-
-#define CIFISP_DPCC_ID      0
-#define CIFISP_BLS_ID       1
-#define CIFISP_SDG_ID       2
-#define CIFISP_HST_ID       3
-
-#define CIFISP_LSC_ID       4
-#define CIFISP_AWB_GAIN_ID  5
-#define CIFISP_FLT_ID       6
-#define CIFISP_BDM_ID       7
-#define CIFISP_CTK_ID       8
-#define CIFISP_GOC_ID       9
-#define CIFISP_CPROC_ID     10
-#define CIFISP_AFC_ID       11
-#define CIFISP_AWB_ID       12
-
-#define CIFISP_IE_ID        13
-#define CIFISP_AEC_ID       14
-#define CIFISP_WDR_ID       15
-#define CIFISP_DPF_ID       16
-#define CIFISP_DPF_STRENGTH_ID  17
-
 #define CIFISP_MODULE_DPCC              (1 << 0)
 #define CIFISP_MODULE_BLS               (1 << 1)
 #define CIFISP_MODULE_SDG               (1 << 2)
@@ -49,13 +31,15 @@
 #define CIFISP_MODULE_WDR               (1 << 15)
 #define CIFISP_MODULE_DPF               (1 << 16)
 #define CIFISP_MODULE_DPF_STRENGTH      (1 << 17)
+#define CIFISP_MODULE_DEMOSAICLP		(1 << 18)
+#define CIFISP_MODULE_RK_IESHARP		(1 << 19)
 
 #define CIFISP_CTK_COEFF_MAX            0x100
 #define CIFISP_CTK_OFFSET_MAX           0x800
 
-#define CIFISP_AE_MEAN_MAX              25
-#define CIFISP_AE_MEAN_W                5
-#define CIFISP_HIST_BIN_N_MAX           16
+#define CIFISP_AE_MEAN_MAX              81
+#define CIFISP_AE_MEAN_W                9
+#define CIFISP_HIST_BIN_N_MAX           32
 #define CIFISP_AFM_MAX_WINDOWS          3
 #define CIFISP_DEGAMMA_CURVE_SIZE       17
 
@@ -91,7 +75,7 @@
  * Gamma out
  */
 /* Maximum number of color samples supported */
-#define CIFISP_GAMMA_OUT_MAX_SAMPLES       17
+#define CIFISP_GAMMA_OUT_MAX_SAMPLES       34
 
 /*
  * Lens shade correction
@@ -109,7 +93,7 @@
  * Histogram calculation
  */
 /* Last 3 values unused. */
-#define CIFISP_HISTOGRAM_WEIGHT_GRIDS_SIZE 28
+#define CIFISP_HISTOGRAM_WEIGHT_GRIDS_SIZE 81
 
 /*
  * Defect Pixel Cluster Correction
@@ -122,6 +106,9 @@
 #define CIFISP_DPF_MAX_NLF_COEFFS      17
 #define CIFISP_DPF_MAX_SPATIAL_COEFFS  6
 
+/* WDR */
+#define CIFISP_WDR_SIZE						48
+
 /*
  * Measurement types
  */
@@ -129,7 +116,17 @@
 #define CIFISP_STAT_AUTOEXP       (1 << 1)
 #define CIFISP_STAT_AFM_FIN       (1 << 2)
 #define CIFISP_STAT_HIST          (1 << 3)
+#define CIFISP_STAT_EMB_DATA      (1 << 4)
+#define CIFISP_ADD_DATA_FIFO_SIZE (2048 * 4)
 
+/*
+ *  * private control id
+ *   */
+enum cifisp_ctrl_id {
+    CIFISP_CID_EMB_VC = (V4L2_CTRL_CLASS_CAMERA | 0x1001),
+    CIFISP_CID_EMB_DT,
+    CIFISP_CID_LAST
+};
 enum cifisp_histogram_mode {
 	CIFISP_HISTOGRAM_MODE_DISABLE,
 	CIFISP_HISTOGRAM_MODE_RGB_COMBINED,
@@ -591,18 +588,73 @@ struct cifisp_dpf_strength_config {
 	unsigned char b;
 } __attribute__ ((packed));
 
-struct cifisp_last_capture_config {
-	struct cifisp_cproc_config cproc;
-	struct cifisp_goc_config   goc;
-	struct cifisp_ctk_config   ctk;
-	struct cifisp_bdm_config   bdm;
-	struct cifisp_flt_config   flt;
-	struct cifisp_awb_gain_config awb_gain;
-	struct cifisp_awb_meas_config awb_meas;
-	struct cifisp_lsc_config lsc;
-	struct cifisp_sdg_config sdg;
-	struct cifisp_bls_config bls;
+enum cifisp_wdr_mode {
+	CIFISP_WDR_MODE_BLOCK,
+	CIFISP_WDR_MODE_GLOBAL
 };
+
+/* Configuration used by Gamma Out correction */
+struct cifisp_wdr_config {
+	enum cifisp_wdr_mode mode;
+	unsigned int c_wdr[CIFISP_WDR_SIZE];
+} __attribute__ ((packed));
+
+
+/* rk demosiac low pass*/
+struct cifisp_demosaiclp_config {
+	unsigned char  rb_filter_en;
+	unsigned char  hp_filter_en;
+	unsigned char  lu_divided[4];
+	unsigned char thgrad_divided[5];
+	unsigned char thdiff_divided[5];
+	unsigned char thcsc_divided[5];
+	unsigned short thvar_divided[5];
+	unsigned char th_grad;
+	unsigned char th_diff;
+	unsigned char th_csc;
+	unsigned short th_var;
+	unsigned char th_var_en;
+	unsigned char th_csc_en;
+	unsigned char th_diff_en;
+	unsigned char th_grad_en;
+	unsigned char use_old_lp;
+	unsigned char similarity_th;
+	unsigned char flat_level_sel;
+	unsigned char pattern_level_sel;
+	unsigned char edge_level_sel;
+	unsigned char thgrad_r_fct;
+	unsigned char thdiff_r_fct;
+	unsigned char thvar_r_fct;
+	unsigned char thgrad_b_fct;
+	unsigned char thdiff_b_fct;
+	unsigned char thvar_b_fct;
+} __attribute__ ((packed));
+
+/**
+ * struct cifisp_rkiesharp_config - rk ie sharp
+ */
+struct cifisp_rkiesharp_config {
+	unsigned char coring_thr; 		// iesharpen coring_thr is default 0
+	unsigned char full_range; 		// iesharpen full range(yuv data) 1:full_range(0-255),2:range(16-24?)
+	unsigned char switch_avg; 	  //iesharpen whether is compare center pixel with edge pixel
+	unsigned char yavg_thr[4];
+	unsigned char delta1[5];
+	unsigned char delta2[5];
+	unsigned char maxnumber[5];
+	unsigned char minnumber[5];
+	unsigned char gauss_flat_coe[9];
+	unsigned char gauss_noise_coe[9];
+	unsigned char gauss_other_coe[9];
+	unsigned char line1_filter_coe[6];
+	unsigned char line2_filter_coe[9];
+	unsigned char line3_filter_coe[6];
+	unsigned short grad_seq[4];
+	unsigned char sharp_factor[5];
+	unsigned char uv_gauss_flat_coe[15];
+	unsigned char uv_gauss_noise_coe[15];
+	unsigned char uv_gauss_other_coe[15];
+	unsigned char lap_mat_coe[9];
+} __attribute__ ((packed));
 
 /**
  * struct cifisp_isp_other_cfg - Parameters for some blocks in rockchip isp1
@@ -636,6 +688,9 @@ struct cifisp_isp_other_cfg {
 	struct cifisp_dpf_strength_config dpf_strength_config;
 	struct cifisp_cproc_config cproc_config;
 	struct cifisp_ie_config ie_config;
+	struct cifisp_wdr_config wdr_config;
+	struct cifisp_demosaiclp_config demosaiclp_config;
+	struct cifisp_rkiesharp_config rkiesharp_config;
 } __attribute__ ((packed));
 
 /**
@@ -762,6 +817,16 @@ struct cifisp_hist_stat {
 } __attribute__ ((packed));
 
 /**
+ * struct cifisp_embedded_data - embedded data
+ *
+ * @data: embedded data
+ *
+ */
+struct cifisp_embedded_data {
+    unsigned char data[CIFISP_ADD_DATA_FIFO_SIZE];
+} __attribute__ ((packed));
+
+/**
  * struct rkisp1_stat_buffer - Rockchip ISP1 Statistics Data
  *
  * @cifisp_awb_stat: statistics data for automatic white balance
@@ -774,6 +839,7 @@ struct cifisp_stat {
 	struct cifisp_ae_stat ae;
 	struct cifisp_af_stat af;
 	struct cifisp_hist_stat hist;
+    struct cifisp_embedded_data emd;
 } __attribute__ ((packed));
 
 /**
@@ -783,10 +849,59 @@ struct cifisp_stat {
  * @frame_id: frame ID for sync
  * @params: statistics data
  */
+struct rkisp1_stat_buffer {
+	unsigned int meas_type;
+	unsigned int frame_id;
+	struct cifisp_stat params;
+} __attribute__ ((packed));
+
+/* COPIED FROM KERNEL DONE */
+
+/*
+ * BELOWS ARE FOR COMPATIBLE RESEON, COPIED FORM rk-isp10-config.h
+ */
+
+
+// rename struct rkisp1_stat_buffer to cifisp_stat_buffer
 struct cifisp_stat_buffer {
 	unsigned int meas_type;
 	unsigned int frame_id;
 	struct cifisp_stat params;
 } __attribute__ ((packed));
 
-#endif /* _UAPI_RKISP1_CONFIG_H */
+struct cifisp_last_capture_config {
+	struct cifisp_cproc_config cproc;
+	struct cifisp_goc_config   goc;
+	struct cifisp_ctk_config   ctk;
+	struct cifisp_bdm_config   bdm;
+	struct cifisp_flt_config   flt;
+	struct cifisp_awb_gain_config awb_gain;
+	struct cifisp_awb_meas_config awb_meas;
+	struct cifisp_lsc_config lsc;
+	struct cifisp_sdg_config sdg;
+	struct cifisp_bls_config bls;
+};
+
+#define CIFISP_DPCC_ID      0
+#define CIFISP_BLS_ID       1
+#define CIFISP_SDG_ID       2
+#define CIFISP_HST_ID       3
+
+#define CIFISP_LSC_ID       4
+#define CIFISP_AWB_GAIN_ID  5
+#define CIFISP_FLT_ID       6
+#define CIFISP_BDM_ID       7
+#define CIFISP_CTK_ID       8
+#define CIFISP_GOC_ID       9
+#define CIFISP_CPROC_ID     10
+#define CIFISP_AFC_ID       11
+#define CIFISP_AWB_ID       12
+
+#define CIFISP_IE_ID        13
+#define CIFISP_AEC_ID       14
+#define CIFISP_WDR_ID       15
+#define CIFISP_DPF_ID       16
+#define CIFISP_DPF_STRENGTH_ID  17
+#define CIFISP_DEMOSAICLP_ID  18
+#define CIFISP_RK_IESHARP_ID  19
+#endif /* _UAPI_RKISP1_V12_CONFIG_H */

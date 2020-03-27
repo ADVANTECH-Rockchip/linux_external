@@ -27,6 +27,8 @@
 # define _GNU_SOURCE            /* O_CLOEXEC */
 #endif
 
+#include <unistd.h>
+
 #include <gst/allocators/gstdmabuf.h>
 
 #include "gstmppallocator.h"
@@ -68,7 +70,7 @@ _mppmem_new (GstMemoryFlags flags, GstAllocator * allocator,
       flags, allocator, parent, maxsize, align, offset, size);
 
   mem->data = data;
-  mem->dmafd = dmafd;
+  mem->dmafd = dup(dmafd);
   mem->mpp_buf = mpp_buf;
   mem->size = maxsize;
 

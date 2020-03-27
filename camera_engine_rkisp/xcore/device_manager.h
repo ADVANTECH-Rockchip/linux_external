@@ -74,7 +74,8 @@ public:
     bool set_isp_stats_device (SmartPtr<V4l2Device> device);
     bool set_isp_params_device (SmartPtr<V4l2Device> device);
     bool set_event_subdevice (SmartPtr<V4l2SubDevice> device);
-    bool set_sensor_subdevice (SmartPtr<V4l2SubDevice> device);
+    bool set_sensor_subdevice (SmartPtr<V4l2SubDevice> device, const char* name = nullptr);
+    const char* get_sensor_entity_name () { return _sensor_name; }
     bool set_vcm_subdevice (SmartPtr<V4l2SubDevice> device);
     bool set_3a_analyzer (SmartPtr<X3aAnalyzer> analyzer);
     bool set_smart_analyzer (SmartPtr<SmartAnalyzer> analyzer);
@@ -82,6 +83,8 @@ public:
     bool set_poll_thread (SmartPtr<PollThread> thread);
     bool set_iq_path(const char* iq_file);
     bool set_has_3a(bool has_3a);
+    void set_isp_ver(int isp_ver) { _isp_ver = isp_ver; }
+    int  get_isp_ver() { return _isp_ver; }
     const char* get_iq_path() {
         return _iq_file;
     }
@@ -105,6 +108,7 @@ public:
 
     XCamReturn start ();
     XCamReturn stop ();
+    XCamReturn prepare ();
 
 protected:
     virtual void handle_message (const SmartPtr<XCamMessage> &msg) = 0;
@@ -158,6 +162,8 @@ protected:
     SmartPtr<SmartAnalyzer>          _smart_analyzer;
 
 	char _iq_file[512];
+    char _sensor_name[32];
+    int  _isp_ver;
 };
 
 };

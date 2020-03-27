@@ -27,3 +27,11 @@ endif()
 if( HAVE_H264E )
     add_subdirectory(h264e)
 endif()
+
+if( HAVE_VP8E)
+    add_subdirectory(vp8e)
+endif()
+
+if(HAVE_H265E)
+    add_subdirectory(h265e)
+endif()

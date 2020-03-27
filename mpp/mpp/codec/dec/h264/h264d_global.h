@@ -20,14 +20,12 @@
 
 #include <stdio.h>
 #include "rk_type.h"
-#include "rk_mpi.h"
 
 #include "mpp_log.h"
 #include "mpp_bitread.h"
 
-#include "h264d_api.h"
 #include "h264d_syntax.h"
-
+#include "h264d_api.h"
 
 
 #define H264D_DBG_ERROR             (0x00000001)
@@ -147,13 +145,6 @@ enum {
 } ScalingListLength;
 
 typedef enum {
-    YUV400 = 0,     //!< Monochrome
-    YUV420 = 1,     //!< 4:2:0
-    YUV422 = 2,     //!< 4:2:2
-    YUV444 = 3      //!< 4:4:4
-} ColorFormat;
-
-typedef enum {
     STRUCT_NULL  = 0,
     TOP_FIELD    = 0x1,
     BOTTOM_FIELD = 0x2,
@@ -187,15 +178,6 @@ typedef enum {
 } CodingType;
 
 typedef enum {
-    P_SLICE = 0,
-    B_SLICE = 1,
-    I_SLICE = 2,
-    SP_SLICE = 3,
-    SI_SLICE = 4,
-    NUM_SLICE_TYPES = 5
-} SliceType;
-
-typedef enum {
     LIST_0 = 0,
     LIST_1 = 1,
     BI_PRED = 2,
@@ -208,8 +190,8 @@ typedef struct h264_nalu_t {
     RK_S32         startcodeprefix_len;   //!< 4 for parameter sets and first slice in picture, 3 for everything else (suggested)
     RK_U32         sodb_len;              //!< Length of the NAL unit (Excluding the start code, which does not belong to the NALU)
     RK_S32         forbidden_bit;         //!< should be always FALSE
-    Nalu_type       nalu_type;         //!< NALU_TYPE_xxxx
-    NalRefIdc_type  nal_reference_idc;     //!< NALU_PRIORITY_xxxx
+    H264NaluType   nalu_type;             //!< NALU_TYPE_xxxx
+    H264NalRefIdcType   nal_reference_idc;     //!< NALU_PRIORITY_xxxx
     RK_U8          *sodb_buf;             //!< Data of the NAL unit (Excluding the start code, which does not belong to the NALU)
     RK_U16          lost_packets;          //!< true, if packet loss is detected, used in RTPNALU
     //---- MVC extension
@@ -228,6 +210,19 @@ typedef struct h264_nalu_t {
     RK_S32   used_bits;
 
 } H264_Nalu_t;
+
+typedef struct h264_nalu_svc_ext_t {
+    RK_U32    valid;
+    RK_U32    idr_flag;
+    RK_U32    priority_id;
+    RK_U32    no_inter_layer_pred_flag;
+    RK_U32    dependency_id;
+    RK_U32    quality_id;
+    RK_U32    temporal_id;
+    RK_U32    use_ref_base_pic_flag;
+    RK_U32    discardable_flag;
+    RK_U32    output_flag;
+} H264_NaluSvcExt_t;
 
 typedef struct h264_nalu_mvc_ext_t {
     RK_U32    valid;
@@ -497,6 +492,22 @@ typedef struct h264_mvc_vui_t {
     RK_S8   time_offset_length;
 } H264_mvcVUI_t;
 
+//!< PREFIX
+
+typedef struct h264_prefix_t {
+    RK_S32    Valid;                  // indicates the prefix set is valid
+    // nal svc syntax
+    RK_S32    store_ref_base_pic_flag;                            // u(1)
+    // svc base pic marking
+    RK_S32    adaptive_ref_base_pic_marking_mode_flag;
+    RK_S32    memory_management_base_control_operation;
+    RK_S32    difference_of_base_pic_nums_minus1;
+    RK_S32    long_term_base_pic_num;
+
+    RK_S32    additional_prefix_nal_unit_extension_flag;          // u(1)
+    RK_S32    additional_prefix_nal_unit_extension_data_flag;     // u(1)
+} H264_PREFIX_t;
+
 //!< SPS
 #define MAXnum_ref_frames_in_POC_cycle  256
 
@@ -641,58 +652,6 @@ typedef struct h264_pps_t {
 
 } H264_PPS_t;
 
-//!< SEI
-typedef enum {
-    SEI_BUFFERING_PERIOD = 0,
-    SEI_PIC_TIMING,
-    SEI_PAN_SCAN_RECT,
-    SEI_FILLER_PAYLOAD,
-    SEI_USER_DATA_REGISTERED_ITU_T_T35,
-    SEI_USER_DATA_UNREGISTERED,
-    SEI_RECOVERY_POINT,
-    SEI_DEC_REF_PIC_MARKING_REPETITION,
-    SEI_SPARE_PIC,
-    SEI_SCENE_INFO,
-    SEI_SUB_SEQ_INFO,
-    SEI_SUB_SEQ_LAYER_CHARACTERISTICS,
-    SEI_SUB_SEQ_CHARACTERISTICS,
-    SEI_FULL_FRAME_FREEZE,
-    SEI_FULL_FRAME_FREEZE_RELEASE,
-    SEI_FULL_FRAME_SNAPSHOT,
-    SEI_PROGRESSIVE_REFINEMENT_SEGMENT_START,
-    SEI_PROGRESSIVE_REFINEMENT_SEGMENT_END,
-    SEI_MOTION_CONSTRAINED_SLICE_GROUP_SET,
-    SEI_FILM_GRAIN_CHARACTERISTICS,
-    SEI_DEBLOCKING_FILTER_DISPLAY_PREFERENCE,
-    SEI_STEREO_VIDEO_INFO,
-    SEI_POST_FILTER_HINTS,
-    SEI_TONE_MAPPING,
-    SEI_SCALABILITY_INFO,
-    SEI_SUB_PIC_SCALABLE_LAYER,
-    SEI_NON_REQUIRED_LAYER_REP,
-    SEI_PRIORITY_LAYER_INFO,
-    SEI_LAYERS_NOT_PRESENT,
-    SEI_LAYER_DEPENDENCY_CHANGE,
-    SEI_SCALABLE_NESTING,
-    SEI_BASE_LAYER_TEMPORAL_HRD,
-    SEI_QUALITY_LAYER_INTEGRITY_CHECK,
-    SEI_REDUNDANT_PIC_PROPERTY,
-    SEI_TL0_DEP_REP_INDEX,
-    SEI_TL_SWITCHING_POINT,
-    SEI_PARALLEL_DECODING_INFO,
-    SEI_MVC_SCALABLE_NESTING,
-    SEI_VIEW_SCALABILITY_INFO,
-    SEI_MULTIVIEW_SCENE_INFO,
-    SEI_MULTIVIEW_ACQUISITION_INFO,
-    SEI_NON_REQUIRED_VIEW_COMPONENT,
-    SEI_VIEW_DEPENDENCY_CHANGE,
-    SEI_OPERATION_POINTS_NOT_PRESENT,
-    SEI_BASE_VIEW_TEMPORAL_HRD,
-    SEI_FRAME_PACKING_ARRANGEMENT,
-
-    SEI_MAX_ELEMENTS  //!< number of maximum syntax elements
-} RKV_H264SEI_Type;
-
 //!< MVC_scalable_nesting
 typedef struct {
     RK_S32   operation_point_flag;
@@ -745,6 +704,28 @@ typedef struct {
     RK_S32 *max_dec_frame_buffering;
 } MVC_scalability_info_t;
 
+typedef struct h264_sei_pic_timing_t {
+    RK_S32 cpb_removal_delay;
+    RK_S32 dpb_output_delay;
+    RK_S32 pic_struct;
+    RK_S32 clock_timestamp_flag[3];
+    RK_S32 clock_timestamp[3];
+    RK_S32 ct_type[3];
+    RK_S32 nuit_field_based_flag[3];
+    RK_S32 counting_type[3];
+    RK_S32 full_timestamp_flag[3];
+    RK_S32 discontinuity_flag[3];
+    RK_S32 cnt_dropped_flag[3];
+    RK_S32 n_frames[3];
+    RK_S32 seconds_flag[3];
+    RK_S32 seconds_value[3];
+    RK_S32 minutes_flag[3];
+    RK_S32 minutes_value[3];
+    RK_S32 hours_flag[3];
+    RK_S32 hours_value[3];
+    RK_S32 time_offset[3];
+} H264_SEI_PIC_TIMING_t;
+
 //!< SEI struct
 typedef struct h264_sei_t {
     RK_S32 type;
@@ -766,11 +747,14 @@ typedef struct h264_sei_t {
     RK_S32 mvc_scalable_nesting_flag;
     RK_S32  seq_parameter_set_id;
 
+    H264_SEI_PIC_TIMING_t pic_timing;
+
     struct h264_dec_ctx_t *p_Dec;
 } H264_SEI_t;
 
 //!< SLICE
 typedef struct h264_slice_t {
+    struct h264_nalu_svc_ext_t svcExt;
     struct h264_nalu_mvc_ext_t mvcExt;
     //--- slice property;
     RK_S32       layer_id;
@@ -946,7 +930,7 @@ typedef struct h264d_curstrm_t {
     RK_U32    head_max_size;
     RK_U8     *head_buf;       //!< store header data, sps/pps/slice header
 
-    RK_U64    prefixdata;
+    RK_U32    prefixdata;
     RK_U8     startcode_found;
     RK_U8     endcode_found;
 
@@ -959,6 +943,7 @@ typedef struct h264d_cur_ctx_t {
     struct h264_sps_t        sps;
     struct h264_subsps_t     subsps;
     struct h264_pps_t        pps;
+    struct h264_prefix_t     prefix;
     struct h264_sei_t        sei;
     struct h264_nalu_t       nalu;
     struct bitread_ctx_t     bitctx; //!< for control bit_read
@@ -1135,8 +1120,8 @@ typedef struct h264_dec_ctx_t {
     RK_U8                      have_slice_data;
     RK_U8                      is_new_frame;
     RK_U8                      is_parser_end;
+    RK_U8                      svc_valid;
     RK_U8                      mvc_valid;
-
     //!< add
     MppBufSlots                frame_slots;   //!< corresponding to dpb_mark
     MppBufSlots                packet_slots;

@@ -21,6 +21,7 @@
 #include "mpp_log.h"
 #include "mpp_mem.h"
 #include "mpp_frame_impl.h"
+#include "mpp_meta_impl.h"
 
 static const char *module_name = MODULE_TAG;
 
@@ -65,9 +66,12 @@ MPP_RET mpp_frame_deinit(MppFrame *frame)
         return MPP_ERR_NULL_PTR;
     }
 
-    MppBuffer buffer = mpp_frame_get_buffer(*frame);
-    if (buffer)
-        mpp_buffer_put(buffer);
+    MppFrameImpl *p = (MppFrameImpl *)*frame;
+    if (p->buffer)
+        mpp_buffer_put(p->buffer);
+
+    if (p->meta)
+        mpp_meta_put(p->meta);
 
     mpp_free(*frame);
     *frame = NULL;
@@ -119,6 +123,32 @@ void mpp_frame_set_buffer(MppFrame frame, MppBuffer buffer)
     }
 }
 
+MppMeta mpp_frame_get_meta(MppFrame frame)
+{
+    if (check_is_mpp_frame(frame))
+        return NULL;
+
+    MppFrameImpl *p = (MppFrameImpl *)frame;
+    if (NULL == p->meta)
+        mpp_meta_get(&p->meta);
+
+    return p->meta;
+}
+
+void mpp_frame_set_meta(MppFrame frame, MppMeta meta)
+{
+    if (check_is_mpp_frame(frame))
+        return ;
+
+    MppFrameImpl *p = (MppFrameImpl *)frame;
+    if (p->meta) {
+        mpp_meta_put(p->meta);
+        p->meta = NULL;
+    }
+
+    p->meta = meta;
+}
+
 MPP_RET mpp_frame_copy(MppFrame dst, MppFrame src)
 {
     if (NULL == dst || check_is_mpp_frame(src)) {
@@ -127,6 +157,10 @@ MPP_RET mpp_frame_copy(MppFrame dst, MppFrame src)
     }
 
     memcpy(dst, src, sizeof(MppFrameImpl));
+    MppFrameImpl *p = (MppFrameImpl *)src;
+    if (p->meta)
+        mpp_meta_inc_ref(p->meta);
+
     return MPP_OK;
 }
 
@@ -184,5 +218,8 @@ MPP_FRAME_ACCESSORS(MppFrameColorTransferCharacteristic, color_trc)
 MPP_FRAME_ACCESSORS(MppFrameColorSpace, colorspace)
 MPP_FRAME_ACCESSORS(MppFrameChromaLocation, chroma_location)
 MPP_FRAME_ACCESSORS(MppFrameFormat, fmt)
+MPP_FRAME_ACCESSORS(MppFrameRational, sar)
+MPP_FRAME_ACCESSORS(MppFrameMasteringDisplayMetadata, mastering_display)
+MPP_FRAME_ACCESSORS(MppFrameContentLightMetadata, content_light)
 MPP_FRAME_ACCESSORS(size_t, buf_size)
 MPP_FRAME_ACCESSORS(RK_U32, errinfo)

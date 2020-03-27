@@ -189,7 +189,7 @@ Volume* volume_for_path(const char* path) {
 		int len = strlen(v->mount_point);
 		if (strncmp(path, v->mount_point, len) == 0 &&
 			(path[len] == '\0' || path[len] == '/')) {
-			printf(" ===path = %s, v-mount_point = %s ===\n",path, v->mount_point);
+			//printf(" ===path = %s, v-mount_point = %s ===\n",path, v->mount_point);
 			return v;
 		} else {
 			//add by chad.ma for symbol link file. eg. sdcard/ --->mnt/sdcard
@@ -346,9 +346,17 @@ int format_volume(const char* volume) {
 		return -1;
 	}
 
-	if (strcmp(v->fs_type, "yaffs2") == 0 || strcmp(v->fs_type, "mtd") == 0) {
+	if (strcmp(v->fs_type, "yaffs2") == 0 || strcmp(v->fs_type, "mtd") == 0 || strcmp(v->fs_type, "ubifs") == 0 ) {
 		mtd_scan_partitions();
-		const MtdPartition* partition = mtd_find_partition_by_name(v->device);
+		char filepath[20];
+		if(strstr(v->device, "userdata") != NULL){
+			strcpy(filepath, "userdata");
+			LOGW("change v->device from %s to %s.\n", v->device, filepath);
+		}else{
+			strcpy(filepath, v->device);
+		}
+
+		const MtdPartition* partition = mtd_find_partition_by_name(filepath);
 		if (partition == NULL) {
 			LOGE("format_volume: no MTD partition \"%s\"\n", v->device);
 			return -1;
@@ -391,6 +399,15 @@ int format_volume(const char* volume) {
 		int result = make_vfat(v->device, 0, v->mount_point);
 		if (result != 0) {
 			LOGE("format_volume: make_vfat failed on %s\n", v->device);
+			return -1;
+		}
+		return 0;
+	}
+
+	if (strcmp(v->fs_type, "ntfs") == 0) {
+		int result = make_ntfs(v->device, 0, v->mount_point);
+		if (result != 0) {
+			LOGE("format_volume: make_ntfs failed on %s\n", v->device);
 			return -1;
 		}
 		return 0;

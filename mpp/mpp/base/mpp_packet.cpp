@@ -20,8 +20,8 @@
 
 #include "mpp_log.h"
 #include "mpp_mem.h"
-#include "mpp_packet.h"
 #include "mpp_packet_impl.h"
+#include "mpp_meta_impl.h"
 
 static const char *module_name = MODULE_TAG;
 
@@ -52,6 +52,7 @@ MPP_RET mpp_packet_new(MppPacket *packet)
         return MPP_ERR_NULL_PTR;
     }
     setup_mpp_packet_name(p);
+
     return MPP_OK;
 }
 
@@ -110,40 +111,46 @@ MPP_RET mpp_packet_copy_init(MppPacket *packet, const MppPacket src)
     if (ret)
         return ret;
 
+    /* copy the source data */
+    memcpy(pkt, src_impl, sizeof(*src_impl));
+
+    /* increase reference of meta data */
+    if (src_impl->meta)
+        mpp_meta_inc_ref(src_impl->meta);
+
     if (src_impl->buffer) {
         /* if source packet has buffer just create a new reference to buffer */
-        memcpy(pkt, src_impl, sizeof(*src_impl));
         mpp_buffer_inc_ref(src_impl->buffer);
-        return MPP_OK;
-    }
-
-    /*
-     * NOTE: only copy valid data
-     */
-    size_t length = mpp_packet_get_length(src);
-    /*
-     * due to parser may be read 32 bit interface so we must alloc more size then real size
-     * to avoid read carsh
-     */
-    void *pos = mpp_malloc_size(void, length + 256);
-    if (NULL == pos) {
-        mpp_err_f("malloc failed, size %d\n", length);
-        mpp_packet_deinit(&pkt);
-        return MPP_ERR_MALLOC;
-    }
-
-    MppPacketImpl *p = (MppPacketImpl *)pkt;
-    memcpy(p, src_impl, sizeof(*src_impl));
-    p->data = p->pos = pos;
-    p->size = p->length = length;
-    p->flag |= MPP_PACKET_FLAG_INTERNAL;
-    if (length) {
-        memcpy(pos, src_impl->pos, length);
+    } else {
         /*
-         * clean more alloc byte to zero
-        */
-        memset((RK_U8*)pos + length, 0, 256);
+         * NOTE: only copy valid data
+         */
+        size_t length = mpp_packet_get_length(src);
+        /*
+         * due to parser may be read 32 bit interface so we must alloc more size
+         * then real size to avoid read carsh
+         */
+        void *pos = mpp_malloc_size(void, length + 256);
+        if (NULL == pos) {
+            mpp_err_f("malloc failed, size %d\n", length);
+            mpp_packet_deinit(&pkt);
+            return MPP_ERR_MALLOC;
+        }
+
+        MppPacketImpl *p = (MppPacketImpl *)pkt;
+        p->data = p->pos = pos;
+        p->size = p->length = length;
+        p->flag |= MPP_PACKET_FLAG_INTERNAL;
+
+        if (length) {
+            memcpy(pos, src_impl->pos, length);
+            /*
+             * clean more alloc byte to zero
+             */
+            memset((RK_U8*)pos + length, 0, 256);
+        }
     }
+
     *packet = pkt;
     return MPP_OK;
 }
@@ -161,9 +168,11 @@ MPP_RET mpp_packet_deinit(MppPacket *packet)
     if (p->buffer)
         mpp_buffer_put(p->buffer);
 
-    if (p->flag & MPP_PACKET_FLAG_INTERNAL) {
+    if (p->flag & MPP_PACKET_FLAG_INTERNAL)
         mpp_free(p->data);
-    }
+
+    if (p->meta)
+        mpp_meta_put(p->meta);
 
     mpp_free(p);
     *packet = NULL;
@@ -247,7 +256,14 @@ MPP_RET mpp_packet_reset(MppPacketImpl *packet)
     if (check_is_mpp_packet(packet))
         return MPP_ERR_UNKNOW;
 
+    void *data = packet->data;
+    size_t size = packet->size;
+
     memset(packet, 0, sizeof(*packet));
+
+    packet->data = data;
+    packet->pos  = data;
+    packet->size = size;
     setup_mpp_packet_name(packet);
     return MPP_OK;
 }
@@ -276,6 +292,18 @@ MppBuffer mpp_packet_get_buffer(const MppPacket packet)
 
     MppPacketImpl *p = (MppPacketImpl *)packet;
     return p->buffer;
+}
+
+MppMeta mpp_packet_get_meta(const MppPacket packet)
+{
+    if (check_is_mpp_packet(packet))
+        return NULL;
+
+    MppPacketImpl *p = (MppPacketImpl *)packet;
+    if (NULL == p->meta)
+        mpp_meta_get(&p->meta);
+
+    return p->meta;
 }
 
 MPP_RET mpp_packet_read(MppPacket packet, size_t offset, void *data, size_t size)

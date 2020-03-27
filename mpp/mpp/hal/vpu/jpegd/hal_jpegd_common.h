@@ -16,6 +16,7 @@
  */
 #ifndef __HAL_JPEGD_COMMON_H__
 #define __HAL_JPEGD_COMMON_H__
+
 #include "hal_jpegd_base.h"
 
 #define BRIGHTNESS                                  4    /* -128 ~ 127 */
@@ -43,9 +44,12 @@ static const RK_U8 zzOrder[64] = {
     58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63
 };
 
+RK_U32 jpegd_vdpu_tail_0xFF_patch(MppBuffer stream, RK_U32 length);
+
 void jpegd_write_qp_ac_dc_table(JpegdHalCtx *ctx,
                                 JpegdSyntax*syntax);
 
-void jpegd_setup_output_fmt(JpegdHalCtx *ctx, JpegdSyntax *syntax);
+void jpegd_setup_output_fmt(JpegdHalCtx *ctx, JpegdSyntax *syntax,
+                            RK_S32 output);
 
 #endif /* __HAL_JPEGD_COMMON_H__ */

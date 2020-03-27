@@ -24,7 +24,6 @@
 #include "mpp_mem.h"
 #include "mpp_log.h"
 #include "mpp_env.h"
-#include "mpp_packet.h"
 #include "mpp_packet_impl.h"
 #include "mpp_buffer_impl.h"
 
@@ -164,7 +163,7 @@ MPP_RET avsd_flush(void *decoder)
 *   control/perform
 ***********************************************************************
 */
-MPP_RET avsd_control(void *decoder, RK_S32 cmd_type, void *param)
+MPP_RET avsd_control(void *decoder, MpiCmd cmd_type, void *param)
 {
     MPP_RET ret = MPP_ERR_UNKNOW;
 

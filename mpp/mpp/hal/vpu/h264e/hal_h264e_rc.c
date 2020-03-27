@@ -18,7 +18,6 @@
 #include <string.h>
 #include <limits.h>
 
-#include "rk_mpi.h"
 #include "mpp_mem.h"
 #include "mpp_common.h"
 
@@ -223,24 +222,24 @@ MPP_RET h264e_vpu_mb_rc_cfg(H264eHalContext *ctx, RcSyntax *rc_syn, H264eHwCfg *
     }
 
     hw_cfg->target_error[0] = -tmp * 3;
-    hw_cfg->delta_qp[0] = -3;
+    hw_cfg->delta_qp[0] = 3;
     hw_cfg->target_error[1] = -tmp * 2;
-    hw_cfg->delta_qp[1] = -2;
+    hw_cfg->delta_qp[1] = 2;
     hw_cfg->target_error[2] = -tmp * 1;
-    hw_cfg->delta_qp[2] = -1;
+    hw_cfg->delta_qp[2] = 1;
     hw_cfg->target_error[3] = tmp * 1;
     hw_cfg->delta_qp[3] = 0;
     hw_cfg->target_error[4] = tmp * 2;
-    hw_cfg->delta_qp[4] = 1;
+    hw_cfg->delta_qp[4] = -1;
     hw_cfg->target_error[5] = tmp * 3;
-    hw_cfg->delta_qp[5] = 2;
+    hw_cfg->delta_qp[5] = -2;
     hw_cfg->target_error[6] = tmp * 4;
-    hw_cfg->delta_qp[6] = 3;
+    hw_cfg->delta_qp[6] = -3;
 
     for (i = 0; i < CTRL_LEVELS; i++) {
-        tmp =  hw_cfg->cp_target[i];
+        tmp =  hw_cfg->target_error[i];
         tmp = mpp_clip(tmp / 4, -32768, 32767);
-        hw_cfg->cp_target[i] = tmp;
+        hw_cfg->target_error[i] = tmp;
     }
     hw_cfg->cp_distance_mbs = hw_cfg->qpCtrl.checkPointDistance;
     return 0;
@@ -292,6 +291,7 @@ MPP_RET h264e_vpu_update_hw_cfg(H264eHalContext *ctx, HalEncTask *task,
     MppEncPrepCfg *prep = &cfg->prep;
     MppEncRcCfg *rc = &cfg->rc;
     RcSyntax *rc_syn = (RcSyntax *)task->syntax.data;
+    RK_S32 prep_changed = prep->change;
 
     /* preprocess setup */
     if (prep->change) {
@@ -401,8 +401,15 @@ MPP_RET h264e_vpu_update_hw_cfg(H264eHalContext *ctx, HalEncTask *task,
     case MPP_FMT_YUV420SP: {
         RK_U32 offset_uv = hw_cfg->hor_stride * hw_cfg->ver_stride;
 
-        mpp_assert(prep->hor_stride == MPP_ALIGN(prep->width, 8));
-        mpp_assert(prep->ver_stride == MPP_ALIGN(prep->height, 8));
+        if (prep_changed) {
+            RK_S32 aligned_h = MPP_ALIGN(prep->height, 16);
+
+            if (prep->ver_stride != aligned_h)
+                mpp_log_f("warning: 16 aligned picture height %d and vertical stride %d do NOT matched\n",
+                          aligned_h, prep->ver_stride);
+
+            mpp_assert(prep->hor_stride == MPP_ALIGN(prep->width, 16));
+        }
 
         hw_cfg->input_cb_addr = hw_cfg->input_luma_addr + (offset_uv << 10);
         hw_cfg->input_cr_addr = 0;
@@ -411,8 +418,15 @@ MPP_RET h264e_vpu_update_hw_cfg(H264eHalContext *ctx, HalEncTask *task,
     case MPP_FMT_YUV420P: {
         RK_U32 offset_y = hw_cfg->hor_stride * hw_cfg->ver_stride;
 
-        mpp_assert(prep->hor_stride == MPP_ALIGN(prep->width, 8));
-        mpp_assert(prep->ver_stride == MPP_ALIGN(prep->height, 8));
+        if (prep_changed) {
+            RK_S32 aligned_h = MPP_ALIGN(prep->height, 16);
+
+            if (prep->ver_stride != aligned_h)
+                mpp_log_f("warning: 16 aligned picture height %d and vertical stride %d do NOT matched\n",
+                          aligned_h, prep->ver_stride);
+
+            mpp_assert(prep->hor_stride == MPP_ALIGN(prep->width, 16));
+        }
 
         hw_cfg->input_cb_addr = hw_cfg->input_luma_addr + (offset_y << 10);
         hw_cfg->input_cr_addr = hw_cfg->input_cb_addr + (offset_y << 8);

@@ -35,6 +35,8 @@
 #include "hal_mpg4d_api.h"
 #include "hal_jpegd_api.h"
 #include "hal_jpege_api.h"
+#include "hal_h265e_api.h"
+#include "hal_vp8e_api.h"
 
 // for test and demo
 #include "hal_dummy_dec_api.h"
@@ -76,6 +78,12 @@ static const MppHalApi *hw_apis[] = {
 #endif
 #if HAVE_JPEGE
     &hal_api_jpege,
+#endif
+#if HAVE_H265E
+    &hal_api_h265e,
+#endif
+#if HAVE_VP8E
+    &hal_api_vp8e,
 #endif
     &hal_api_dummy_dec,
     &hal_api_dummy_enc,
@@ -128,7 +136,7 @@ MPP_RET mpp_hal_init(MppHal *ctx, MppHalCfg *cfg)
                 break;
             }
 
-            ret = hal_task_group_init(&p->tasks, p->type, p->task_count);
+            ret = hal_task_group_init(&p->tasks, p->task_count);
             if (ret) {
                 mpp_err_f("hal_task_group_init failed ret %d\n", ret);
                 break;
@@ -222,7 +230,7 @@ MPP_RET mpp_hal_flush(MppHal ctx)
     return p->api->flush(p->ctx);
 }
 
-MPP_RET mpp_hal_control(MppHal ctx, RK_S32 cmd, void *param)
+MPP_RET mpp_hal_control(MppHal ctx, MpiCmd cmd, void *param)
 {
     if (NULL == ctx) {
         mpp_err_f("found NULL input\n");

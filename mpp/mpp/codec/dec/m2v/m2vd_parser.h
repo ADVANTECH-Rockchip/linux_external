@@ -27,14 +27,10 @@
 #ifndef __M2VD_PARSER_H__
 #define __M2VD_PARSER_H__
 
-#include "mpp_common.h"
 #include "mpp_mem.h"
 #include "mpp_bitread.h"
 
-#include "mpp_frame.h"
-#include "mpp_packet.h"
-
-#include "mpp_dec.h"
+#include "parser_api.h"
 #include "m2vd_syntax.h"
 #include "m2vd_com.h"
 
@@ -265,8 +261,8 @@ typedef struct M2VDParserContext_t {
     RK_U32          pretime_temporal;
     RK_U32          max_temporal_reference;
     RK_U32          PreChangeTime_index;
-    RK_U32          frame_period;
-    RK_U32          preframe_period;
+    RK_S32          frame_period;
+    RK_S32          preframe_period;
     RK_U32          maxFrame_inGOP;
     RK_U32          ref_frame_cnt;
     long long       top_first_cnt;
@@ -302,7 +298,7 @@ MPP_RET  m2vd_parser_init   (void *ctx, ParserCfg *cfg);
 MPP_RET  m2vd_parser_deinit (void *ctx);
 MPP_RET  m2vd_parser_reset  (void *ctx);
 MPP_RET  m2vd_parser_flush  (void *ctx);
-MPP_RET  m2vd_parser_control(void *ctx, RK_S32 cmd_type, void *param);
+MPP_RET  m2vd_parser_control(void *ctx, MpiCmd cmd_type, void *param);
 MPP_RET  m2vd_parser_prepare(void *ctx, MppPacket pkt, HalDecTask *task);
 MPP_RET  m2vd_parser_parse  (void *ctx, HalDecTask *task);
 MPP_RET  m2vd_parser_callback(void *ctx, void *err_info);

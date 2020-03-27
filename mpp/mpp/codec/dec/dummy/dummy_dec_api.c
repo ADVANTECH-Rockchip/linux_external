@@ -21,7 +21,6 @@
 #include "mpp_log.h"
 #include "mpp_mem.h"
 #include "mpp_common.h"
-#include "mpp_packet.h"
 
 #include "dummy_dec_api.h"
 
@@ -126,7 +125,7 @@ MPP_RET dummy_dec_flush(void *dec)
 }
 
 
-MPP_RET dummy_dec_control(void *dec, RK_S32 cmd_type, void *param)
+MPP_RET dummy_dec_control(void *dec, MpiCmd cmd_type, void *param)
 {
     if (NULL == dec) {
         mpp_err_f("found NULL intput\n");

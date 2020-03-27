@@ -22,6 +22,8 @@
 #include "mpp_mem.h"
 #include "mpp_common.h"
 
+#include "mpp_dec_impl.h"
+
 #include "mpp_frame_impl.h"
 #include "mpp_dec_vproc.h"
 #include "iep_api.h"
@@ -51,11 +53,11 @@ RK_U32 vproc_debug = 0;
 
 typedef struct MppDecVprocCtxImpl_t {
     Mpp                 *mpp;
+    HalTaskGroup        task_group;
     MppBufSlots         slots;
 
     MppThread           *thd;
     RK_U32              reset;
-    RK_S32              count;
 
     IepCtx              iep_ctx;
     IepCmdParamDeiCfg   dei_cfg;
@@ -117,34 +119,10 @@ static void dec_vproc_clr_prev(MppDecVprocCtxImpl *ctx)
 static void dec_vproc_reset_queue(MppDecVprocCtxImpl *ctx)
 {
     MppThread *thd = ctx->thd;
-    Mpp *mpp = ctx->mpp;
-    MppDec *dec = mpp->mDec;
-    MppBufSlots slots = dec->frame_slots;
-    RK_S32 index = -1;
-    MPP_RET ret = MPP_OK;
 
     vproc_dbg_reset("reset start\n");
     dec_vproc_clr_prev(ctx);
 
-    vproc_dbg_reset("reset loop start\n");
-    // on reset just return all index
-    do {
-        ret = mpp_buf_slot_dequeue(slots, &index, QUEUE_DEINTERLACE);
-        if (MPP_OK == ret && index >= 0) {
-            MppFrame frame = NULL;
-
-            mpp_buf_slot_get_prop(slots, index, SLOT_FRAME, &frame);
-            if (frame)
-                mpp_frame_deinit(&frame);
-
-            mpp_buf_slot_clr_flag(slots, index, SLOT_QUEUE_USE);
-            ctx->count--;
-            vproc_dbg_status("reset index %d\n", index);
-        }
-    } while (ret == MPP_OK);
-    mpp_assert(ctx->count == 0);
-
-    vproc_dbg_reset("reset loop done\n");
     thd->lock(THREAD_CONTROL);
     ctx->reset = 0;
     vproc_dbg_reset("reset signal\n");
@@ -210,16 +188,20 @@ static void dec_vproc_start_dei(MppDecVprocCtxImpl *ctx, RK_U32 mode)
 static void *dec_vproc_thread(void *data)
 {
     MppDecVprocCtxImpl *ctx = (MppDecVprocCtxImpl *)data;
+    HalTaskGroup tasks = ctx->task_group;
     MppThread *thd = ctx->thd;
     Mpp *mpp = ctx->mpp;
-    MppDec *dec = mpp->mDec;
+    MppDecImpl *dec = (MppDecImpl *)mpp->mDec;
     MppBufSlots slots = dec->frame_slots;
     IepImg img;
+
+    HalTaskHnd task = NULL;
+    HalTaskInfo task_info;
+    HalDecVprocTask *task_vproc = &task_info.dec_vproc;
 
     mpp_dbg(MPP_DBG_INFO, "mpp_dec_post_proc_thread started\n");
 
     while (1) {
-        RK_S32 index = -1;
         MPP_RET ret = MPP_OK;
 
         {
@@ -228,42 +210,55 @@ static void *dec_vproc_thread(void *data)
             if (MPP_THREAD_RUNNING != thd->get_status())
                 break;
 
-            if (ctx->reset) {
-                dec_vproc_reset_queue(ctx);
+            if (hal_task_get_hnd(tasks, TASK_PROCESSING, &task)) {
+                // process all task then do reset process
+                thd->lock(THREAD_CONTROL);
+                if (ctx->reset)
+                    dec_vproc_reset_queue(ctx);
+                thd->unlock(THREAD_CONTROL);
+
+                thd->wait();
                 continue;
-            } else {
-                ret = mpp_buf_slot_dequeue(slots, &index, QUEUE_DEINTERLACE);
-                if (ret) {
-                    thd->wait();
-                    continue;
-                } else {
-                    ctx->count--;
-                }
             }
         }
 
-        // dequeue from deinterlace queue then send to mpp->mFrames
-        if (index >= 0) {
+        if (task) {
+            ret = hal_task_hnd_get_info(task, &task_info);
+
+            mpp_assert(ret == MPP_OK);
+
+            RK_S32 index = task_vproc->input;
+            RK_U32 eos = task_vproc->flags.eos;
+            RK_U32 change = task_vproc->flags.info_change;
             MppFrame frm = NULL;
+
+            if (eos && index < 0) {
+                vproc_dbg_status("eos signal\n");
+
+                mpp_frame_init(&frm);
+                mpp_frame_set_eos(frm, eos);
+                dec_vproc_put_frame(mpp, frm, NULL, -1);
+                dec_vproc_clr_prev(ctx);
+                mpp_frame_deinit(&frm);
+
+                hal_task_hnd_set_status(task, TASK_IDLE);
+                continue;
+            }
 
             mpp_buf_slot_get_prop(slots, index, SLOT_FRAME_PTR, &frm);
 
-            if (mpp_frame_get_info_change(frm)) {
+            if (change) {
                 vproc_dbg_status("info change\n");
                 dec_vproc_put_frame(mpp, frm, NULL, -1);
                 dec_vproc_clr_prev(ctx);
-                mpp_buf_slot_clr_flag(ctx->slots, index, SLOT_QUEUE_USE);
+
+                hal_task_hnd_set_status(task, TASK_IDLE);
                 continue;
             }
 
-            RK_U32 eos = mpp_frame_get_eos(frm);
-            if (eos && NULL == mpp_frame_get_buffer(frm)) {
-                vproc_dbg_status("eos\n");
-                dec_vproc_put_frame(mpp, frm, NULL, -1);
-                dec_vproc_clr_prev(ctx);
-                mpp_buf_slot_clr_flag(ctx->slots, index, SLOT_QUEUE_USE);
-                continue;
-            }
+            RK_S32 tmp = -1;
+            mpp_buf_slot_dequeue(slots, &tmp, QUEUE_DEINTERLACE);
+            mpp_assert(tmp == index);
 
             if (!dec->reset_flag && ctx->iep_ctx) {
                 MppBufferGroup group = mpp->mFrameGroup;
@@ -281,10 +276,15 @@ static void *dec_vproc_thread(void *data)
                 if (ret)
                     mpp_log_f("IEP_CMD_INIT failed %d\n", ret);
 
+                IepCap_t *cap = NULL;
+                ret = iep_control(ctx->iep_ctx, IEP_CMD_QUERY_CAP, &cap);
+                if (ret)
+                    mpp_log_f("IEP_CMD_QUERY_CAP failed %d\n", ret);
+
                 // setup destination IepImg with new buffer
                 // NOTE: when deinterlace is enabled parser thread will reserve
                 //       more buffer than normal case
-                if (ctx->prev_frm) {
+                if (ctx->prev_frm && cap && cap->i4_deinterlace_supported) {
                     // 4 in 2 out case
                     vproc_dbg_status("4 field in and 2 frame out\n");
                     RK_S64 prev_pts = mpp_frame_get_pts(ctx->prev_frm);
@@ -351,6 +351,8 @@ static void *dec_vproc_thread(void *data)
 
             if (eos)
                 dec_vproc_clr_prev(ctx);
+
+            hal_task_hnd_set_status(task, TASK_IDLE);
         }
     }
     mpp_dbg(MPP_DBG_INFO, "mpp_dec_post_proc_thread exited\n");
@@ -358,11 +360,11 @@ static void *dec_vproc_thread(void *data)
     return NULL;
 }
 
-MPP_RET dec_vproc_init(MppDecVprocCtx *ctx, void *mpp)
+MPP_RET dec_vproc_init(MppDecVprocCtx *ctx, MppDecVprocCfg *cfg)
 {
     MPP_RET ret = MPP_OK;
-    if (NULL == ctx || NULL == mpp) {
-        mpp_err_f("found NULL input ctx %p mpp %p\n", ctx, mpp);
+    if (NULL == ctx || NULL == cfg || NULL == cfg->mpp) {
+        mpp_err_f("found NULL input ctx %p mpp %p\n", ctx, cfg->mpp);
         return MPP_ERR_NULL_PTR;
     }
 
@@ -377,9 +379,17 @@ MPP_RET dec_vproc_init(MppDecVprocCtx *ctx, void *mpp)
         return MPP_ERR_MALLOC;
     }
 
-    p->mpp = (Mpp *)mpp;
-    p->slots = p->mpp->mDec->frame_slots;
+    p->mpp = (Mpp *)cfg->mpp;
+    p->slots = ((MppDecImpl *)p->mpp->mDec)->frame_slots;
     p->thd = new MppThread(dec_vproc_thread, p, "mpp_dec_vproc");
+    ret = hal_task_group_init(&p->task_group, 4);
+    if (ret) {
+        mpp_err_f("create task group failed\n");
+        delete p->thd;
+        MPP_FREE(p);
+        return MPP_ERR_MALLOC;
+    }
+    cfg->task_group = p->task_group;
     ret = iep_init(&p->iep_ctx);
     if (!p->thd || ret) {
         mpp_err("failed to create context\n");
@@ -393,11 +403,20 @@ MPP_RET dec_vproc_init(MppDecVprocCtx *ctx, void *mpp)
             p->iep_ctx = NULL;
         }
 
+        if (p->task_group) {
+            hal_task_group_deinit(p->task_group);
+            p->task_group = NULL;
+        }
+
         MPP_FREE(p);
     } else {
         p->dei_cfg.dei_mode = IEP_DEI_MODE_I2O1;
         p->dei_cfg.dei_field_order = IEP_DEI_FLD_ORDER_BOT_FIRST;
-        p->dei_cfg.dei_high_freq_en = 1;
+        /*
+         * We need to turn off this switch to prevent some areas
+         * of the video from flickering.
+         */
+        p->dei_cfg.dei_high_freq_en = 0;
         p->dei_cfg.dei_high_freq_fct = 64;
         p->dei_cfg.dei_ei_mode = 0;
         p->dei_cfg.dei_ei_smooth = 1;
@@ -432,6 +451,11 @@ MPP_RET dec_vproc_deinit(MppDecVprocCtx ctx)
     if (p->iep_ctx) {
         iep_deinit(p->iep_ctx);
         p->iep_ctx = NULL;
+    }
+
+    if (p->task_group) {
+        hal_task_group_deinit(p->task_group);
+        p->task_group = NULL;
     }
 
     mpp_free(p);
@@ -489,7 +513,6 @@ MPP_RET dec_vproc_signal(MppDecVprocCtx ctx)
     MppDecVprocCtxImpl *p = (MppDecVprocCtxImpl *)ctx;
     if (p->thd) {
         p->thd->lock();
-        p->count++;
         p->thd->signal();
         p->thd->unlock();
     }

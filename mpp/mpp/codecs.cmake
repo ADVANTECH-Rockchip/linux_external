@@ -99,3 +99,21 @@ if( ENABLE_JPEGE )
     set(HAL_JPEGE hal_jpege)
     add_definitions(-DHAVE_JPEGE)
 endif()
+
+# h265 encoder
+option(ENABLE_H265E  "Enable h265 encoder" ON)
+if( ENABLE_H265E )
+    set(HAVE_H265E true)
+    set(CODEC_H265E codec_h265e)
+    set(HAL_H265E hal_h265e)
+    add_definitions(-DHAVE_H265E)
+endif()
+
+# vp8 encoder
+option(ENABLE_VP8E "Enable vp8 encoder" ON)
+if( ENABLE_VP8E )
+    set(HAVE_VP8E true)
+    set(CODEC_VP8E codec_vp8e)
+    set(HAL_VP8E hal_vp8e)
+    add_definitions(-DHAVE_VP8E)
+endif()

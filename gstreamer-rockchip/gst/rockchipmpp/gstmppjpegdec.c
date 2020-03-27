@@ -147,11 +147,7 @@ gst_mpp_video_set_format (GstMppJpegDec * self, MppCodingType codec_format)
 static gboolean
 gst_mpp_jpeg_dec_finish (GstVideoDecoder * decoder)
 {
-  GstMppJpegDec *self = GST_MPP_JPEG_DEC (decoder);
-  GstFlowReturn ret = GST_FLOW_OK;
-
-done:
-  return ret;
+  return GST_FLOW_OK;
 }
 
 static GstStateChangeReturn
@@ -197,8 +193,10 @@ gst_mpp_jpeg_dec_stop (GstVideoDecoder * decoder)
     self->input_group = NULL;
   }
 
-  if (self->input_state)
+  if (self->input_state) {
     gst_video_codec_state_unref (self->input_state);
+    self->input_state = NULL;
+  }
 
   GST_DEBUG_OBJECT (self, "Stopped");
 
@@ -397,6 +395,8 @@ gst_mpp_jpeg_dec_handle_frame (GstVideoDecoder * decoder,
       gst_buffer_get_size (frame->input_buffer));
 
   mpp_packet_init_with_buffer (&mpkt, self->input_buffer[0]);
+  mpp_packet_set_length (mpkt, gst_buffer_get_size (frame->input_buffer));
+  mpp_packet_set_size (mpkt, gst_buffer_get_size (frame->input_buffer));
 #endif
   mpp_task_meta_set_packet (mtask, KEY_INPUT_PACKET, mpkt);
 

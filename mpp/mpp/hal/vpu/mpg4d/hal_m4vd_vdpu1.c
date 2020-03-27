@@ -20,14 +20,12 @@
 #include <string.h>
 
 #include "mpp_log.h"
-#include "mpp_err.h"
 #include "mpp_mem.h"
 #include "mpp_env.h"
 #include "mpp_buffer.h"
 #include "mpp_common.h"
 
 #include "mpp_device.h"
-#include "mpp_dec.h"
 #include "mpg4d_syntax.h"
 #include "hal_mpg4d_api.h"
 #include "hal_m4vd_com.h"
@@ -259,19 +257,18 @@ MPP_RET vdpu1_mpg4d_init(void *hal, MppHalCfg *cfg)
         goto ERR_RET;
     }
 
-#ifdef RKPLATFORM
     MppDevCfg dev_cfg = {
         .type = MPP_CTX_DEC,              /* type */
         .coding = MPP_VIDEO_CodingMPEG4,  /* coding */
         .platform = 0,                    /* platform */
         .pp_enable = 0,                   /* pp_enable */
     };
+
     ret = mpp_device_init(&ctx->dev_ctx, &dev_cfg);
     if (ret) {
         mpp_err_f("mpp_device_init failed. ret: %d\n", ret);
         goto ERR_RET;
     }
-#endif
 
     /*
      * basic register configuration setup here
@@ -354,14 +351,11 @@ MPP_RET vdpu1_mpg4d_deinit(void *hal)
         ctx->group = NULL;
     }
 
-#ifdef RKPLATFORM
     if (ctx->dev_ctx) {
         ret = mpp_device_deinit(ctx->dev_ctx);
-        if (MPP_OK != ret) {
+        if (ret)
             mpp_err("mpp_device_deinit failed ret: %d\n", ret);
-        }
     }
-#endif
 
     return ret;
 }
@@ -410,8 +404,6 @@ MPP_RET vdpu1_mpg4d_gen_regs(void *hal,  HalTaskInfo *syn)
 MPP_RET vdpu1_mpg4d_start(void *hal, HalTaskInfo *task)
 {
     MPP_RET ret = MPP_OK;
-
-#ifdef RKPLATFORM
     hal_mpg4_ctx *ctx = (hal_mpg4_ctx *)hal;
     RK_U32 reg_count = (sizeof(*(M4vdVdpu1Regs_t *)(ctx->regs)) / sizeof(RK_U32));
     RK_U32* regs = (RK_U32 *)ctx->regs;
@@ -424,9 +416,7 @@ MPP_RET vdpu1_mpg4d_start(void *hal, HalTaskInfo *task)
     }
 
     ret = mpp_device_send_reg(ctx->dev_ctx, regs, reg_count);
-#endif
-    (void)ret;
-    (void)hal;
+
     (void)task;
     return ret;
 }
@@ -434,7 +424,6 @@ MPP_RET vdpu1_mpg4d_start(void *hal, HalTaskInfo *task)
 MPP_RET vdpu1_mpg4d_wait(void *hal, HalTaskInfo *task)
 {
     MPP_RET ret = MPP_OK;
-#ifdef RKPLATFORM
     hal_mpg4_ctx *ctx = (hal_mpg4_ctx *)hal;
     M4vdVdpu1Regs_t reg_out;
     RK_U32* regs = (RK_U32 *)&reg_out;
@@ -449,9 +438,7 @@ MPP_RET vdpu1_mpg4d_wait(void *hal, HalTaskInfo *task)
             mpp_log("reg[%03d]: %08x\n", i, regs[i]);
         }
     }
-#endif
-    (void)ret;
-    (void)hal;
+
     (void)task;
     return ret;
 }
@@ -471,7 +458,7 @@ MPP_RET vdpu1_mpg4d_flush(void *hal)
     return ret;
 }
 
-MPP_RET vdpu1_mpg4d_control(void *hal, RK_S32 cmd_type, void *param)
+MPP_RET vdpu1_mpg4d_control(void *hal, MpiCmd cmd_type, void *param)
 {
     MPP_RET ret = MPP_OK;
 

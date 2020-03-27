@@ -22,6 +22,8 @@
 
 #include "h264e_api.h"
 #include "jpege_api.h"
+#include "h265e_api.h"
+#include "vp8e_api.h"
 #include "mpp_controller.h"
 
 /*
@@ -33,6 +35,12 @@ static const ControlApi *controllers[] = {
 #endif
 #if HAVE_JPEGE
     &api_jpege_controller,
+#endif
+#if HAVE_H265E
+    &api_h265e_controller,
+#endif
+#if HAVE_VP8E
+    &api_vp8e_controller,
 #endif
 };
 

@@ -16,17 +16,17 @@
 */
 #ifndef __VP9D_PARSER_H__
 #define __VP9D_PARSER_H__
+
 #include <stdlib.h>
-#include "rk_type.h"
+
+#include "mpp_mem.h"
+#include "mpp_bitread.h"
+
+#include "parser_api.h"
 #include "vpx_rac.h"
 #include "vp9.h"
 #include "vp9data.h"
-#include "mpp_packet.h"
 #include "vp9d_syntax.h"
-#include "mpp_bitread.h"
-#include "mpp_frame.h"
-#include "mpp_mem.h"
-#include "mpp_dec.h"
 
 extern RK_U32 vp9d_debug;
 
@@ -234,23 +234,6 @@ typedef struct VP9Context {
     RK_U8 left_comp_ctx[8];
     RK_U8 left_ref_ctx[8];
     RK_U8 left_filter_ctx[8];
-    RK_U8 *above_partition_ctx;
-    RK_U8 *above_mode_ctx;
-    // FIXME maybe merge some of the below in a flags field?
-    RK_U8 *above_y_nnz_ctx;
-    RK_U8 *above_uv_nnz_ctx[2];
-    RK_U8 *above_skip_ctx; // 1bit
-    RK_U8 *above_txfm_ctx; // 2bit
-    RK_U8 *above_segpred_ctx; // 1bit
-    RK_U8 *above_intra_ctx; // 1bit
-    RK_U8 *above_comp_ctx; // 1bit
-    RK_U8 *above_ref_ctx; // 2bit
-    RK_U8 *above_filter_ctx;
-    Vpxmv (*above_mv_ctx)[2];
-
-    // whole-frame cache
-    RK_U8 *intra_pred_data[3];
-    struct VP9Filter *lflvl;
 
     // block reconstruction intermediates
     RK_S32 block_alloc_using_2pass;

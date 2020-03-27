@@ -18,8 +18,7 @@
 #define __MPP_FRAME_H__
 
 #include "mpp_buffer.h"
-
-typedef void* MppFrame;
+#include "mpp_meta.h"
 
 /*
  * bit definition for mode flag in MppFrame
@@ -57,18 +56,20 @@ typedef enum {
  * Chromaticity coordinates of the source primaries.
  */
 typedef enum {
-    MPP_FRAME_PRI_RESERVED0   = 0,
-    MPP_FRAME_PRI_BT709       = 1,      ///< also ITU-R BT1361 / IEC 61966-2-4 / SMPTE RP177 Annex B
-    MPP_FRAME_PRI_UNSPECIFIED = 2,
-    MPP_FRAME_PRI_RESERVED    = 3,
-    MPP_FRAME_PRI_BT470M      = 4,      ///< also FCC Title 47 Code of Federal Regulations 73.682 (a)(20)
+    MPP_FRAME_PRI_RESERVED0     = 0,
+    MPP_FRAME_PRI_BT709         = 1,    ///< also ITU-R BT1361 / IEC 61966-2-4 / SMPTE RP177 Annex B
+    MPP_FRAME_PRI_UNSPECIFIED   = 2,
+    MPP_FRAME_PRI_RESERVED      = 3,
+    MPP_FRAME_PRI_BT470M        = 4,    ///< also FCC Title 47 Code of Federal Regulations 73.682 (a)(20)
 
-    MPP_FRAME_PRI_BT470BG     = 5,      ///< also ITU-R BT601-6 625 / ITU-R BT1358 625 / ITU-R BT1700 625 PAL & SECAM
-    MPP_FRAME_PRI_SMPTE170M   = 6,      ///< also ITU-R BT601-6 525 / ITU-R BT1358 525 / ITU-R BT1700 NTSC
-    MPP_FRAME_PRI_SMPTE240M   = 7,      ///< functionally identical to above
-    MPP_FRAME_PRI_FILM        = 8,      ///< colour filters using Illuminant C
-    MPP_FRAME_PRI_BT2020      = 9,      ///< ITU-R BT2020
-    MPP_FRAME_PRI_SMPTEST428_1 = 10,    ///< SMPTE ST 428-1 (CIE 1931 XYZ)
+    MPP_FRAME_PRI_BT470BG       = 5,    ///< also ITU-R BT601-6 625 / ITU-R BT1358 625 / ITU-R BT1700 625 PAL & SECAM
+    MPP_FRAME_PRI_SMPTE170M     = 6,    ///< also ITU-R BT601-6 525 / ITU-R BT1358 525 / ITU-R BT1700 NTSC
+    MPP_FRAME_PRI_SMPTE240M     = 7,    ///< functionally identical to above
+    MPP_FRAME_PRI_FILM          = 8,    ///< colour filters using Illuminant C
+    MPP_FRAME_PRI_BT2020        = 9,    ///< ITU-R BT2020
+    MPP_FRAME_PRI_SMPTEST428_1  = 10,   ///< SMPTE ST 428-1 (CIE 1931 XYZ)
+    MPP_FRAME_PRI_SMPTE431      = 11,   ///< SMPTE ST 431-2 (2011) / DCI P3
+    MPP_FRAME_PRI_SMPTE432      = 12,   ///< SMPTE ST 432-1 (2010) / P3 D65 / Display P3
     MPP_FRAME_PRI_NB,                   ///< Not part of ABI
 } MppFrameColorPrimaries;
 
@@ -157,15 +158,15 @@ typedef enum {
      * the P010_10LE/P010_10BE
      */
     MPP_FMT_YUV420SP_10BIT,
-    MPP_FMT_YUV422SP,                                   /* YYYY... UVUV... (NV24)   */
+    MPP_FMT_YUV422SP,                                   /* YYYY... UVUV... (NV16)   */
     MPP_FMT_YUV422SP_10BIT,                             ///< Not part of ABI
     MPP_FMT_YUV420P,                                    /* YYYY... U...V...  (I420) */
     MPP_FMT_YUV420SP_VU,                                /* YYYY... VUVUVU... (NV21) */
     MPP_FMT_YUV422P,                                    /* YYYY... UU...VV...(422P) */
-    MPP_FMT_YUV422SP_VU,                                /* YYYY... VUVUVU... (NV42) */
+    MPP_FMT_YUV422SP_VU,                                /* YYYY... VUVUVU... (NV61) */
     MPP_FMT_YUV422_YUYV,                                /* YUYVYUYV... (YUY2)       */
     MPP_FMT_YUV422_UYVY,                                /* UYVYUYVY... (UYVY)       */
-    MPP_FMT_YUV400SP,                                   /* YYYY...                  */
+    MPP_FMT_YUV400,                                     /* YYYY...                  */
     MPP_FMT_YUV440SP,                                   /* YYYY... UVUV...          */
     MPP_FMT_YUV411SP,                                   /* YYYY... UV...            */
     MPP_FMT_YUV444SP,                                   /* YYYY... UVUVUVUV...      */
@@ -189,6 +190,26 @@ typedef enum {
     MPP_FMT_COMPLEX_BUTT,
     MPP_FMT_BUTT            = MPP_FMT_COMPLEX_BUTT,
 } MppFrameFormat;
+
+/**
+ * Rational number (pair of numerator and denominator).
+ */
+typedef struct MppFrameRational {
+    RK_S32 num; ///< Numerator
+    RK_S32 den; ///< Denominator
+} MppFrameRational;
+
+typedef struct MppFrameMasteringDisplayMetadata {
+    RK_U16 display_primaries[3][2];
+    RK_U16 white_point[2];
+    RK_U32 max_luminance;
+    RK_U32 min_luminance;
+} MppFrameMasteringDisplayMetadata;
+
+typedef struct MppFrameContentLightMetadata {
+    RK_U16 MaxCLL;
+    RK_U16 MaxFALL;
+} MppFrameContentLightMetadata;
 
 typedef enum {
     MPP_FRAME_ERR_UNKNOW           = 0x0001,
@@ -248,6 +269,12 @@ MppBuffer mpp_frame_get_buffer(const MppFrame frame);
 void    mpp_frame_set_buffer(MppFrame frame, MppBuffer buffer);
 
 /*
+ * meta data parameter
+ */
+MppMeta mpp_frame_get_meta(const MppFrame frame);
+void    mpp_frame_set_meta(MppFrame frame, MppMeta meta);
+
+/*
  * color related parameter
  */
 MppFrameColorRange mpp_frame_get_color_range(const MppFrame frame);
@@ -262,7 +289,12 @@ MppFrameChromaLocation mpp_frame_get_chroma_location(const MppFrame frame);
 void    mpp_frame_set_chroma_location(MppFrame frame, MppFrameChromaLocation chroma_location);
 MppFrameFormat mpp_frame_get_fmt(MppFrame frame);
 void    mpp_frame_set_fmt(MppFrame frame, MppFrameFormat fmt);
-
+MppFrameRational mpp_frame_get_sar(const MppFrame frame);
+void    mpp_frame_set_sar(MppFrame frame, MppFrameRational sar);
+MppFrameMasteringDisplayMetadata mpp_frame_get_mastering_display(const MppFrame frame);
+void    mpp_frame_set_mastering_display(MppFrame frame, MppFrameMasteringDisplayMetadata mastering_display);
+MppFrameContentLightMetadata mpp_frame_get_content_light(const MppFrame frame);
+void    mpp_frame_set_content_light(MppFrame frame, MppFrameContentLightMetadata content_light);
 
 /*
  * HDR parameter

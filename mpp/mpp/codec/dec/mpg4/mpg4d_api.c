@@ -19,8 +19,6 @@
 
 #include <string.h>
 
-#include "rk_mpi.h"
-
 #include "mpp_log.h"
 #include "mpp_mem.h"
 #include "mpp_common.h"
@@ -162,7 +160,7 @@ static MPP_RET mpg4d_flush(void *dec)
     return mpp_mpg4_parser_flush(p->parser);
 }
 
-static MPP_RET mpg4d_control(void *dec, RK_S32 cmd_type, void *param)
+static MPP_RET mpg4d_control(void *dec, MpiCmd cmd_type, void *param)
 {
     if (NULL == dec) {
         mpp_err_f("found NULL intput\n");

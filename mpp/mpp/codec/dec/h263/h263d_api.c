@@ -19,8 +19,6 @@
 
 #include <string.h>
 
-#include "rk_mpi.h"
-
 #include "mpp_log.h"
 #include "mpp_mem.h"
 #include "mpp_common.h"
@@ -159,7 +157,7 @@ MPP_RET h263d_flush(void *dec)
 }
 
 
-MPP_RET h263d_control(void *dec, RK_S32 cmd_type, void *param)
+MPP_RET h263d_control(void *dec, MpiCmd cmd_type, void *param)
 {
     if (NULL == dec) {
         mpp_err_f("found NULL intput\n");

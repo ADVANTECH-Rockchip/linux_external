@@ -18,14 +18,16 @@
 #ifndef __HAL_TASK__
 #define __HAL_TASK__
 
-#include "rk_mpi.h"
+#include "rk_type.h"
+#include "mpp_err.h"
 
 #define MAX_DEC_REF_NUM     17
 
+typedef void* HalTaskHnd;
+typedef void* HalTaskGroup;
+
 typedef enum HalTaskStatus_e {
     TASK_IDLE,
-    TASK_PREPARE,
-    TASK_WAIT_PROC,
     TASK_PROCESSING,
     TASK_PROC_DONE,
     TASK_BUTT,
@@ -130,6 +132,15 @@ typedef struct HalEncTaskFlag_t {
     RK_U32 err;
 } HalEncTaskFlag;
 
+typedef union HalDecVprocTaskFlag_t {
+    RK_U32          val;
+
+    struct {
+        RK_U32      eos              : 1;
+        RK_U32      info_change      : 1;
+    };
+} HalDecVprocTaskFlag;
+
 typedef struct HalDecTask_t {
     // set by parser to signal that it is valid
     RK_U32          valid;
@@ -164,10 +175,12 @@ typedef struct HalEncTask_t {
     MppSyntax       syntax;
 
     // current tesk output stream buffer
+    MppPacket       packet;
     MppBuffer       output;
     RK_U32          length;
 
     // current tesk input slot buffer
+    MppPacket       frame;
     MppBuffer       input;
 
     // current mv info output buffer
@@ -179,16 +192,21 @@ typedef struct HalEncTask_t {
 
 } HalEncTask;
 
+typedef struct HalDecVprocTask_t {
+    // input slot index for post-process
+    HalDecVprocTaskFlag     flags;
+
+    RK_S32                  input;
+} HalDecVprocTask;
 
 typedef struct HalTask_u {
+    HalTaskHnd              hnd;
     union {
-        HalDecTask  dec;
-        HalEncTask  enc;
+        HalDecTask          dec;
+        HalEncTask          enc;
+        HalDecVprocTask     dec_vproc;
     };
 } HalTaskInfo;
-
-typedef void* HalTaskHnd;
-typedef void* HalTaskGroup;
 
 #ifdef __cplusplus
 extern "C" {
@@ -200,7 +218,7 @@ extern "C" {
  * NOTE: use mpp_list to implement
  *       the count means the max task waiting for process
  */
-MPP_RET hal_task_group_init(HalTaskGroup *group, MppCtxType type, RK_S32 count);
+MPP_RET hal_task_group_init(HalTaskGroup *group, RK_S32 count);
 MPP_RET hal_task_group_deinit(HalTaskGroup group);
 
 /*

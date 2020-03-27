@@ -5,7 +5,7 @@
  * transcribed, or translated into any language or computer format, in any form
  * or by any means without written permission of:
  * Fuzhou Rockchip Electronics Co.Ltd .
- * 
+ *
  *
  *****************************************************************************/
 #ifndef __AWB_H__
@@ -33,14 +33,56 @@
 #include <common/cam_types.h>
 #include <cam_ia_api/cameric.h>
 #include <cam_calibdb/cam_calibdb_api.h>
-#include <base/log.h>
+#include <base/xcam_log.h>
+
 //#include "awb_independent.h"
+
+/*
+ ***************** AWB LIB VERSION NOTE *****************
+ * v0.0.1
+ *  - platform independence, support rkisp v10 and v12
+ * v0.0.2
+ *  - remove unnecessary lib dependancy
+ * v0.0.3
+ *  - unify isp v10, v12 LSC parameter
+ * v0.0.4
+ *  - sync awb with calibdb v0.2.0
+ * v0.0.5
+ *  - suport illu BW
+ * v0.0.6
+ *  - change LOGMIN from 0.0001f to 0.00001f to avoid out of
+ *    range error.
+ *  - no need to destroy awb context when some not fatal
+ *    errors happen
+ * v0.0.7
+ *  - multiply wbgain by blsgain
+ * v0.0.8
+ *  - use the current effecting isp params along with the stats
+ *  - to calculate next awb params
+ * v0.0.9
+* 1) enable ALOGV/ALOGW for Android
+ * v0.0.a
+ * 1) mdoify awb converged threshold
+  *2) only awb is converged and wp number bigger than threshold ,then
+        enter AwbSetValues function to update awb value to IC register.
+ * v0.0.b
+ * 1) fix output wrong ccoffset when awb converged
+ * v0.0.c
+ * 1) support flash ,
+ *    only one led is used in flash light
+ * v0.0.d
+ * - support awb_v11
+  * v0.0.e
+ * - IQ_Tool v2.2 support awb_v11
+ */
+
+#define CONFIG_AWB_LIB_VERSION "v0.0.e"
+
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
-
 
 
 /*****************************************************************************/
@@ -81,35 +123,6 @@ typedef enum AwbRunMode_e {
 
 /*****************************************************************************/
 /**
- * @brief   type for evaluatiing number of white pixel
- */
-/*****************************************************************************/
-typedef enum AwbNumWhitePixelEval_e {
-  AWB_NUM_WHITE_PIXEL_INVALID         = 0,        /**< initialization value */
-  AWB_NUM_WHITE_PIXEL_LTMIN           = 1,        /**< less than configured minimum */
-  AWB_NUM_WHITE_PIXEL_GTMAX           = 2,        /**< greater than defined maximum */
-  AWB_NUM_WHITE_PIXEL_TARGET_RANGE    = 3,        /**< in min max range */
-  AWB_NUM_WHITE_PIXEL_MAX
-} AwbNumWhitePixelEval_t;
-
-
-
-/*****************************************************************************/
-/**
- * @brief
- *
- */
-/*****************************************************************************/
-typedef struct AwbComponent_s {
-  float   fRed;
-  float   fGreen;
-  float   fBlue;
-} AwbComponent_t;
-
-
-
-/*****************************************************************************/
-/**
  * @brief   A structure/tupple to represent gain values for four (R,Gr,Gb,B)
  *          channels.
  *
@@ -123,6 +136,18 @@ typedef struct AwbGains_s {
   float fBlue;        /**< gain value for the blue channel */
 } AwbGains_t;
 
+
+/******************************************************************************/
+/**
+ *          WbGainsOverG_t
+ *
+ * @brief   context structure for function interpolation function Interpolate
+ *
+ ******************************************************************************/
+typedef struct WbGainsOverG_s {
+  float GainROverG;                           /**< (Gain-Red / Gain-Green) */
+  float GainBOverG;                           /**< (Gain-Blue / Gain-Green) */
+} WbGainsOverG_t;
 
 
 /*****************************************************************************/
@@ -167,44 +192,104 @@ typedef struct AwbMeasuringResult_s {
   enum AwbMeasuringResultType_e type;
 } AwbMeasuringResult_t;
 
+/*****************************************************************************/
+/**
+ * @brief This enum type specifies the different possible states of the Flash in AWB.
+ *
+ */
+/*****************************************************************************/
+typedef enum AwbFlashState_e {
+  AWB_AE_FLASH_INVALID      = 0,        /**< initialization value */
+  AWB_AE_FLASH_OFF          = 1,      /*all flash are off*/
+  AWB_AE_FLASH_PRE_ON       = 2,      /*pre flash is on*/
+  AWB_AE_FLASH_MAIN_ON       = 3,     /*main flash is on*/
+  AWB_AE_STATE_MAX
+} AwbFlashState_t;
+
+typedef enum AwbFrameStatus_e{
+  AWB_FRAME_STATUS_OK,
+  AWB_FRAME_STATUS_CORRUPTED,
+  AWB_FRAME_STATUS_FLASH_EXPOSED,   /*pre flash is fullly open*/
+  AWB_FRAME_STATUS_FLASH_PARTIAL,   /*pre flash is partial open*/
+  AWB_FRAME_STATUS_FLASH_FAILED,    /*pre flash failed to  open*/
+} AwbFrameStatus_t;
+
 
 typedef struct AwbRunningInputParams_s {
-  AwbMeasuringResult_t MesureResult;
+  AwbMeasuringResult_t            MesureResult;
   //histogram
-  AWBHistBins_t HistBins;
-  //AwbGains_t             Gains;          /**< current gains from hardware */
+  AWBHistBins_t                   HistBins;
+  int32_t                         DominateIlluProfileIdx; /**< current DominateIlluProfileIdx from hardware */
+  AwbGains_t                      Gains;          /**< current gains from hardware */
 
-  //Cam3x3FloatMatrix_t        CtMatrix;        /**< current cross talk matrix from hardware */
-  //AwbXTalkOffset_t         CtOffset;        /**< current cross talk offset from hardware */
-  float                         fGain;
-  float                         fIntegrationTime;
+  Cam3x3FloatMatrix_t             CtMatrix;        /**< current cross talk matrix from hardware */
+  AwbXTalkOffset_t                CtOffset;        /**< current cross talk offset from hardware */
+
+  float                           fGain;
+  float                           fIntegrationTime;
+
+ //for flash
+  AwbFlashState_t                 flashModeSetting;  /*store flash state*/
+  bool                            aeConverge;       /*AEC converged flag*/
+  float                           meanLuma;         /*mean luma calculatiion by AEC*/
+  AwbFrameStatus_t                frame_status;    /*store falsh open state*/
+
+
 } AwbRunningInputParams_t;
 
 enum AwbReconfigParams_e {
   AWB_RECONFIG_NONE,
-  AWB_RECONFIG_GAINS    = 0x1,
-  AWB_RECONFIG_CCMATRIX = 0x1 << 1,
-  AWB_RECONFIG_CCOFFSET = 0x1 << 2,
-  AWB_RECONFIG_LSCMATRIX = 0x1 << 3,
-  AWB_RECONFIG_LSCSECTOR = 0x1 << 4,
-  AWB_RECONFIG_MEASMODE = 0x1 << 5,
-  AWB_RECONFIG_MEASCFG  = 0x1 << 6,
-  AWB_RECONFIG_AWBWIN  = 0x1 << 7,
+  AWB_RECONFIG_GAINS        = 0x1,
+  AWB_RECONFIG_CCMATRIX     = 0x1 << 1,
+  AWB_RECONFIG_CCOFFSET     = 0x1 << 2,
+  AWB_RECONFIG_LSCMATRIX    = 0x1 << 3,
+  AWB_RECONFIG_LSCSECTOR    = 0x1 << 4,
+  AWB_RECONFIG_MEASMODE     = 0x1 << 5,
+  AWB_RECONFIG_MEASCFG      = 0x1 << 6,
+  AWB_RECONFIG_AWBWIN       = 0x1 << 7,
+  AWB_RECONFIG_DOMILLIDX    = 0x1 << 8,
 
 };
 typedef struct AwbRunningOutputResult_s {
-  uint32_t            validParam;
-  AwbGains_t                      WbGains;
-  Cam3x3FloatMatrix_t             CcMatrix;             /**< damped color correction matrix */
-  Cam1x3FloatMatrix_t             CcOffset;             /**< damped color correction offset */
-  CamLscMatrix_t                  LscMatrixTable;       /**< damped lsc matrix */
-  CamerIcIspLscSectorConfig_t     SectorConfig;               /**< lsc grid */
-  CamerIcIspAwbMeasuringMode_t    MeasMode;           /**< specifies the means measuring mode (YCbCr or RGB) */
-  CamerIcAwbMeasuringConfig_t     MeasConfig;         /**< measuring config */
-  Cam_Win_t           awbWin;
-  uint8_t             DoorType;
-  bool           converged;
-  int err_code;
+  uint32_t                          validParam;
+  int32_t                           DominateIlluProfileIdx;
+  AwbGains_t                        WbGains;
+  Cam3x3FloatMatrix_t               CcMatrix;             /**< damped color correction matrix */
+  Cam1x3FloatMatrix_t               CcOffset;             /**< damped color correction offset */
+  CamLscMatrix_t                    LscMatrixTable;       /**< damped lsc matrix */
+  CamerIcIspLscSectorConfig_t       SectorConfig;               /**< lsc grid */
+  CamerIcIspAwbMeasuringMode_t      MeasMode;           /**< specifies the means measuring mode (YCbCr or RGB) */
+  CamerIcAwbMeasuringConfig_t       MeasConfig;         /**< measuring config */
+  Cam_Win_t                         awbWin;
+  uint8_t                           DoorType;
+  bool                              converged;
+  int                               err_code;
+  char                              IllName[20];
+  CamCcProfileName_t                CcNameUp;
+  CamCcProfileName_t                CcNameDn;
+  CamLscProfileName_t               LscNameUp;
+  CamLscProfileName_t               LscNameDn;
+  bool_t                            forceWbGainFlag;
+  AwbGains_t                        forceWbGains;
+  bool_t                            forceIlluFlag;
+  CamIlluminationName_t             forceIllName;
+  float                             RgProj;
+  WbGainsOverG_t                    WbGainsOverG;
+  WbGainsOverG_t                    WbClippedGainsOverG;
+  float                             RegionSize;
+  Cam1x4FloatMatrix_t               refWbgain;
+  CamIlluminationName_t             curIllName;
+  int                               Region;
+  float                             ExpPriorIn;
+  float                             ExpPriorOut;
+  float                             likehood[32];
+  float                             weight[32];
+  float                             Wb_s;
+  float                             Wb_s_max1;
+  float                             Wb_s_max2;
+  float                             Wb_bg;
+  float                             Wb_rg;
+
 } AwbRunningOutputResult_t;
 
 
@@ -217,8 +302,25 @@ typedef struct AwbRunningOutputResult_s {
  *****************************************************************************/
 typedef struct AwbInstanceConfig_s {
   AwbHandle_t                     hAwb;               /**< handle returns by AwbInit() */
+  int                             isp_ver;
 } AwbInstanceConfig_t;
 
+enum AwbTuningParam_e{
+    AWB_TUNING_DISABLE = 0,
+    AWB_TUNING_ENABLE = 0x1f
+};
+
+typedef struct AwbTuningConfig_s{
+    uint8_t    forceGainSet;
+    uint8_t    forceMeasSet;
+    bool_t     forceGainEnable;
+    AwbGains_t forceGains;
+    bool_t     forceIlluEnable;
+    char       ill_name[20];
+    bool_t     forceMeasuredFlag;
+    AwbMeasuringResult_t forceMeasuredMeans;
+    uint8_t    forceUpdateAwb;
+}AwbTuningConfig_t;
 
 
 /*****************************************************************************/
@@ -229,21 +331,22 @@ typedef struct AwbInstanceConfig_s {
  *
  *****************************************************************************/
 typedef struct AwbConfig_s {
-  AwbMode_t                       Mode;               /**< White Balance working mode (MANUAL | AUTO) */
-  uint32_t                idx;
-  bool_t              damp;
+  AwbMode_t                         Mode;               /**< White Balance working mode (MANUAL | AUTO) */
+  uint32_t                          idx;
+  bool_t                            damp;
 
-  uint16_t                        width;              /**< picture width */
-  uint16_t                        height;             /**< picture height */
-  float                           framerate;          /**< frame rate */
-  Cam_Win_t           awbWin;
-  uint32_t                        Flags;              /**< working flags (@see AwbWorkingFlags_e) */
-  CamCalibDbHandle_t              hCamCalibDb;        /**< calibration database handle */
-  CamerIcIspAwbMeasuringMode_t    MeasMode;           /**< specifies the means measuring mode (YCbCr or RGB) */
-  CamerIcAwbMeasuringConfig_t     MeasConfig;         /**< measuring config */
-  float                           fStableDeviation;   /**< min deviation in percent to enter stable state */
-  float                           fRestartDeviation;  /**< max tolerated deviation in precent for staying in stable state */
-  uint8_t                         validHistBinsNum;
+  uint16_t                          width;              /**< picture width */
+  uint16_t                          height;             /**< picture height */
+  float                             framerate;          /**< frame rate */
+  Cam_Win_t                         awbWin;
+  uint32_t                          Flags;              /**< working flags (@see AwbWorkingFlags_e) */
+  CamCalibDbHandle_t                hCamCalibDb;        /**< calibration database handle */
+  CamerIcIspAwbMeasuringMode_t      MeasMode;           /**< specifies the means measuring mode (YCbCr or RGB) */
+  CamerIcAwbMeasuringConfig_t       MeasConfig;         /**< measuring config */
+  float                             fStableDeviation;   /**< min deviation in percent to enter stable state */
+  float                             fRestartDeviation;  /**< max tolerated deviation in precent for staying in stable state */
+  uint8_t                           validHistBinsNum;
+  AwbTuningConfig_t                 awbTuning;
 } AwbConfig_t;
 
 
@@ -256,18 +359,53 @@ typedef struct AwbConfig_s {
  *
  *****************************************************************************/
 typedef struct AwbRgProj_s {
-  float                           fRgProjIndoorMin;
-  float                           fRgProjOutdoorMin;
-  float                           fRgProjMax;
-  float                           fRgProjMaxSky;
+  float                             fRgProjIndoorMin;
+  float                             fRgProjOutdoorMin;
+  float                             fRgProjMax;
+  float                             fRgProjMaxSky;
 
-  float               fRgProjALimit;    //oyyf
-  float             fRgProjAWeight;   //oyyf
-  float               fRgProjYellowLimit;   //oyyf
-  float             fRgProjIllToCwf;    //oyyf
-  float             fRgProjIllToCwfWeight;  //oyyf
+  float                             fRgProjALimit;    //oyyf
+  float                             fRgProjAWeight;   //oyyf
+  float                             fRgProjYellowLimit;   //oyyf
+  float                             fRgProjIllToCwf;    //oyyf
+  float                             fRgProjIllToCwfWeight;  //oyyf
 } AwbRgProj_t;
 
+/*****************************************************************************/
+/**
+ *          AwbWhitePoint_t
+ *
+ * @brief
+ *
+ *****************************************************************************/
+typedef struct AwbWhitePoint_s {
+  uint16_t win_h_offs;
+  uint16_t win_v_offs;
+  uint16_t win_width;
+  uint16_t win_height;
+  uint8_t awb_mode;
+  uint32_t cnt;
+  uint8_t mean_y;
+  uint8_t mean_cb;
+  uint8_t mean_cr;
+  uint16_t mean_r;
+  uint16_t mean_b;
+  uint16_t mean_g;
+
+  uint8_t RefCr;
+  uint8_t RefCb;
+  uint8_t MinY;
+  uint8_t MaxY;
+  uint8_t MinC;
+  uint8_t MaxCSum;
+
+  float RgProjection;
+  float RegionSize;
+  float Rg_clipped;
+  float Rg_unclipped;
+  float Bg_clipped;
+  float Bg_unclipped;
+} AwbWhitePoint_t;
 
 
 /*****************************************************************************/
@@ -471,32 +609,17 @@ RESULT AwbUnLock
     AwbHandle_t handle
 );
 
-RESULT AwbGetGainParam
+RESULT AwbSetForceGains
 (
     AwbHandle_t handle,
-    float* f_RgProj,
-    float* f_s,
-    float* f_s_Max1,
-    float* f_s_Max2,
-    float* f_Bg1,
-    float* f_Rg1,
-    float* f_Bg2,
-    float* f_Rg2
+    AwbConfig_t *pConfig
 );
 
-RESULT AwbGetIlluEstInfo
+RESULT AwbSetWhitePoint
 (
     AwbHandle_t handle,
-    float* ExpPriorIn,
-    float* ExpPriorOut,
-    char (*name)[20],
-    float likehood[],
-    float wight[],
-    int* curIdx,
-    int* region,
-    int* count
+    AwbConfig_t *pConfig
 );
-
 #ifdef __cplusplus
 }
 #endif

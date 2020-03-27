@@ -87,12 +87,22 @@ struct MppFrameImpl_t {
     MppFrameChromaLocation chroma_location;
 
     MppFrameFormat fmt;
+
+    MppFrameRational sar;
+    MppFrameMasteringDisplayMetadata mastering_display;
+    MppFrameContentLightMetadata content_light;
+
     /*
      * buffer information
      * NOTE: buf_size only access internally
      */
     MppBuffer       buffer;
     size_t          buf_size;
+
+    /*
+     * meta data information
+     */
+    MppMeta         meta;
 
     /*
      * pointer for multiple frame output at one time

@@ -10,12 +10,15 @@ set(H264E_COMMON
 
 # h264 encoder header
 set(H264E_HDR
-    include/h264e_codec.h
     )
 
 # h264 encoder sourse
 set(H264E_SRC
-    src/h264e_api.c
+    h264e_sps.c
+    h264e_pps.c
+    h264e_dpb.c
+    h264e_slice.c
+    h264e_api.c
     )
 
 

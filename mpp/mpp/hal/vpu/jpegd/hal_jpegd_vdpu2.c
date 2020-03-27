@@ -20,16 +20,10 @@
 #include <string.h>
 #include <stdint.h>
 
-#include "mpp_buffer.h"
-#include "mpp_log.h"
-#include "mpp_err.h"
-#include "mpp_mem.h"
-#include "mpp_bitread.h"
-#include "mpp_dec.h"
-#include "mpp_device.h"
-#include "mpp_buffer.h"
 #include "mpp_env.h"
-#include "mpp_bitput.h"
+#include "mpp_log.h"
+#include "mpp_mem.h"
+#include "mpp_frame.h"
 
 #include "jpegd_syntax.h"
 #include "hal_jpegd_common.h"
@@ -37,29 +31,6 @@
 #include "hal_jpegd_vdpu2_reg.h"
 
 extern RK_U32 jpegd_debug;
-
-static MPP_RET jpegd_set_extra_info(JpegdHalCtx *ctx, RK_U32 offset)
-{
-    jpegd_dbg_func("enter\n");
-
-    JpegdIocRegInfo *reg_info = (JpegdIocRegInfo *)ctx->regs;
-    JpegdIocExtInfo *info = &(reg_info->extra_info);
-    JpegdIocExtInfoSlot *slot = NULL;
-    info->cnt = 1;
-
-    slot = &(info->slots[0]);
-    slot->offset = offset;
-
-    if (ctx->pp_info.pp_enable) {
-        /* pp enable */
-        slot->reg_idx = 22;
-    } else {
-        slot->reg_idx = 131;
-    }
-
-    jpegd_dbg_func("exit\n");
-    return MPP_OK;
-}
 
 static void jpegd_write_code_word_number(JpegdHalCtx *ctx,
                                          JpegdSyntax *syntax)
@@ -267,103 +238,6 @@ jpegd_set_stream_offset(JpegdHalCtx *ctx, JpegdSyntax *syntax)
     return;
 }
 
-static
-MPP_RET jpegd_gen_regs(JpegdHalCtx *ctx, JpegdSyntax *syntax)
-{
-    MPP_RET ret = MPP_OK;
-    jpegd_dbg_func("enter\n");
-    JpegdIocRegInfo *info = (JpegdIocRegInfo *)ctx->regs;
-    JpegRegSet *reg = &(info->regs);
-    JpegdSyntax *s = syntax;
-    RK_U32 chroma_offset = 0;
-
-    reg->reg50_dec_ctrl.sw_filtering_dis = 1;
-    reg->reg53_dec_mode = DEC_MODE_JPEG;
-
-    reg->reg57_enable_ctrl.sw_dec_e = 1;  /* Enable jpeg mode */
-    reg->reg57_enable_ctrl.sw_pjpeg_e = 0;
-    reg->reg57_enable_ctrl.sw_dec_out_dis = 0;
-    reg->reg57_enable_ctrl.sw_rlc_mode_e = 0;
-
-    /* frame size, round up the number of mbs */
-    reg->reg120.sw_pic_mb_h_ext = ((((s->ver_stride) >> (4)) & 0x700) >> 8);
-    reg->reg120.sw_pic_mb_w_ext = ((((s->hor_stride) >> (4)) & 0xE00) >> 9);
-    reg->reg120.sw_pic_mb_width = ((s->hor_stride) >> (4)) & 0x1FF;
-    reg->reg120.sw_pic_mb_hight_p = ((s->ver_stride) >> (4)) & 0x0FF;
-
-    reg->reg121.sw_pjpeg_fildown_e = s->fill_bottom;
-    /* Set spectral selection start coefficient */
-    reg->reg121.sw_pjpeg_ss = s->scan_start;
-    /* Set spectral selection end coefficient */
-    reg->reg121.sw_pjpeg_se = s->scan_end;
-    /* Set the point transform used in the preceding scan */
-    reg->reg121.sw_pjpeg_ah = s->prev_shift;
-    /* Set the point transform value */
-    reg->reg121.sw_pjpeg_al = s->point_transform;
-
-    reg->reg122.sw_jpeg_qtables = s->qtable_cnt;
-    reg->reg122.sw_jpeg_mode = s->yuv_mode;
-    reg->reg122.sw_jpeg_filright_e = s->fill_right;
-
-    reg->reg148.sw_slice_h = 0;
-    /* Set bit 21 of reg148 to 1, notifying hardware to decode jpeg
-     * including DRI segment
-     */
-    reg->reg148.sw_syn_marker_e = 1;
-
-    /* tell hardware that height is 8-pixel aligned,
-     * but not 16-pixel aligned
-     */
-    if ((s->height % 16) &&
-        (s->yuv_mode == JPEGDEC_YUV422 ||
-         s->yuv_mode == JPEGDEC_YUV444 ||
-         s->yuv_mode == JPEGDEC_YUV411)) {
-        reg->reg148.sw_jpeg_height8_flag = 1;
-    }
-
-    /* write VLC code word number to register */
-    jpegd_write_code_word_number(ctx, s);
-
-    /* Create AC/DC/QP tables for hardware */
-    jpegd_write_qp_ac_dc_table(ctx, s);
-
-    /* Select which tables the chromas use */
-    jpegd_set_chroma_table_id(ctx, s);
-
-    /* write table base */
-    reg->reg61_qtable_base = mpp_buffer_get_fd(ctx->pTableBase);
-
-    /* set up stream position for HW decode */
-    jpegd_set_stream_offset(ctx, s);
-
-    /* set restart interval */
-    if (s->restart_interval) {
-        reg->reg122.sw_sync_marker_e = 1;
-        /* If exists DRI segment, bit 0 to bit 15 of reg123 is set
-         * to restart interval */
-        reg->reg123.sw_pjpeg_rest_freq = s->restart_interval;
-    } else {
-        reg->reg122.sw_sync_marker_e = 0;
-    }
-
-    if (ctx->pp_info.pp_enable) {
-        reg->reg57_enable_ctrl.sw_dec_out_dis = 1;
-
-        /* set output address to zero, because of pp */
-        reg->reg63_dec_out_base = 0;
-        reg->reg131_jpg_ch_out_base = 0;
-    } else {
-        reg->reg63_dec_out_base = ctx->frame_fd;
-        reg->reg131_jpg_ch_out_base = ctx->frame_fd;
-
-        chroma_offset = s->hor_stride * s->ver_stride;
-        jpegd_set_extra_info(ctx, chroma_offset);
-    }
-
-    jpegd_dbg_func("exit\n");
-    return ret;
-}
-
 static MPP_RET jpegd_setup_pp(JpegdHalCtx *ctx, JpegdSyntax *syntax)
 {
     jpegd_dbg_func("enter\n");
@@ -436,7 +310,6 @@ static MPP_RET jpegd_setup_pp(JpegdHalCtx *ctx, JpegdSyntax *syntax)
     reg->reg39.sw_display_width = out_width;
     reg->reg35.sw_pp_out_width = out_width;
     reg->reg35.sw_pp_out_height = out_height;
-    reg->reg21_pp_out_lu_base = ctx->frame_fd;
 
     switch (in_color) {
     case    PP_IN_FORMAT_YUV422INTERLAVE:
@@ -652,17 +525,7 @@ static MPP_RET jpegd_setup_pp(JpegdHalCtx *ctx, JpegdSyntax *syntax)
         reg->reg38.sw_pp_out_format = 3;
         break;
     case    PP_OUT_FORMAT_YUV420INTERLAVE: {
-        RK_S32 phy_addr = ctx->frame_fd;
-
-        if (ctx->pp_info.pp_enable) {
-            /* pp enable */
-            jpegd_set_extra_info(ctx, out_width * out_height);
-            reg->reg22_pp_out_ch_base = phy_addr;
-        }
-
         reg->reg38.sw_pp_out_format = 5;
-        jpegd_dbg_hal("output_frame_fd:%x, reg22:%x", phy_addr,
-                      reg->reg22_pp_out_ch_base);
     }
     break;
     default:
@@ -702,8 +565,125 @@ static MPP_RET jpegd_setup_pp(JpegdHalCtx *ctx, JpegdSyntax *syntax)
 
     reg->reg41.sw_pp_pipeline_e = ctx->pp_info.pp_enable;
 
+    if (ctx->pp_info.pp_enable) {
+        reg->reg41.sw_pp_pipeline_e = 1;
+        reg->reg57_enable_ctrl.sw_dec_out_dis = 1;
+
+        reg->reg63_dec_out_base = 0;
+        reg->reg131_jpg_ch_out_base = 0;
+
+        reg->reg21_pp_out_lu_base = ctx->frame_fd;
+        reg->reg22_pp_out_ch_base = ctx->frame_fd;
+
+        mpp_device_patch_add((RK_U32 *)reg, &info->extra_info, 22,
+                             s->hor_stride * s->ver_stride);
+
+        jpegd_dbg_hal("output_frame_fd:%x, reg22:%x", ctx->frame_fd,
+                      reg->reg22_pp_out_ch_base);
+    } else {
+        // output without pp
+        reg->reg41.sw_pp_pipeline_e = 0;
+        reg->reg57_enable_ctrl.sw_dec_out_dis = 0;
+
+        reg->reg21_pp_out_lu_base = 0;
+        reg->reg22_pp_out_ch_base = 0;
+
+        reg->reg63_dec_out_base = ctx->frame_fd;
+        reg->reg131_jpg_ch_out_base = ctx->frame_fd;
+
+        mpp_device_patch_add((RK_U32 *)reg, &info->extra_info, 131,
+                             s->hor_stride * s->ver_stride);
+
+        jpegd_dbg_hal("output_frame_fd:%x, reg131:%x", ctx->frame_fd,
+                      reg->reg131_jpg_ch_out_base);
+    }
+
     jpegd_dbg_func("exit\n");
     return MPP_OK;
+}
+
+static
+MPP_RET jpegd_gen_regs(JpegdHalCtx *ctx, JpegdSyntax *syntax)
+{
+    MPP_RET ret = MPP_OK;
+    jpegd_dbg_func("enter\n");
+    JpegdIocRegInfo *info = (JpegdIocRegInfo *)ctx->regs;
+    JpegRegSet *reg = &(info->regs);
+    JpegdSyntax *s = syntax;
+
+    reg->reg50_dec_ctrl.sw_filtering_dis = 1;
+    reg->reg53_dec_mode = DEC_MODE_JPEG;
+
+    reg->reg57_enable_ctrl.sw_dec_e = 1;  /* Enable jpeg mode */
+    reg->reg57_enable_ctrl.sw_pjpeg_e = 0;
+    reg->reg57_enable_ctrl.sw_dec_out_dis = 0;
+    reg->reg57_enable_ctrl.sw_rlc_mode_e = 0;
+
+    /* frame size, round up the number of mbs */
+    reg->reg120.sw_pic_mb_h_ext = ((((s->ver_stride) >> (4)) & 0x700) >> 8);
+    reg->reg120.sw_pic_mb_w_ext = ((((s->hor_stride) >> (4)) & 0xE00) >> 9);
+    reg->reg120.sw_pic_mb_width = ((s->hor_stride) >> (4)) & 0x1FF;
+    reg->reg120.sw_pic_mb_hight_p = ((s->ver_stride) >> (4)) & 0x0FF;
+
+    reg->reg121.sw_pjpeg_fildown_e = s->fill_bottom;
+    /* Set spectral selection start coefficient */
+    reg->reg121.sw_pjpeg_ss = s->scan_start;
+    /* Set spectral selection end coefficient */
+    reg->reg121.sw_pjpeg_se = s->scan_end;
+    /* Set the point transform used in the preceding scan */
+    reg->reg121.sw_pjpeg_ah = s->prev_shift;
+    /* Set the point transform value */
+    reg->reg121.sw_pjpeg_al = s->point_transform;
+
+    reg->reg122.sw_jpeg_qtables = s->qtable_cnt;
+    reg->reg122.sw_jpeg_mode = s->yuv_mode;
+    reg->reg122.sw_jpeg_filright_e = s->fill_right;
+
+    reg->reg148.sw_slice_h = 0;
+    /* Set bit 21 of reg148 to 1, notifying hardware to decode jpeg
+     * including DRI segment
+     */
+    reg->reg148.sw_syn_marker_e = 1;
+
+    /* tell hardware that height is 8-pixel aligned,
+     * but not 16-pixel aligned
+     */
+    if ((s->height % 16) && ((s->height % 16) <= 8) &&
+        (s->yuv_mode == JPEGDEC_YUV422 ||
+         s->yuv_mode == JPEGDEC_YUV444 ||
+         s->yuv_mode == JPEGDEC_YUV411)) {
+        reg->reg148.sw_jpeg_height8_flag = 1;
+    }
+
+    /* write VLC code word number to register */
+    jpegd_write_code_word_number(ctx, s);
+
+    /* Create AC/DC/QP tables for hardware */
+    jpegd_write_qp_ac_dc_table(ctx, s);
+
+    /* Select which tables the chromas use */
+    jpegd_set_chroma_table_id(ctx, s);
+
+    /* write table base */
+    reg->reg61_qtable_base = mpp_buffer_get_fd(ctx->pTableBase);
+
+    /* set up stream position for HW decode */
+    jpegd_set_stream_offset(ctx, s);
+
+    /* set restart interval */
+    if (s->restart_interval) {
+        reg->reg122.sw_sync_marker_e = 1;
+        /* If exists DRI segment, bit 0 to bit 15 of reg123 is set
+         * to restart interval */
+        reg->reg123.sw_pjpeg_rest_freq = s->restart_interval;
+    } else {
+        reg->reg122.sw_sync_marker_e = 0;
+    }
+
+    jpegd_setup_pp(ctx, syntax);
+
+    jpegd_dbg_func("exit\n");
+    return ret;
 }
 
 static MPP_RET jpegd_regs_init(JpegRegSet *reg)
@@ -752,13 +732,13 @@ MPP_RET hal_jpegd_vdpu2_init(void *hal, MppHalCfg *cfg)
     JpegHalCtx->frame_slots = cfg->frame_slots;
 
     //get vpu socket
-#ifdef RKPLATFORM
     MppDevCfg dev_cfg = {
         .type = MPP_CTX_DEC,              /* type */
         .coding = MPP_VIDEO_CodingMJPEG,  /* coding */
         .platform = 0,                    /* platform */
         .pp_enable = 0,                   /* pp_enable */
     };
+
     ret = mpp_device_init(&JpegHalCtx->dev_ctx, &dev_cfg);
     if (ret) {
         mpp_err("mpp_device_init failed. ret: %d\n", ret);
@@ -766,7 +746,6 @@ MPP_RET hal_jpegd_vdpu2_init(void *hal, MppHalCfg *cfg)
     } else {
         jpegd_dbg_hal("mpp_device_init success. \n");
     }
-#endif
 
     //init regs
     JpegdIocRegInfo *info = NULL;
@@ -777,7 +756,7 @@ MPP_RET hal_jpegd_vdpu2_init(void *hal, MppHalCfg *cfg)
         return MPP_ERR_NOMEM;
     }
     memset(info, 0, sizeof(JpegdIocRegInfo));
-    info->extra_info.magic = EXTRA_INFO_MAGIC;
+    mpp_device_patch_init(&info->extra_info);
     JpegHalCtx->regs = (void *)info;
 
     reg = &(info->regs);
@@ -785,15 +764,9 @@ MPP_RET hal_jpegd_vdpu2_init(void *hal, MppHalCfg *cfg)
 
     //malloc hw buf
     if (JpegHalCtx->group == NULL) {
-#ifdef RKPLATFORM
-        jpegd_dbg_hal("mpp_buffer_group_get_internal used ion in");
         ret = mpp_buffer_group_get_internal(&JpegHalCtx->group,
                                             MPP_BUFFER_TYPE_ION);
-#else
-        ret = mpp_buffer_group_get_internal(&JpegHalCtx->group,
-                                            MPP_BUFFER_TYPE_NORMAL);
-#endif
-        if (MPP_OK != ret) {
+        if (ret) {
             mpp_err_f("mpp_buffer_group_get failed\n");
             return ret;
         }
@@ -801,14 +774,14 @@ MPP_RET hal_jpegd_vdpu2_init(void *hal, MppHalCfg *cfg)
 
     ret = mpp_buffer_get(JpegHalCtx->group, &JpegHalCtx->frame_buf,
                          JPEGD_STREAM_BUFF_SIZE);
-    if (MPP_OK != ret) {
+    if (ret) {
         mpp_err_f("get buffer failed\n");
         return ret;
     }
 
     ret = mpp_buffer_get(JpegHalCtx->group, &JpegHalCtx->pTableBase,
                          JPEGD_BASELINE_TABLE_SIZE);
-    if (MPP_OK != ret) {
+    if (ret) {
         mpp_err_f("get buffer failed\n");
         return ret;
     }
@@ -837,34 +810,32 @@ MPP_RET hal_jpegd_vdpu2_deinit(void *hal)
     MPP_RET ret = MPP_OK;
     JpegdHalCtx *JpegHalCtx = (JpegdHalCtx *)hal;
 
-#ifdef RKPLATFORM
     if (JpegHalCtx->dev_ctx) {
         ret = mpp_device_deinit(JpegHalCtx->dev_ctx);
-        if (MPP_OK != ret) {
+        if (ret) {
             mpp_err("mpp_device_deinit failed. ret: %d\n", ret);
         }
     }
-#endif
 
     if (JpegHalCtx->frame_buf) {
         ret = mpp_buffer_put(JpegHalCtx->frame_buf);
-        if (MPP_OK != ret) {
-            mpp_err_f("put buffer failed\n");
+        if (ret) {
+            mpp_err_f("put frame buffer failed\n");
             return ret;
         }
     }
 
     if (JpegHalCtx->pTableBase) {
         ret = mpp_buffer_put(JpegHalCtx->pTableBase);
-        if (MPP_OK != ret) {
-            mpp_err_f("put buffer failed\n");
+        if (ret) {
+            mpp_err_f("put table buffer failed\n");
             return ret;
         }
     }
 
     if (JpegHalCtx->group) {
         ret = mpp_buffer_group_put(JpegHalCtx->group);
-        if (MPP_OK != ret) {
+        if (ret) {
             mpp_err_f("group free buffer failed\n");
             return ret;
         }
@@ -895,16 +866,13 @@ MPP_RET hal_jpegd_vdpu2_gen_regs(void *hal,  HalTaskInfo *syn)
     MPP_RET ret = MPP_OK;
     JpegdHalCtx *JpegHalCtx = (JpegdHalCtx *)hal;
     JpegdSyntax *syntax = (JpegdSyntax *)syn->dec.syntax.data;
-#ifdef RKPLATFORM
     MppBuffer streambuf = NULL;
     MppBuffer outputBuf = NULL;
-#endif
 
     if (syn->dec.valid) {
         syn->dec.valid = 0;
-        jpegd_setup_output_fmt(JpegHalCtx, syntax);
+        jpegd_setup_output_fmt(JpegHalCtx, syntax, syn->dec.output);
 
-#ifdef RKPLATFORM
         if (JpegHalCtx->set_output_fmt_flag && (NULL != JpegHalCtx->dev_ctx)) {
             mpp_device_deinit(JpegHalCtx->dev_ctx);
             MppDevCfg dev_cfg = {
@@ -914,7 +882,7 @@ MPP_RET hal_jpegd_vdpu2_gen_regs(void *hal,  HalTaskInfo *syn)
                 .pp_enable = 1,                   /* pp_enable */
             };
             ret = mpp_device_init(&JpegHalCtx->dev_ctx, &dev_cfg);
-            if (ret != MPP_OK) {
+            if (ret) {
                 mpp_err("mpp_device_init failed. ret: %d\n", ret);
                 return ret;
             } else {
@@ -926,14 +894,12 @@ MPP_RET hal_jpegd_vdpu2_gen_regs(void *hal,  HalTaskInfo *syn)
         mpp_buf_slot_get_prop(JpegHalCtx->packet_slots, syn->dec.input,
                               SLOT_BUFFER, &streambuf);
         JpegHalCtx->pkt_fd = mpp_buffer_get_fd(streambuf);
+        syntax->pkt_len = jpegd_vdpu_tail_0xFF_patch(streambuf, syntax->pkt_len);
 
         /* output picture address */
         mpp_buf_slot_get_prop(JpegHalCtx->frame_slots, syn->dec.output,
                               SLOT_BUFFER, &outputBuf);
         JpegHalCtx->frame_fd = mpp_buffer_get_fd(outputBuf);
-#endif
-
-        jpegd_setup_pp(JpegHalCtx, syntax);
 
         ret = jpegd_gen_regs(JpegHalCtx, syntax);
         if (ret != MPP_OK) {
@@ -953,17 +919,15 @@ MPP_RET hal_jpegd_vdpu2_start(void *hal, HalTaskInfo *task)
     jpegd_dbg_func("enter\n");
     MPP_RET ret = MPP_OK;
     JpegdHalCtx *JpegHalCtx = (JpegdHalCtx *)hal;
-
-#ifdef RKPLATFORM
     RK_U32 *p_regs = (RK_U32 *)JpegHalCtx->regs;
+
     ret = mpp_device_send_reg(JpegHalCtx->dev_ctx, p_regs,
                               sizeof(JpegdIocRegInfo) / sizeof(RK_U32));
-    if (ret != 0) {
+    if (ret) {
         mpp_err_f("mpp_device_send_reg Failed!!!\n");
         return MPP_ERR_VPUHW;
     }
-#endif
-    (void)JpegHalCtx;
+
     (void)task;
     jpegd_dbg_func("exit\n");
     return ret;
@@ -974,14 +938,11 @@ MPP_RET hal_jpegd_vdpu2_wait(void *hal, HalTaskInfo *task)
     jpegd_dbg_func("enter\n");
     MPP_RET ret = MPP_OK;
     JpegdHalCtx *JpegHalCtx = (JpegdHalCtx *)hal;
-    (void)JpegHalCtx;
-    (void)task;
-
-#ifdef RKPLATFORM
     JpegRegSet *reg_out = NULL;
     RK_U32 errinfo = 1;
     MppFrame tmp = NULL;
     RK_U32 reg[184];
+    (void)task;
 
     ret = mpp_device_wait_reg(JpegHalCtx->dev_ctx, reg,
                               sizeof(reg) / sizeof(RK_U32));
@@ -1030,7 +991,6 @@ MPP_RET hal_jpegd_vdpu2_wait(void *hal, HalTaskInfo *task)
             JpegHalCtx->output_yuv_count++;
         }
     }
-#endif
 
     jpegd_dbg_func("exit\n");
     return ret;
@@ -1056,7 +1016,7 @@ MPP_RET hal_jpegd_vdpu2_flush(void *hal)
     return ret;
 }
 
-MPP_RET hal_jpegd_vdpu2_control(void *hal, RK_S32 cmd_type,
+MPP_RET hal_jpegd_vdpu2_control(void *hal, MpiCmd cmd_type,
                                 void *param)
 {
     jpegd_dbg_func("enter\n");
