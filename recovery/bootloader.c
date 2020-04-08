@@ -30,14 +30,18 @@ static int set_bootloader_message_mtd(const struct bootloader_message *in, const
 static int get_bootloader_message_block(struct bootloader_message *out, const Volume* v);
 static int set_bootloader_message_block(const struct bootloader_message *in, const Volume* v);
 
+#define EMMC_POINT_NAME "emmc_point_name"
+
 int get_bootloader_message(struct bootloader_message *out) {
     Volume* v = volume_for_path("/misc");
 
     if(!v) return -1;
     //if (strcmp(v->fs_type, "mtd") == 0) {
-    if (isMtdDevice() == 0) {
+    if (isMtdDevice() == 0 && !strstr(getenv(EMMC_POINT_NAME), "mmcblk")){
+	printf("========================================== mtd \n");
         return get_bootloader_message_mtd(out, v);
     } else if (strcmp(v->fs_type, "emmc") == 0) {
+	printf("========================================== emmc\n");
         return get_bootloader_message_block(out, v);
     }
     LOGE("unknown misc partition fs_type \"%s\"\n", v->fs_type);
@@ -47,7 +51,7 @@ int get_bootloader_message(struct bootloader_message *out) {
 int set_bootloader_message(const struct bootloader_message *in) {
     Volume* v = volume_for_path("/misc");
     //if (strcmp(v->fs_type, "mtd") == 0) {
-    if (isMtdDevice() == 0) {
+    if (isMtdDevice() == 0 && !strstr(getenv(EMMC_POINT_NAME), "mmcblk")) {
         return set_bootloader_message_mtd(in, v);
     } else if (strcmp(v->fs_type, "emmc") == 0) {
         return set_bootloader_message_block(in, v);
