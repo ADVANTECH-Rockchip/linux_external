@@ -983,6 +983,14 @@ main(int argc, char **argv) {
             if (resize_volume("/oem")) status = INSTALL_ERROR;
             if (status != INSTALL_SUCCESS) ui_print("resize failed.\n");
         }
+		if (1/*!bSDBoot*/) {
+			if (access("/dev/block/by-name/rootfs", F_OK) == 0) {
+				if (rk_check_and_resizefs("/dev/block/by-name/rootfs") != 0)
+					status = INSTALL_ERROR;
+				if (status != INSTALL_SUCCESS)
+					LOGE("resizefs failed on /dev/block/by-name/rootfs\n");
+	        }
+        }
 
 		ui_print("resize oem done.\n");
 		ui_show_text(0);
