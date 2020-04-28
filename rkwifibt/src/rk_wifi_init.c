@@ -424,10 +424,10 @@ int wifibt_load_driver(void)
 	if (strstr(bt_firmware_patch , "system")) {
 		create_bt_test_file_for_brcm();
 		memset(temp, 0, 256);
-		system("echo 0 > /sys/class/rfkill/rfkill0/state");
-		usleep(2);
-		system("echo 1 > /sys/class/rfkill/rfkill0/state");
-		usleep(2);
+		//system("echo 0 > /sys/class/rfkill/rfkill0/state");
+		//usleep(2);
+		//system("echo 1 > /sys/class/rfkill/rfkill0/state");
+		//usleep(2);
 
 		sprintf(temp, "brcm_patchram_plus1 --enable_hci --no2bytes --use_baudrate_for_download  --tosleep  200000 --baudrate 1500000 --patchram  %s %s &", bt_firmware_patch, bt_tty_dev);
 		printf("%s %s\n", __func__, temp);
