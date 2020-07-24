@@ -25,19 +25,11 @@
 
 #include "mpp_rc.h"
 
+#include "h264e_debug.h"
 #include "h264e_api.h"
 #include "h264e_syntax.h"
 
 #include "enc_impl_api.h"
-
-#define H264E_DBG_FUNCTION          (0x00000001)
-
-#define h264e_dbg(flag, fmt, ...)   _mpp_dbg(h264e_debug, flag, fmt, ## __VA_ARGS__)
-#define h264e_dbg_f(flag, fmt, ...) _mpp_dbg_f(h264e_debug, flag, fmt, ## __VA_ARGS__)
-
-#define h264e_dbg_func(fmt, ...)    h264e_dbg_f(H264E_DBG_FUNCTION, fmt, ## __VA_ARGS__)
-
-RK_U32 h264e_debug = 0;
 
 typedef struct {
     /* config from mpp_enc */
@@ -63,7 +55,7 @@ typedef struct {
     struct list_head rc_list;
 } H264eCtx;
 
-MPP_RET h264e_init(void *ctx, EncImplCfg *ctrl_cfg)
+static MPP_RET h264e_init(void *ctx, EncImplCfg *ctrl_cfg)
 {
     MPP_RET ret = MPP_OK;
     H264eCtx *p = (H264eCtx *)ctx;
@@ -123,7 +115,7 @@ MPP_RET h264e_init(void *ctx, EncImplCfg *ctrl_cfg)
     return ret;
 }
 
-MPP_RET h264e_deinit(void *ctx)
+static MPP_RET h264e_deinit(void *ctx)
 {
     H264eCtx *p = (H264eCtx *)ctx;
 
@@ -144,7 +136,7 @@ MPP_RET h264e_deinit(void *ctx)
     return MPP_OK;
 }
 
-MPP_RET h264e_encode(void *ctx, HalEncTask *task)
+static MPP_RET h264e_encode(void *ctx, HalEncTask *task)
 {
     H264eCtx *p = (H264eCtx *)ctx;
     RcSyntax *rc_syn = &p->syntax;
@@ -182,19 +174,19 @@ MPP_RET h264e_encode(void *ctx, HalEncTask *task)
     return MPP_OK;
 }
 
-MPP_RET h264e_reset(void *ctx)
+static MPP_RET h264e_reset(void *ctx)
 {
     (void)ctx;
     return MPP_OK;
 }
 
-MPP_RET h264e_flush(void *ctx)
+static MPP_RET h264e_flush(void *ctx)
 {
     (void)ctx;
     return MPP_OK;
 }
 
-MPP_RET h264e_config(void *ctx, MpiCmd cmd, void *param)
+static MPP_RET h264e_config(void *ctx, MpiCmd cmd, void *param)
 {
     MPP_RET ret = MPP_OK;
     H264eCtx *p = (H264eCtx *)ctx;
@@ -218,8 +210,7 @@ MPP_RET h264e_config(void *ctx, MpiCmd cmd, void *param)
                     rc->quality);
             ret = MPP_ERR_VALUE;
         }
-        if (rc->rc_mode != MPP_ENC_RC_MODE_VBR ||
-            rc->quality != MPP_ENC_RC_QUALITY_CQP) {
+        if (rc->rc_mode != MPP_ENC_RC_MODE_FIXQP) {
             if ((rc->bps_target >= 100 * SZ_1M || rc->bps_target <= 1 * SZ_1K) ||
                 (rc->bps_max    >= 100 * SZ_1M || rc->bps_max    <= 1 * SZ_1K) ||
                 (rc->bps_min    >= 100 * SZ_1M || rc->bps_min    <= 1 * SZ_1K)) {
@@ -248,7 +239,7 @@ MPP_RET h264e_config(void *ctx, MpiCmd cmd, void *param)
     return ret;
 }
 
-MPP_RET h264e_callback(void *ctx, void *feedback)
+static MPP_RET h264e_callback(void *ctx, void *feedback)
 {
     H264eCtx *p = (H264eCtx *)ctx;
     h264e_feedback *fb  = (h264e_feedback *)feedback;
@@ -278,8 +269,6 @@ const EncImplApi api_h264e_controller = {
     NULL,
     NULL,
     h264e_encode,
-    NULL,
-    NULL,
     NULL,
     h264e_reset,
     h264e_flush,

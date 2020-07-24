@@ -44,6 +44,18 @@ static void mpp_notify_by_buffer_group(void *arg, void *group)
     mpp->notify((MppBufferGroup) group);
 }
 
+static void *list_wraper_packet(void *arg)
+{
+    mpp_packet_deinit((MppPacket *)arg);
+    return NULL;
+}
+
+static void *list_wraper_frame(void *arg)
+{
+    mpp_frame_deinit((MppFrame *)arg);
+    return NULL;
+}
+
 Mpp::Mpp()
     : mPackets(NULL),
       mFrames(NULL),
@@ -61,11 +73,12 @@ Mpp::Mpp()
       mOutputPort(NULL),
       mInputTaskQueue(NULL),
       mOutputTaskQueue(NULL),
-      mInputTimeout(MPP_POLL_NON_BLOCK),
-      mOutputTimeout(MPP_POLL_NON_BLOCK),
+      mInputTimeout(MPP_POLL_BUTT),
+      mOutputTimeout(MPP_POLL_BUTT),
       mInputTask(NULL),
       mDec(NULL),
       mEnc(NULL),
+      mEncVersion(0),
       mType(MPP_CTX_BUTT),
       mCoding(MPP_VIDEO_CodingUnused),
       mInitDone(0),
@@ -94,9 +107,15 @@ MPP_RET Mpp::init(MppCtxType type, MppCodingType coding)
     mCoding = coding;
     switch (mType) {
     case MPP_CTX_DEC : {
-        mPackets    = new mpp_list((node_destructor)mpp_packet_deinit);
-        mFrames     = new mpp_list((node_destructor)mpp_frame_deinit);
-        mTimeStamps = new MppQueue((node_destructor)mpp_packet_deinit);
+        mPackets    = new mpp_list(list_wraper_packet);
+        mFrames     = new mpp_list(list_wraper_frame);
+        mTimeStamps = new mpp_list(list_wraper_packet);
+
+        if (mInputTimeout == MPP_POLL_BUTT)
+            mInputTimeout = MPP_POLL_NON_BLOCK;
+
+        if (mOutputTimeout == MPP_POLL_BUTT)
+            mOutputTimeout = MPP_POLL_NON_BLOCK;
 
         if (mCoding != MPP_VIDEO_CodingMJPEG) {
             mpp_buffer_group_get_internal(&mPacketGroup, MPP_BUFFER_TYPE_ION);
@@ -130,8 +149,14 @@ MPP_RET Mpp::init(MppCtxType type, MppCodingType coding)
         mInitDone = 1;
     } break;
     case MPP_CTX_ENC : {
-        mFrames     = new mpp_list((node_destructor)NULL);
-        mPackets    = new mpp_list((node_destructor)mpp_packet_deinit);
+        mFrames     = new mpp_list(NULL);
+        mPackets    = new mpp_list(list_wraper_packet);
+
+        if (mInputTimeout == MPP_POLL_BUTT)
+            mInputTimeout = MPP_POLL_BLOCK;
+
+        if (mOutputTimeout == MPP_POLL_BUTT)
+            mOutputTimeout = MPP_POLL_NON_BLOCK;
 
         mpp_buffer_group_get_internal(&mPacketGroup, MPP_BUFFER_TYPE_ION);
         mpp_buffer_group_get_internal(&mFrameGroup, MPP_BUFFER_TYPE_ION);
@@ -149,8 +174,21 @@ MPP_RET Mpp::init(MppCtxType type, MppCodingType coding)
             this,
         };
 
-        mpp_enc_init(&mEnc, &cfg);
-        mpp_enc_start(mEnc);
+        /* H.264 and H.265 check encoder path version */
+        if (mCoding == MPP_VIDEO_CodingAVC || mCoding == MPP_VIDEO_CodingHEVC)
+            mpp_env_get_u32("enc_version", &mEncVersion, 1);
+
+        if (mEncVersion) {
+            if (MPP_OK == mpp_enc_init_v2(&mEnc, &cfg)) {
+                mpp_enc_start_v2(mEnc);
+            } else
+                mEncVersion = 0;
+        }
+
+        if (mEncVersion == 0) {
+            mpp_enc_init(&mEnc, &cfg);
+            mpp_enc_start(mEnc);
+        }
 
         mInitDone = 1;
     } break;
@@ -188,8 +226,13 @@ void Mpp::clear()
         }
     } else {
         if (mEnc) {
-            mpp_enc_stop(mEnc);
-            mpp_enc_deinit(mEnc);
+            if (mEncVersion) {
+                mpp_enc_stop_v2(mEnc);
+                mpp_enc_deinit_v2(mEnc);
+            } else {
+                mpp_enc_stop(mEnc);
+                mpp_enc_deinit(mEnc);
+            }
             mEnc = NULL;
         }
     }
@@ -374,7 +417,7 @@ MPP_RET Mpp::put_frame(MppFrame frame)
     }
 
     /* wait enqueued task finished */
-    ret = poll(MPP_PORT_INPUT, MPP_POLL_BLOCK);
+    ret = poll(MPP_PORT_INPUT, mInputTimeout);
     if (ret) {
         mpp_log_f("poll on get timeout %d ret %d\n", mInputTimeout, ret);
         goto RET;
@@ -388,15 +431,6 @@ MPP_RET Mpp::put_frame(MppFrame frame)
     }
 
     mpp_assert(mInputTask);
-
-    /* clear the enqueued task back */
-    if (mInputTask) {
-        ret = mpp_task_meta_get_frame(mInputTask, KEY_INPUT_FRAME, &frame);
-        if (frame) {
-            mpp_frame_deinit(&frame);
-            frame = NULL;
-        }
-    }
 
 RET:
     return ret;
@@ -634,7 +668,11 @@ MPP_RET Mpp::reset()
         mFrames->flush();
         mFrames->unlock();
 
-        mpp_enc_reset(mEnc);
+        if (mEncVersion) {
+            mpp_enc_reset_v2(mEnc);
+        } else {
+            mpp_enc_reset(mEnc);
+        }
 
         mPackets->lock();
         mPackets->flush();
@@ -791,7 +829,11 @@ MPP_RET Mpp::control_dec(MpiCmd cmd, MppParam param)
 MPP_RET Mpp::control_enc(MpiCmd cmd, MppParam param)
 {
     mpp_assert(mEnc);
-    return mpp_enc_control(mEnc, cmd, param);
+    if (mEncVersion) {
+        return mpp_enc_control_v2(mEnc, cmd, param);
+    } else {
+        return mpp_enc_control(mEnc, cmd, param);
+    }
 }
 
 MPP_RET Mpp::control_isp(MpiCmd cmd, MppParam param)
@@ -813,7 +855,11 @@ MPP_RET Mpp::notify(RK_U32 flag)
         return mpp_dec_notify(mDec, flag);
     } break;
     case MPP_CTX_ENC : {
-        return mpp_enc_notify(mEnc, flag);
+        if (mEncVersion) {
+            return mpp_enc_notify_v2(mEnc, flag);
+        } else {
+            return mpp_enc_notify(mEnc, flag);
+        }
     } break;
     default : {
         mpp_err("unsupport context type %d\n", mType);

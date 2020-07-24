@@ -22,7 +22,7 @@
  <tr style="height: 56px;">
   <td id="projectalign" style="padding-left: 0.5em;">
    <div id="projectname">RockX
-   &#160;<span id="projectnumber">1.0.0</span>
+   &#160;<span id="projectnumber">1.2.0</span>
    </div>
   </td>
  </tr>
@@ -129,8 +129,8 @@ Functions</h2></td></tr>
 <tr class="separator:a91e3b4daa5885d1fc32d46eae5f86fe1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ae2d8d2e54475b19836671b741c159130"><td class="memItemLeft" align="right" valign="top"><a class="el" href="rockx__type_8h.html#a04cbb9f741ba50344f5cfb3cdeb8cf66">rockx_ret_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="face_8h.html#ae2d8d2e54475b19836671b741c159130">rockx_face_attribute</a> (<a class="el" href="rockx__type_8h.html#a1f4209876934eaa6c86fc3d0660fca52">rockx_handle_t</a> handle, <a class="el" href="structrockx__image__t.html">rockx_image_t</a> *in_img, <a class="el" href="structrockx__face__attribute__t.html">rockx_face_attribute_t</a> *attr)</td></tr>
 <tr class="separator:ae2d8d2e54475b19836671b741c159130"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a28a07eca0ab8052a3083f10ec9a7ccbd"><td class="memItemLeft" align="right" valign="top"><a class="el" href="rockx__type_8h.html#a04cbb9f741ba50344f5cfb3cdeb8cf66">rockx_ret_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="face_8h.html#a28a07eca0ab8052a3083f10ec9a7ccbd">rockx_face_liveness_detect</a> (<a class="el" href="rockx__type_8h.html#a1f4209876934eaa6c86fc3d0660fca52">rockx_handle_t</a> handle, <a class="el" href="structrockx__image__t.html">rockx_image_t</a> *in_ir_img, <a class="el" href="structrockx__face__liveness__t.html">rockx_face_liveness_t</a> *out_liveness_result)</td></tr>
-<tr class="separator:a28a07eca0ab8052a3083f10ec9a7ccbd"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a87501bb9e9d2c1d441a5691404818c01"><td class="memItemLeft" align="right" valign="top"><a class="el" href="rockx__type_8h.html#a04cbb9f741ba50344f5cfb3cdeb8cf66">rockx_ret_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="face_8h.html#a87501bb9e9d2c1d441a5691404818c01">rockx_face_liveness_detect</a> (<a class="el" href="rockx__type_8h.html#a1f4209876934eaa6c86fc3d0660fca52">rockx_handle_t</a> handle, <a class="el" href="structrockx__image__t.html">rockx_image_t</a> *in_ir_img, <a class="el" href="structrockx__rect__t.html">rockx_rect_t</a> *in_box, <a class="el" href="structrockx__face__liveness__t.html">rockx_face_liveness_t</a> *out_liveness_result)</td></tr>
+<tr class="separator:a87501bb9e9d2c1d441a5691404818c01"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Typedef Documentation</h2>
 <a id="a3dd95f95dc37439ae722823944d5c616"></a>
@@ -462,8 +462,8 @@ Figure 1 Face Landmark 68 KeyPoint</div></div>
 
 </div>
 </div>
-<a id="a28a07eca0ab8052a3083f10ec9a7ccbd"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a28a07eca0ab8052a3083f10ec9a7ccbd">&#9670;&nbsp;</a></span>rockx_face_liveness_detect()</h2>
+<a id="a87501bb9e9d2c1d441a5691404818c01"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a87501bb9e9d2c1d441a5691404818c01">&#9670;&nbsp;</a></span>rockx_face_liveness_detect()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -483,6 +483,12 @@ Figure 1 Face Landmark 68 KeyPoint</div></div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype"><a class="el" href="structrockx__rect__t.html">rockx_rect_t</a> *&#160;</td>
+          <td class="paramname"><em>in_box</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
           <td class="paramtype"><a class="el" href="structrockx__face__liveness__t.html">rockx_face_liveness_t</a> *&#160;</td>
           <td class="paramname"><em>out_liveness_result</em>&#160;</td>
         </tr>
@@ -496,7 +502,8 @@ Figure 1 Face Landmark 68 KeyPoint</div></div>
 <p>Face Liveness Detection </p><dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">handle</td><td>[in] Handle of a created ROCKX_MODULE_FACE_LIVENESS module(created by <a class="el" href="rockx_8h.html#a381a94a68b559f37f768a2ad3102abe4">rockx_create</a>) </td></tr>
-    <tr><td class="paramname">in_ir_img</td><td>[in] Input IR aligned face image (need specified ir camera) </td></tr>
+    <tr><td class="paramname">in_ir_img</td><td>[in] Input IR image (need specified ir camera) </td></tr>
+    <tr><td class="paramname">box</td><td>[in] Face Detect Area </td></tr>
     <tr><td class="paramname">out_liveness_result</td><td>[out] Liveness result </td></tr>
   </table>
   </dd>

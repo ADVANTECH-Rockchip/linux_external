@@ -77,7 +77,7 @@ MPP_RET h264e_sps_update(SynH264eSps *sps, MppEncCfgSet *cfg, MppDeviceId dev)
     // default sps
     // profile baseline
     sps->profile_idc = h264->profile;
-    sps->constraint_set0 = 1;
+    sps->constraint_set0 = 0;
     sps->constraint_set1 = 0;
     sps->constraint_set2 = 0;
     sps->constraint_set3 = 0;
@@ -148,6 +148,7 @@ MPP_RET h264e_sps_update(SynH264eSps *sps, MppEncCfgSet *cfg, MppDeviceId dev)
     // baseline disable 8x8
     sps->direct8x8_inference = h264->transform8x8_mode;
     if (crop_right || crop_bottom) {
+        sps->cropping = 1;
         sps->crop.left = 0;
         sps->crop.right = crop_right;
         sps->crop.top = 0;
@@ -162,7 +163,7 @@ MPP_RET h264e_sps_update(SynH264eSps *sps, MppEncCfgSet *cfg, MppDeviceId dev)
     return MPP_OK;
 }
 
-MPP_RET h264e_sps_to_packet(SynH264eSps *sps, MppPacket packet)
+RK_S32 h264e_sps_to_packet(SynH264eSps *sps, MppPacket packet, RK_S32 *len)
 {
     void *pos = mpp_packet_get_pos(packet);
     void *data = mpp_packet_get_data(packet);
@@ -356,6 +357,8 @@ MPP_RET h264e_sps_to_packet(SynH264eSps *sps, MppPacket packet)
     mpp_writer_trailing(bit);
 
     sps_size = mpp_writer_bytes(bit);
+    if (len)
+        *len = sps_size;
 
     mpp_packet_set_length(packet, length + sps_size);
 

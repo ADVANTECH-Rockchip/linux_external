@@ -17,24 +17,57 @@
 #ifndef __MPP_DEVICE_H__
 #define __MPP_DEVICE_H__
 
-#include "rk_type.h"
-#include "mpp_err.h"
+#include "mpp_device_patch.h"
+
+/* define flags for mpp_request */
+#define MPP_FLAGS_MULTI_MSG         (0x00000001)
+#define MPP_FLAGS_LAST_MSG          (0x00000002)
+#define MPP_FLAGS_REG_FD_NO_TRANS   (0x00000004)
+#define MPP_FLAGS_SCL_FD_NO_TRANS   (0x00000008)
+#define MPP_FLAGS_LINK_MODE_FIX     (0x00000010)
+#define MPP_FLAGS_LINK_MODE_UPDATE  (0x00000020)
+#define MPP_FLAGS_SECURE_MODE       (0x00010000)
 
 /* mpp service capability description */
 typedef enum MppDevCmd_e {
-    MPP_DEV_GET_START = 0,
+    MPP_DEV_GET_START               = 0,
     MPP_DEV_GET_MAX_WIDTH,
     MPP_DEV_GET_MAX_HEIGHT,
     MPP_DEV_GET_MIN_WIDTH,
     MPP_DEV_GET_MIN_HEIGHT,
     MPP_DEV_GET_MMU_STATUS,
 
-    MPP_DEV_SET_START = 0x01000000,
-    MPP_DEV_SET_HARD_PLATFORM, // set paltform by user
+    MPP_DEV_SET_START               = 0x01000000,
+    MPP_DEV_SET_HARD_PLATFORM,      // set paltform by user
     MPP_DEV_ENABLE_POSTPROCCESS,
 
     MPP_DEV_PROP_BUTT,
 } MppDevCmd;
+
+typedef enum MppDevCmdType_e {
+    MPP_CMD_QUERY_BASE              = 0,
+    MPP_CMD_PROBE_HW_SUPPORT        = MPP_CMD_QUERY_BASE + 0,
+    MPP_CMD_QUERY_HW_ID             = MPP_CMD_QUERY_BASE + 1,
+
+    MPP_CMD_INIT_BASE               = 0x100,
+    MPP_CMD_INIT_CLIENT_TYPE        = MPP_CMD_INIT_BASE + 0,
+    MPP_CMD_INIT_DRIVER_DATA        = MPP_CMD_INIT_BASE + 1,
+    MPP_CMD_INIT_TRANS_TABLE        = MPP_CMD_INIT_BASE + 2,
+
+    MPP_CMD_SEND_BASE               = 0x200,
+    MPP_CMD_SET_REG_WRITE           = MPP_CMD_SEND_BASE + 0,
+    MPP_CMD_SET_REG_READ            = MPP_CMD_SEND_BASE + 1,
+    MPP_CMD_SET_REG_ADDR_OFFSET     = MPP_CMD_SEND_BASE + 2,
+
+    MPP_CMD_POLL_BASE               = 0x300,
+    MPP_CMD_POLL_HW_FINISH          = MPP_CMD_POLL_BASE + 0,
+
+    MPP_CMD_CONTROL_BASE            = 0x400,
+    MPP_CMD_RESET_SESSION           = MPP_CMD_CONTROL_BASE + 0,
+    MPP_CMD_TRANS_FD_TO_IOVA        = MPP_CMD_CONTROL_BASE + 1,
+
+    MPP_CMD_BUTT,
+} MppDevCmdType;
 
 typedef struct MppDevCfg_t {
     // input
@@ -42,6 +75,7 @@ typedef struct MppDevCfg_t {
     MppCodingType   coding;
     RK_U32          platform;
     RK_U32          pp_enable;
+    RK_U32          hw_id;
 } MppDevCfg;
 
 typedef void*   MppDevCtx;
@@ -66,6 +100,7 @@ RK_S32 mpp_device_control(MppDevCtx ctx, MppDevCmd cmd, void *param);
 /*
  * register access interface
  */
+MPP_RET mpp_device_send_extra_info(MppDevCtx ctx, RegExtraInfo *info);
 MPP_RET mpp_device_send_reg(MppDevCtx ctx, RK_U32 *regs, RK_U32 nregs);
 MPP_RET mpp_device_wait_reg(MppDevCtx ctx, RK_U32 *regs, RK_U32 nregs);
 MPP_RET mpp_device_send_reg_with_id(MppDevCtx ctx, RK_S32 id, void *param, RK_S32 size);

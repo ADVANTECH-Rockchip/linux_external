@@ -57,6 +57,7 @@
 #define MPP_ENC_NOTIFY_PACKET_DEQUEUE       (MPP_OUTPUT_DEQUEUE)
 #define MPP_ENC_NOTIFY_FRAME_DEQUEUE        (MPP_INPUT_DEQUEUE)
 #define MPP_ENC_NOTIFY_PACKET_ENQUEUE       (MPP_OUTPUT_ENQUEUE)
+#define MPP_ENC_CONTROL                     (0x00000010)
 #define MPP_ENC_RESET                       (MPP_RESET)
 
 /*
@@ -115,7 +116,7 @@ public:
 
     mpp_list        *mPackets;
     mpp_list        *mFrames;
-    MppQueue        *mTimeStamps;
+    mpp_list        *mTimeStamps;
     /* counters for debug */
     RK_U32          mPacketPutCount;
     RK_U32          mPacketGetCount;
@@ -150,6 +151,8 @@ public:
 
     MppDec          mDec;
     MppEnc          mEnc;
+
+    RK_U32          mEncVersion;
 
 private:
     void clear();

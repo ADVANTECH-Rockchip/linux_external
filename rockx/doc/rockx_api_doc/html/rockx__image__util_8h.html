@@ -22,7 +22,7 @@
  <tr style="height: 56px;">
   <td id="projectalign" style="padding-left: 0.5em;">
    <div id="projectname">RockX
-   &#160;<span id="projectnumber">1.0.0</span>
+   &#160;<span id="projectnumber">1.2.0</span>
    </div>
   </td>
  </tr>
@@ -99,6 +99,12 @@ Functions</h2></td></tr>
 <tr class="separator:a728a69296659376c4b85e76b30f552ae"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a1412bfc5e52b3e9987bccb2c7351d54d"><td class="memItemLeft" align="right" valign="top"><a class="el" href="rockx__type_8h.html#a04cbb9f741ba50344f5cfb3cdeb8cf66">rockx_ret_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="rockx__image__util_8h.html#a1412bfc5e52b3e9987bccb2c7351d54d">rockx_image_convert_keep_ration</a> (<a class="el" href="structrockx__image__t.html">rockx_image_t</a> *src, <a class="el" href="structrockx__image__t.html">rockx_image_t</a> *dst, int dst_width, int dst_heigh, <a class="el" href="rockx__type_8h.html#a364a9c692c80b10fe70e2379e594a3cb">rockx_pixel_format</a> dst_pixel_format, int pad_color, float *scale_w, float *scale_h)</td></tr>
 <tr class="separator:a1412bfc5e52b3e9987bccb2c7351d54d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad92e055d2f9f1a85ce9b736c59ae952d"><td class="memItemLeft" align="right" valign="top"><a class="el" href="rockx__type_8h.html#a04cbb9f741ba50344f5cfb3cdeb8cf66">rockx_ret_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="rockx__image__util_8h.html#ad92e055d2f9f1a85ce9b736c59ae952d">rockx_image_clarity</a> (<a class="el" href="structrockx__image__t.html">rockx_image_t</a> *in_image, float *clarity)</td></tr>
+<tr class="memdesc:ad92e055d2f9f1a85ce9b736c59ae952d"><td class="mdescLeft">&#160;</td><td class="mdescRight">Image Clarity.  <a href="#ad92e055d2f9f1a85ce9b736c59ae952d">More...</a><br /></td></tr>
+<tr class="separator:ad92e055d2f9f1a85ce9b736c59ae952d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a785b4fd7f02662f208774cfc85105aa8"><td class="memItemLeft" align="right" valign="top"><a class="el" href="rockx__type_8h.html#a04cbb9f741ba50344f5cfb3cdeb8cf66">rockx_ret_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="rockx__image__util_8h.html#a785b4fd7f02662f208774cfc85105aa8">rockx_image_roi</a> (<a class="el" href="structrockx__image__t.html">rockx_image_t</a> *img, <a class="el" href="structrockx__rect__t.html">rockx_rect_t</a> *roi, <a class="el" href="structrockx__image__t.html">rockx_image_t</a> *roi_img)</td></tr>
+<tr class="memdesc:a785b4fd7f02662f208774cfc85105aa8"><td class="mdescLeft">&#160;</td><td class="mdescRight">Image ROI.  <a href="#a785b4fd7f02662f208774cfc85105aa8">More...</a><br /></td></tr>
+<tr class="separator:a785b4fd7f02662f208774cfc85105aa8"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a2dfeffd3f3640da9791c881e97269dc3"><td class="memItemLeft" align="right" valign="top"><a class="el" href="rockx__type_8h.html#a04cbb9f741ba50344f5cfb3cdeb8cf66">rockx_ret_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="rockx__image__util_8h.html#a2dfeffd3f3640da9791c881e97269dc3">rockx_image_read</a> (const char *img_path, <a class="el" href="structrockx__image__t.html">rockx_image_t</a> *image, int flag)</td></tr>
 <tr class="separator:a2dfeffd3f3640da9791c881e97269dc3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ae8bf8f2339a7396826d59e3e8bff95d3"><td class="memItemLeft" align="right" valign="top"><a class="el" href="rockx__type_8h.html#a04cbb9f741ba50344f5cfb3cdeb8cf66">rockx_ret_t</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="rockx__image__util_8h.html#ae8bf8f2339a7396826d59e3e8bff95d3">rockx_image_write</a> (const char *path, <a class="el" href="structrockx__image__t.html">rockx_image_t</a> *img)</td></tr>
@@ -152,6 +158,44 @@ Functions</h2></td></tr>
 </div>
 </div>
 <h2 class="groupheader">Function Documentation</h2>
+<a id="ad92e055d2f9f1a85ce9b736c59ae952d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad92e055d2f9f1a85ce9b736c59ae952d">&#9670;&nbsp;</a></span>rockx_image_clarity()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="rockx__type_8h.html#a04cbb9f741ba50344f5cfb3cdeb8cf66">rockx_ret_t</a> rockx_image_clarity </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="structrockx__image__t.html">rockx_image_t</a> *&#160;</td>
+          <td class="paramname"><em>in_image</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">float *&#160;</td>
+          <td class="paramname"><em>clarity</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Image Clarity. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">in_image</td><td>[in] image </td></tr>
+    <tr><td class="paramname">clarity</td><td>[out] clarity </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>rockx_ret_t </dd></dl>
+
+</div>
+</div>
 <a id="a6fd3c6a0ca5b765d54fde156c4e764f5"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a6fd3c6a0ca5b765d54fde156c4e764f5">&#9670;&nbsp;</a></span>rockx_image_clone()</h2>
 
@@ -641,6 +685,51 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd><a class="el" href="rockx__type_8h.html#a04cbb9f741ba50344f5cfb3cdeb8cf66">rockx_ret_t</a> </dd></dl>
+
+</div>
+</div>
+<a id="a785b4fd7f02662f208774cfc85105aa8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a785b4fd7f02662f208774cfc85105aa8">&#9670;&nbsp;</a></span>rockx_image_roi()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="rockx__type_8h.html#a04cbb9f741ba50344f5cfb3cdeb8cf66">rockx_ret_t</a> rockx_image_roi </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="structrockx__image__t.html">rockx_image_t</a> *&#160;</td>
+          <td class="paramname"><em>img</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structrockx__rect__t.html">rockx_rect_t</a> *&#160;</td>
+          <td class="paramname"><em>roi</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structrockx__image__t.html">rockx_image_t</a> *&#160;</td>
+          <td class="paramname"><em>roi_img</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Image ROI. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">img</td><td>[in] imag </td></tr>
+    <tr><td class="paramname">roi</td><td>[in] roi </td></tr>
+    <tr><td class="paramname">roi_img</td><td>[out] roi image </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>rockx_ret_t </dd></dl>
 
 </div>
 </div>

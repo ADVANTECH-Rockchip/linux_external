@@ -143,11 +143,12 @@ rockx_ret_t rockx_face_attribute(rockx_handle_t handle, rockx_image_t *in_img, r
 /**
  * Face Liveness Detection
  * @param handle [in] Handle of a created ROCKX_MODULE_FACE_LIVENESS module(created by @ref rockx_create)
- * @param in_ir_img [in] Input IR aligned face image (need specified ir camera)
+ * @param in_ir_img [in] Input IR image (need specified ir camera)
+ * @param box [in] Face Detect Area
  * @param out_liveness_result [out] Liveness result
  * @return @ref rockx_ret_t
  */
-rockx_ret_t rockx_face_liveness_detect(rockx_handle_t handle, rockx_image_t* in_ir_img, rockx_face_liveness_t *out_liveness_result);
+rockx_ret_t rockx_face_liveness_detect(rockx_handle_t handle, rockx_image_t* in_ir_img, rockx_rect_t *in_box, rockx_face_liveness_t *out_liveness_result);
 
 #ifdef __cplusplus
 } //extern "C"

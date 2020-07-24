@@ -17,8 +17,8 @@
 #ifndef __H264E_SYNTAX_NEW_H__
 #define __H264E_SYNTAX_NEW_H__
 
-#include "h264_syntax.h"
 #include "mpp_rc_api.h"
+#include "h264_syntax.h"
 
 typedef enum H264eSyntaxType_e {
     H264E_SYN_CFG,
@@ -29,7 +29,6 @@ typedef enum H264eSyntaxType_e {
     H264E_SYN_FRAME,
     H264E_SYN_RC,
     H264E_SYN_ROI,
-    H264E_SYN_OSD,
     H264E_SYN_RC_RET,
     H264E_SYN_BUTT,
 } H264eSyntaxType;
@@ -173,6 +172,21 @@ typedef struct SynH264ePps_t {
     RK_S32      use_default_scaling_matrix[H264_SCALING_MATRIX_TYPE_BUTT];
 } SynH264ePps;
 
+typedef struct H264ePrefixNal_t {
+    RK_S32      nal_ref_idc;
+
+    /* svc extension header */
+    RK_S32      idr_flag;
+    RK_S32      priority_id;
+    RK_S32      no_inter_layer_pred_flag;
+    RK_S32      dependency_id;
+    RK_S32      quality_id;
+    RK_S32      temporal_id;
+    RK_S32      use_ref_base_pic_flag;
+    RK_S32      discardable_flag;
+    RK_S32      output_flag;
+} H264ePrefixNal;
+
 /*
  * For H.264 encoder slice header process.
  * Remove some syntax that encoder not supported.
@@ -245,6 +259,7 @@ typedef struct H264eSlice_t {
     RK_U32      entropy_coding_mode;
     RK_S32      log2_max_frame_num;
     RK_S32      log2_max_poc_lsb;
+    RK_S32      pic_order_cnt_type;
 
     /* Nal parameters */
     RK_S32      nal_reference_idc;
@@ -271,7 +286,7 @@ typedef struct H264eSlice_t {
     RK_U32      idr_pic_id;
     RK_U32      next_idr_pic_id;
     /* for poc mode 0 */
-    RK_S32      pic_order_cnt_lsb;
+    RK_U32      pic_order_cnt_lsb;
     RK_S32      num_ref_idx_active;
     /* idr mmco flag */
     RK_S32      no_output_of_prior_pics;
@@ -293,10 +308,6 @@ typedef struct H264eFrmInfo_s {
 
     RK_S32              curr_idx;
     RK_S32              refr_idx;
-
-    // current frame rate control and dpb status info
-    MppRcHalCfg         rc_cfg;
-    EncFrmStatus        status;
 
     RK_S32              usage[H264E_MAX_REFS_CNT + 1];
 } H264eFrmInfo;

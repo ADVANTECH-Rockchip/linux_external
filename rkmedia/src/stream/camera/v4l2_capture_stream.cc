@@ -83,7 +83,7 @@ int V4L2CaptureStream::BufferExport(enum v4l2_buf_type bt, int index,
   expbuf.type = bt;
   expbuf.index = index;
   if (v4l2_ctx->IoCtrl(VIDIOC_EXPBUF, &expbuf) == -1) {
-    LOG("VIDIOC_EXPBUF  %d failed, %m", index);
+    LOG("VIDIOC_EXPBUF  %d failed, %m\n", index);
     return -1;
   }
   *dmafd = expbuf.fd;
@@ -138,6 +138,7 @@ int V4L2CaptureStream::Open() {
   }
   const char *data_type_str = data_type.c_str();
   struct v4l2_format fmt;
+  memset(&fmt, 0, sizeof(fmt));
   fmt.type = capture_type;
   fmt.fmt.pix.width = width;
   fmt.fmt.pix.height = height;
@@ -183,7 +184,7 @@ int V4L2CaptureStream::Open() {
   if (memory_type == V4L2_MEMORY_DMABUF) {
     int size = 0;
     if (pix_fmt != PIX_FMT_NONE)
-      size = CalPixFmtSize(pix_fmt, w, h);
+      size = CalPixFmtSize(pix_fmt, w, h, 16);
     if (size == 0) // unknown pixel format
       size = w * h * 4;
     for (size_t i = 0; i < req.count; i++) {
@@ -253,7 +254,7 @@ int V4L2CaptureStream::Open() {
         LOG("%s, ioctl(VIDIOC_QBUF): %m\n", dev);
         return -1;
       }
-      if (!use_libv4l2 && !BufferExport(capture_type, i, &dmafd)) {
+      if (!BufferExport(capture_type, i, &dmafd)) {
         MediaBuffer &mb = buffer_vec[i];
         V4L2Buffer *buffer = static_cast<V4L2Buffer *>(mb.GetUserData().get());
         buffer->dmafd = dmafd;
@@ -334,7 +335,8 @@ std::shared_ptr<MediaBuffer> V4L2CaptureStream::Read() {
     if (buf.memory == V4L2_MEMORY_DMABUF) {
       assert(ret_buf->GetFD() == buf.m.fd);
     }
-    ret_buf->SetTimeVal(buf_ts);
+    ret_buf->SetAtomicTimeVal(buf_ts);
+    ret_buf->SetUSTimeStamp(gettimeofday());
     ret_buf->SetValidSize(buf.bytesused);
   } else {
     if (v4l2_ctx->IoCtrl(VIDIOC_QBUF, &buf) < 0)

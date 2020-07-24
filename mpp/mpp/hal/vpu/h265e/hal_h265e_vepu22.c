@@ -1302,18 +1302,17 @@ static MPP_RET vepu22_set_rc_cfg(HalH265eCtx* ctx)
         hal_h265e_dbg_input("rc change = 0x%x\n", change);
         cfg->rc_enable = 0;
         switch (rc->rc_mode) {
+        case MPP_ENC_RC_MODE_FIXQP:
+            cfg->rc_enable = 0;
+            cfg->bit_rate = 0;
+            cfg->trans_rate = 0;
+            break;
         case MPP_ENC_RC_MODE_VBR:
             // if rc_mode is VBR and quality == MPP_ENC_RC_QUALITY_CQP, this mode is const QP
-            if (rc->quality == MPP_ENC_RC_QUALITY_CQP) {
-                cfg->rc_enable = 0; // fix qp
-                cfg->bit_rate = 0;
-                cfg->trans_rate = 0;
-            } else {
-                cfg->rc_enable = 1;
-                cfg->bit_rate = rc->bps_target;
-                // set trans_rate larger than bit_rate
-                cfg->trans_rate = cfg->bit_rate + 10000;
-            }
+            cfg->rc_enable = 1;
+            cfg->bit_rate = rc->bps_target;
+            // set trans_rate larger than bit_rate
+            cfg->trans_rate = cfg->bit_rate + 10000;
             break;
         case MPP_ENC_RC_MODE_CBR:
             cfg->rc_enable = 1;
@@ -1837,7 +1836,7 @@ MPP_RET hal_h265e_vepu22_init(void *hal, MppHalCfg *cfg)
     MppDevCfg dev_cfg = {
         .type = MPP_CTX_ENC,             /* type */
         .coding = MPP_VIDEO_CodingHEVC,  /* coding */
-        .platform = 0,                   /* platform */
+        .platform = HAVE_VEPU22,         /* platform */
         .pp_enable = 0,                  /* pp_enable */
     };
 
@@ -2122,8 +2121,8 @@ MPP_RET hal_h265e_vepu22_control(void *hal, MpiCmd cmd_type, void *param)
 
     hal_h265e_dbg_func("enter hal %p,cmd = %d\n", hal, cmd_type);
     switch (cmd_type) {
-    case MPP_ENC_SET_EXTRA_INFO: {
-        hal_h265e_dbg_input("MPP_ENC_SET_EXTRA_INFO\n");
+    case MPP_ENC_GET_HDR_SYNC: {
+        hal_h265e_dbg_input("MPP_ENC_GET_HDR_SYNC\n");
         break;
     }
 

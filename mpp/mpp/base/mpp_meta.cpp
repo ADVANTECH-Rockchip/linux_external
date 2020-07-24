@@ -42,6 +42,11 @@ static MppMetaDef meta_defs[] = {
     /* extra information for tsvc */
     {   KEY_TEMPORAL_ID,       TYPE_S32,      },
     {   KEY_LONG_REF_IDX,      TYPE_S32,      },
+
+    {   KEY_ROI_DATA,          TYPE_PTR,      },
+    {   KEY_OSD_DATA,          TYPE_PTR,      },
+    {   KEY_USER_DATA,         TYPE_PTR,      },
+    {   KEY_MV_LIST,           TYPE_PTR,      },
 };
 
 class MppMetaService
@@ -443,9 +448,8 @@ MPP_RET mpp_meta_get_ptr(MppMeta meta, MppMetaKey key, void  **val)
     MppMetaImpl *impl = (MppMetaImpl *)meta;
     MppMetaVal meta_val;
     MPP_RET ret = get_val_by_key(impl, key, TYPE_PTR, &meta_val);
-    if (MPP_OK == ret)
-        *val = meta_val.val_ptr;
 
+    *val = (ret) ? NULL : meta_val.val_ptr;
     return ret;
 }
 
@@ -498,9 +502,8 @@ MPP_RET mpp_meta_get_frame(MppMeta meta, MppMetaKey key, MppFrame *frame)
     MppMetaImpl *impl = (MppMetaImpl *)meta;
     MppMetaVal meta_val;
     MPP_RET ret = get_val_by_key(impl, key, TYPE_FRAME, &meta_val);
-    if (MPP_OK == ret)
-        *frame = meta_val.frame;
 
+    *frame = (ret) ? NULL : meta_val.frame;
     return ret;
 }
 
@@ -514,9 +517,8 @@ MPP_RET mpp_meta_get_packet(MppMeta meta, MppMetaKey key, MppPacket *packet)
     MppMetaImpl *impl = (MppMetaImpl *)meta;
     MppMetaVal meta_val;
     MPP_RET ret = get_val_by_key(impl, key, TYPE_PACKET, &meta_val);
-    if (MPP_OK == ret)
-        *packet = meta_val.packet;
 
+    *packet = (ret) ? NULL : meta_val.packet;
     return ret;
 }
 
@@ -530,9 +532,8 @@ MPP_RET mpp_meta_get_buffer(MppMeta meta, MppMetaKey key, MppBuffer *buffer)
     MppMetaImpl *impl = (MppMetaImpl *)meta;
     MppMetaVal meta_val;
     MPP_RET ret = get_val_by_key(impl, key, TYPE_BUFFER, &meta_val);
-    if (MPP_OK == ret)
-        *buffer = meta_val.buffer;
 
+    *buffer = (ret) ? NULL : meta_val.buffer;
     return ret;
 }
 

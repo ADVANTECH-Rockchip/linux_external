@@ -11,10 +11,27 @@ aux_source_directory(. EASY_MEDIA_SOURCE_FILES)
 # ----------------------------------------------------------------------------
 
 option(RKMPP "compile: rkmpp wrapper" OFF)
+option(RKMPP_ENCODER_OSD "compile: rkmpp encoder osd wrapper" OFF)
 if(RKMPP)
+  pkg_check_modules(ROCKCHIP_MPP REQUIRED rockchip_mpp)
   include_directories(rkmpp)
-  include_directories(${RKMPP_HEADER_DIR})
+  include_directories(${ROCKCHIP_MPP_INCLUDE_DIRS}/rockchip/)
+  set(EASY_MEDIA_DEPENDENT_LIBS
+    ${EASY_MEDIA_DEPENDENT_LIBS} ${ROCKCHIP_MPP_LIBRARIES})
+
+  if (RKMPP_ENCODER)
+    if (RKMPP_ENCODER_OSD)
+      add_definitions(-DMPP_SUPPORT_HW_OSD)
+    endif()
+  endif()
+
   add_subdirectory(rkmpp)
+
+  option(UVC "compile: uvc" OFF)
+  if(UVC)
+     add_subdirectory(uvc)
+  endif()
+
 endif()
 
 option(OGG "compile: ogg" OFF)
@@ -22,7 +39,9 @@ if(OGG)
   add_subdirectory(ogg)
 endif()
 
+if(FFMPEG)
 add_subdirectory(ffmpeg)
+endif()
 
 option(LIVE555 "compile: live555" OFF)
 if(LIVE555)
@@ -52,10 +71,17 @@ endif()
 
 if(FILTER)
   add_subdirectory(rkrga)
+  add_subdirectory(guard)
+  add_subdirectory(filter)
   if(RKNN)
     include_directories(${RKNPU_HEADER_DIR})
     add_subdirectory(rknn)
   endif()
+endif()
+
+if(MOVE_DETECTION)
+add_definitions(-DRK_MOVE_DETECTION)
+set(EASY_MEDIA_DEPENDENT_LIBS ${EASY_MEDIA_DEPENDENT_LIBS} md_share)
 endif()
 
 set(LIBRARY_VERSION 1.0.1)

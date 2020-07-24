@@ -98,6 +98,14 @@ format_part()
 		ubifs)
 			format_ubifs
 			;;
+		squashfs)
+			# check_tool mksquashfs BR2_PACKAGE_SQUASHFS && \
+			# mksquashfs $DEV
+			echo "It's pointness to format a squashfs partition..."
+			;;
+		auto)
+			echo "Unable to format a auto partition..."
+			;;
 		*)
 			echo Unsupported file system $FSTYPE for $DEV
 			false
@@ -292,6 +300,12 @@ prepare_part()
 			prepare_ubifs &&
 				LABEL=$PART_NAME
 			;;
+		squashfs|auto)
+			MOUNT="busybox mount"
+			MOUNT_OPTS=$(convert_mount_opts "$BUSYBOX_MOUNT_OPTS")
+
+			LABEL=$PART_NAME
+			;;
 		*)
 			echo Unsupported file system $FSTYPE for $DEV
 			return 1
@@ -384,6 +398,16 @@ do_part()
 			# No fsck for ubifs
 			unset FSCK_CONFIG
 			;;
+		squashfs)
+			FSGROUP=squashfs
+			# No fsck for squashfs
+			unset FSCK_CONFIG
+			;;
+		auto)
+			FSGROUP=auto
+			# Running fsck on a random fs is dangerous
+			unset FSCK_CONFIG
+			;;
 		*)
 			echo "Unsupported file system $FSTYPE for $DEV"
 			return
@@ -446,15 +470,6 @@ prepare_mountall()
 
 mountall()
 {
-	if mountpoint -d /|grep -q "^0:"; then
-		# Anon rootfs
-		if ! mount|grep -q " on / type ubifs "; then
-			# Not ubifs, could be ramfs
-			echo "Not a normal boot, only mount basic file systems"
-			return
-		fi
-	fi
-
 	echo "Will now mount all partitions in /etc/fstab"
 
 	# Set environments for mountall

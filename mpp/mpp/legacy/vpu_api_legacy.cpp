@@ -30,6 +30,8 @@
 #include "mpp_buffer_impl.h"
 #include "mpp_frame.h"
 
+#define VPU_API_ENC_INPUT_TIMEOUT 100
+
 RK_U32 vpu_api_debug = 0;
 
 static MppFrameFormat vpu_pic_type_remap_to_mpp(EncInputPictureType type)
@@ -139,8 +141,8 @@ static MPP_RET vpu_api_set_enc_cfg(MppCtx mpp_ctx, MppApi *mpi,
     rc_cfg->change  = MPP_ENC_RC_CFG_CHANGE_ALL;
     if (rc_mode == 0) {
         /* 0 - constant qp mode: fixed qp */
-        rc_cfg->rc_mode     = MPP_ENC_RC_MODE_VBR;
-        rc_cfg->quality     = MPP_ENC_RC_QUALITY_CQP;
+        rc_cfg->rc_mode     = MPP_ENC_RC_MODE_FIXQP;
+        rc_cfg->quality     = MPP_ENC_RC_QUALITY_MEDIUM;
         rc_cfg->bps_target  = -1;
         rc_cfg->bps_max     = -1;
         rc_cfg->bps_min     = -1;
@@ -378,7 +380,22 @@ RK_S32 VpuApiLegacy::init(VpuCodecContext *ctx, RK_U8 *extraData, RK_U32 extra_s
     if (CODEC_DECODER == ctx->codecType) {
         type = MPP_CTX_DEC;
     } else if (CODEC_ENCODER == ctx->codecType) {
-        MppPollType block = MPP_POLL_BLOCK;
+        type = MPP_CTX_ENC;
+    } else {
+        mpp_err("found invalid codec type %d\n", ctx->codecType);
+        return MPP_ERR_VPU_CODEC_INIT;
+    }
+
+    ret = mpp_init(mpp_ctx, type, (MppCodingType)ctx->videoCoding);
+    if (ret) {
+        mpp_err_f(" init error. \n");
+        return ret;
+    }
+
+    if (MPP_CTX_ENC == type) {
+        EncParameter_t *param = (EncParameter_t*)ctx->private_data;
+        MppCodingType coding = (MppCodingType)ctx->videoCoding;
+        MppPollType block = (MppPollType)VPU_API_ENC_INPUT_TIMEOUT;
 
         /* setup input / output block mode */
         ret = mpi->control(mpp_ctx, MPP_SET_INPUT_TIMEOUT, (MppParam)&block);
@@ -393,20 +410,6 @@ RK_S32 VpuApiLegacy::init(VpuCodecContext *ctx, RK_U8 *extraData, RK_U32 extra_s
             }
         }
 
-        type = MPP_CTX_ENC;
-    } else {
-        return MPP_ERR_VPU_CODEC_INIT;
-    }
-
-    ret = mpp_init(mpp_ctx, type, (MppCodingType)ctx->videoCoding);
-    if (ret) {
-        mpp_err_f(" init error. \n");
-        return ret;
-    }
-
-    if (MPP_CTX_ENC == type) {
-        EncParameter_t *param = (EncParameter_t*)ctx->private_data;
-        MppCodingType coding = (MppCodingType)ctx->videoCoding;
         format = vpu_pic_type_remap_to_mpp((EncInputPictureType)param->format);
 
         memcpy(&enc_cfg, param, sizeof(enc_cfg));
@@ -1110,8 +1113,9 @@ RK_S32 VpuApiLegacy::encode(VpuCodecContext *ctx, EncInputStream_t *aEncInStrm, 
     if (packet) {
         RK_U32 eos = mpp_packet_get_eos(packet);
         RK_S64 pts = mpp_packet_get_pts(packet);
-        RK_U32 flag = mpp_packet_get_flag(packet);
         size_t length = mpp_packet_get_length(packet);
+        MppMeta meta = mpp_packet_get_meta(packet);
+        RK_S32 is_intra = 0;
 
         if (!fd_output) {
             RK_U8 *src = (RK_U8 *)mpp_packet_get_data(packet);
@@ -1128,9 +1132,11 @@ RK_S32 VpuApiLegacy::encode(VpuCodecContext *ctx, EncInputStream_t *aEncInStrm, 
             }
         }
 
+        mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &is_intra);
+
         aEncOut->size = (RK_S32)length;
         aEncOut->timeUs = pts;
-        aEncOut->keyFrame = (flag & MPP_PACKET_FLAG_INTRA) ? (1) : (0);
+        aEncOut->keyFrame = is_intra;
 
         vpu_api_dbg_output("get packet %p size %d pts %lld keyframe %d eos %d\n",
                            packet, length, pts, aEncOut->keyFrame, eos);
@@ -1264,9 +1270,12 @@ PUT_FRAME:
     ret = mpi->encode_put_frame(mpp_ctx, frame);
     if (ret)
         mpp_err_f("encode_put_frame ret %d\n", ret);
+    else
+        aEncInStrm->size = 0;
 
-    aEncInStrm->size = 0;
 FUNC_RET:
+    if (frame)
+        mpp_frame_deinit(&frame);
 
     vpu_api_dbg_func("leave ret %d\n", ret);
     return ret;
@@ -1287,8 +1296,9 @@ RK_S32 VpuApiLegacy::encoder_getstream(VpuCodecContext *ctx, EncoderOut_t *aEncO
         RK_U8 *src = (RK_U8 *)mpp_packet_get_data(packet);
         RK_U32 eos = mpp_packet_get_eos(packet);
         RK_S64 pts = mpp_packet_get_pts(packet);
-        RK_U32 flag = mpp_packet_get_flag(packet);
         size_t length = mpp_packet_get_length(packet);
+        MppMeta meta = mpp_packet_get_meta(packet);
+        RK_S32 is_intra = 0;
 
         RK_U32 offset = 0;
         if (ctx->videoCoding == OMX_RK_VIDEO_CodingAVC) {
@@ -1301,9 +1311,13 @@ RK_S32 VpuApiLegacy::encoder_getstream(VpuCodecContext *ctx, EncoderOut_t *aEncO
             if (aEncOut->data)
                 memcpy(aEncOut->data, src + offset, length);
         }
+
+        mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &is_intra);
+
         aEncOut->size = (RK_S32)length;
         aEncOut->timeUs = pts;
-        aEncOut->keyFrame = (flag & MPP_PACKET_FLAG_INTRA) ? (1) : (0);
+        aEncOut->keyFrame = is_intra;
+
         vpu_api_dbg_output("get packet %p size %d pts %lld keyframe %d eos %d\n",
                            packet, length, pts, aEncOut->keyFrame, eos);
 

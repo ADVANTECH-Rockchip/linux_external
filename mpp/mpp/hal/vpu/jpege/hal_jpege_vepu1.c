@@ -62,7 +62,7 @@ MPP_RET hal_jpege_vepu1_init(void *hal, MppHalCfg *cfg)
     MppDevCfg dev_cfg = {
         .type = MPP_CTX_ENC,              /* type */
         .coding = MPP_VIDEO_CodingMJPEG,  /* coding */
-        .platform = 0,                    /* platform */
+        .platform = HAVE_VEPU1,           /* platform */
         .pp_enable = 0,                   /* pp_enable */
     };
 
@@ -114,7 +114,7 @@ MPP_RET hal_jpege_vepu1_deinit(void *hal)
 }
 
 static MPP_RET hal_jpege_vepu1_set_extra_info(RK_U32 *regs,
-                                              JpegeIocExtInfo *info,
+                                              RegExtraInfo *info,
                                               JpegeSyntax *syntax)
 {
     if (info == NULL || syntax == NULL) {
@@ -126,39 +126,20 @@ static MPP_RET hal_jpege_vepu1_set_extra_info(RK_U32 *regs,
     RK_U32 hor_stride   = syntax->hor_stride;
     RK_U32 ver_stride   = syntax->ver_stride;
 
-    if (hor_stride * ver_stride * 5 / 4 >= SZ_4M) {
-        JpegeIocExtInfoSlot *slot = NULL;
+    mpp_device_patch_init(info);
 
-        info->magic = EXTRA_INFO_MAGIC;
-        info->cnt = 2;
-
-        if (fmt == MPP_FMT_YUV420P) {
-            slot = &(info->slots[0]);
-            slot->reg_idx = 12;
-            slot->offset = hor_stride * ver_stride;
-
-            slot = &(info->slots[1]);
-            slot->reg_idx = 13;
-            slot->offset = hor_stride * ver_stride * 5 / 4;
-        } else if (fmt == MPP_FMT_YUV420SP) {
-            slot = &(info->slots[0]);
-            slot->reg_idx = 12;
-            slot->offset = hor_stride * ver_stride;
-
-            slot = &(info->slots[1]);
-            slot->reg_idx = 13;
-            slot->offset = hor_stride * ver_stride;
-        } else {
-            mpp_log_f("other format(%d)\n", fmt);
-        }
-    } else {
-        if (fmt == MPP_FMT_YUV420P) {
-            regs[12] += (hor_stride * ver_stride) << 10;
-            regs[13] += (hor_stride * ver_stride * 5 / 4) << 10;
-        } else if (fmt == MPP_FMT_YUV420SP) {
-            regs[12] += (hor_stride * ver_stride) << 10;
-            regs[13] += (hor_stride * ver_stride) << 10;
-        }
+    switch (fmt) {
+    case MPP_FMT_YUV420P : {
+        mpp_device_patch_add(regs, info, 12, hor_stride * ver_stride);
+        mpp_device_patch_add(regs, info, 13, hor_stride * ver_stride * 5 / 4);
+    } break;
+    case MPP_FMT_YUV420SP : {
+        mpp_device_patch_add(regs, info, 12, hor_stride * ver_stride);
+        mpp_device_patch_add(regs, info, 13, hor_stride * ver_stride);
+    } break;
+    default : {
+        mpp_log_f("other format(%d)\n", fmt);
+    } break;
     }
 
     return MPP_OK;
@@ -180,7 +161,7 @@ MPP_RET hal_jpege_vepu1_gen_regs(void *hal, HalTaskInfo *task)
     RK_U32 ver_stride   = MPP_ALIGN(height, 16);
     JpegeBits bits      = ctx->bits;
     RK_U32 *regs = ctx->ioctl_info.regs;
-    JpegeIocExtInfo *extra_info = &(ctx->ioctl_info.extra_info);
+    RegExtraInfo *extra_info = &(ctx->ioctl_info.extra_info);
     RK_U8  *buf = mpp_buffer_get_ptr(output);
     size_t size = mpp_buffer_get_size(output);
     const RK_U8 *qtable[2];
@@ -447,28 +428,43 @@ MPP_RET hal_jpege_vepu1_start(void *hal, HalTaskInfo *task)
 {
     MPP_RET ret = MPP_OK;
     HalJpegeCtx *ctx = (HalJpegeCtx *)hal;
-    RK_U32 *cache = NULL;
     RK_U32 reg_size = sizeof(jpege_vepu1_reg_set);
-    RK_U32 extra_size = sizeof(JpegeIocExtInfo);
+    RK_U32 extra_size = (ctx->ioctl_info.extra_info.count) ?
+                        (sizeof(RegExtraInfo)) : (0);
     RK_U32 reg_num = reg_size / sizeof(RK_U32);
     RK_U32 extra_num = extra_size / sizeof(RK_U32);
+    RegExtraInfo *info = &ctx->ioctl_info.extra_info;
+    RK_U32 nregs = reg_num;
 
     hal_jpege_dbg_func("enter hal %p\n", hal);
 
-    cache = mpp_malloc(RK_U32, reg_num + extra_num);
-    if (!cache) {
-        mpp_err_f("failed to malloc reg cache\n");
-        return MPP_NOK;
+    if (mpp_get_ioctl_version()) {
+        ret = mpp_device_send_extra_info(ctx->dev_ctx, info);
+
+        if (ret)
+            return MPP_ERR_VPUHW;
+
+        ret = mpp_device_send_reg(ctx->dev_ctx, ctx->ioctl_info.regs, nregs);
+    } else {
+        RK_U32 *cache = NULL;
+        if (mpp_device_patch_is_valid(info)) {
+            nregs += extra_num;
+            cache = mpp_malloc(RK_U32, reg_num + extra_num);
+
+            if (!cache) {
+                mpp_err_f("failed to malloc reg cache\n");
+                return MPP_NOK;
+            }
+
+            memcpy(cache, ctx->ioctl_info.regs, reg_size);
+            memcpy(cache + reg_num, &(ctx->ioctl_info.extra_info), extra_size);
+            ret = mpp_device_send_reg(ctx->dev_ctx, cache, nregs);
+            mpp_free(cache);
+        } else {
+            ret = mpp_device_send_reg(ctx->dev_ctx, ctx->ioctl_info.regs, nregs);
+        }
     }
 
-    memcpy(cache, ctx->ioctl_info.regs, reg_size);
-    memcpy(cache + reg_num, &(ctx->ioctl_info.extra_info), extra_size);
-
-    if (ctx->dev_ctx) {
-        ret = mpp_device_send_reg(ctx->dev_ctx, cache, reg_num + extra_num);
-    }
-
-    mpp_free(cache);
 
     hal_jpege_dbg_func("leave hal %p\n", hal);
     (void)ctx;
@@ -565,8 +561,7 @@ MPP_RET hal_jpege_vepu1_control(void *hal, MpiCmd cmd, void *param)
     case MPP_ENC_SET_IDR_FRAME:
     case MPP_ENC_SET_OSD_PLT_CFG:
     case MPP_ENC_SET_OSD_DATA_CFG:
-    case MPP_ENC_GET_OSD_CFG:
-    case MPP_ENC_SET_EXTRA_INFO:
+    case MPP_ENC_GET_HDR_SYNC:
     case MPP_ENC_GET_EXTRA_INFO:
     case MPP_ENC_GET_SEI_DATA:
     case MPP_ENC_SET_SEI_CFG:

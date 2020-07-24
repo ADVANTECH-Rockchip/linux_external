@@ -4,9 +4,9 @@
 
 #include "flow.h"
 
-#include <assert.h>
-
 #include <algorithm>
+#include <assert.h>
+#include <sys/prctl.h>
 
 #include "buffer.h"
 #include "key_string.h"
@@ -22,6 +22,7 @@ public:
   void Bind(std::vector<int> &in, std::vector<int> &out);
   bool Start();
   void RunOnce();
+  int GetCachedBufferCnt();
 
 private:
   void WhileRun();
@@ -156,6 +157,10 @@ void FlowCoroutine::RunOnce() {
 }
 
 void FlowCoroutine::WhileRun() {
+#ifndef NDEBUG
+  prctl(PR_SET_NAME, this->name.c_str());
+  LOGD("flow-name %s\n", this->name.c_str());
+#endif
   while (!flow->quit)
     RunOnce();
 }
@@ -164,6 +169,10 @@ void FlowCoroutine::WhileRunSleep() {
   int64_t times = 0;
   AutoDuration ad;
   assert(interval > 0);
+#ifndef NDEBUG
+  prctl(PR_SET_NAME, this->name.c_str());
+  LOGD("flow-name %s\n", this->name.c_str());
+#endif
   while (!flow->quit) {
     if (times == 0)
       ad.Reset();
@@ -187,22 +196,31 @@ void FlowCoroutine::SyncFetchInput(MediaBufferVector &in) {
 }
 
 void FlowCoroutine::ASyncFetchInputCommon(MediaBufferVector &in) {
+  flow->cond_mtx.lock();
+  bool empty = true;
   for (size_t i = 0; i < in_slots.size(); i++) {
     int idx = in_slots[i];
     auto &input = flow->v_input[idx];
-    AutoLockMutex _am(input.cond_mtx);
+    auto &v = input.cached_buffers;
+    if (!v.empty())
+      empty = false;
+  }
+  if (empty)
+    flow->cond_mtx.wait();
+  flow->cond_mtx.unlock();
+
+  for (size_t i = 0; i < in_slots.size(); i++) {
+    int idx = in_slots[i];
+    auto &input = flow->v_input[idx];
     auto &v = input.cached_buffers;
     if (v.empty()) {
-      if (!input.fetch_block) {
-        in[i] = nullptr;
-        continue;
-      }
-      input.cond_mtx.wait();
+      continue;
     }
     if (!flow->enable) {
       in.assign(in_slots.size(), nullptr);
       break;
     }
+    AutoLockMutex _alm(input.mtx);
     assert(!v.empty());
     in[i] = v.front();
     v.pop_front();
@@ -246,6 +264,7 @@ void FlowCoroutine::SendBufferDown(Flow::FlowMap &fm,
     OutputHoldRelated(fm, fm.cached_buffer, in);
     f.flow->SendInput(fm.cached_buffer, f.index_of_in);
   }
+  fm.cached_buffer.reset();
 }
 
 void FlowCoroutine::SendBufferDownFromDeque(
@@ -276,6 +295,16 @@ FlowCoroutine::OutputHoldRelated(Flow::FlowMap &fm,
   return 0;
 }
 
+int FlowCoroutine::GetCachedBufferCnt() {
+  int cnt = 0;
+  for (auto inv : in_vector) {
+    if (inv)
+      cnt++;
+  }
+
+  return cnt;
+}
+
 DEFINE_REFLECTOR(Flow)
 DEFINE_FACTORY_COMMON_PARSE(Flow)
 DEFINE_PART_FINAL_EXPOSE_PRODUCT(Flow, Flow)
@@ -284,19 +313,63 @@ const FunctionProcess Flow::void_transaction00 = void_transaction<0, 0>;
 
 Flow::Flow()
     : out_slot_num(0), input_slot_num(0), down_flow_num(0), enable(true),
-      quit(false), event_handler_(nullptr) {}
+      quit(false), event_handler_(nullptr), play_video_handler_(nullptr),
+      play_audio_handler_(nullptr) {}
 
 Flow::~Flow() { StopAllThread(); }
 
 void Flow::StopAllThread() {
-  for (auto &in : v_input) {
-    AutoLockMutex _alm(in.cond_mtx);
-    enable = false;
-    quit = true;
-    in.cond_mtx.notify();
-  }
+  enable = false;
+  quit = true;
+  cond_mtx.lock();
+  cond_mtx.notify();
+  cond_mtx.unlock();
   for (auto &coroutine : coroutines)
     coroutine.reset();
+}
+
+bool Flow::IsAllBuffEmpty() {
+#ifndef NDEBUG
+  int i = 0;
+
+  for (auto &input : v_input) {
+    LOG("#FLOW v_input-%d cached_buffers size:%zu\n", i,
+        input.cached_buffers.size());
+    LOG("#FLOW v_input-%d cached_buffer :%s\n", i++,
+        input.cached_buffer ? "NotNull" : "Null");
+  }
+
+  i = 0;
+  for (auto &coroutin : coroutines) {
+    LOG("#FLOW coroutin-%d in_vector size:%d\n", i++,
+        coroutin->GetCachedBufferCnt());
+  }
+
+  i = 0;
+  for (auto &fm : downflowmap) {
+    LOG("#FLOW downflowmap-%d cached_buffers size:%zu\n", i,
+        fm.cached_buffers.size());
+    LOG("#FLOW downflowmap-%d cached_buffer : %s\n", i++,
+        fm.cached_buffer ? "NotNull" : "Null");
+  }
+#endif
+
+  for (auto &input : v_input) {
+    if (input.cached_buffers.size() || input.cached_buffer)
+      return false;
+  }
+
+  for (auto &coroutin : coroutines) {
+    if (coroutin->GetCachedBufferCnt())
+      return false;
+  }
+
+  for (auto &fm : downflowmap) {
+    if (fm.cached_buffers.size() || fm.cached_buffer)
+      return false;
+  }
+
+  return true;
 }
 
 static bool check_slots(std::vector<int> &slots, const char *debugstr) {
@@ -592,12 +665,8 @@ bool Flow::ParseWrapFlowParams(const char *param,
   return true;
 }
 
-void Flow::RegisterEventHandler(std::shared_ptr<Flow> flow, EventHook proc)
-{
-  if (event_handler_ != nullptr)
-   UnRegisterEventHandler();
-
-  event_handler_ = new EventHandler();
+void Flow::RegisterEventHandler(std::shared_ptr<Flow> flow, EventHook proc) {
+  event_handler_.reset(new EventHandler());
   if (event_handler_) {
     event_handler_->RegisterEventHook(flow, proc);
   }
@@ -606,48 +675,64 @@ void Flow::RegisterEventHandler(std::shared_ptr<Flow> flow, EventHook proc)
 void Flow::UnRegisterEventHandler() {
   if (event_handler_) {
     event_handler_->UnRegisterEventHook();
-    delete event_handler_;
-    event_handler_ = nullptr;
+    event_handler_.reset(nullptr);
   }
 }
 
-void Flow::NotifyToEventHandler(EventMessage *msg)
-{
+void Flow::NotifyToEventHandler(EventParamPtr param, int type) {
   if (event_handler_) {
+    MessagePtr msg = std::make_shared<EventMessage>(this, param, type);
     event_handler_->NotifyToEventHandler(msg);
     event_handler_->SignalEventHook();
   }
 }
 
-void Flow::EventHookWait()
-{
+void Flow::NotifyToEventHandler(int id, int type) {
+  if (event_handler_) {
+    EventParamPtr event_param = std::make_shared<EventParam>(id, 0);
+    MessagePtr msg = std::make_shared<EventMessage>(this, event_param, type);
+    event_handler_->NotifyToEventHandler(msg);
+    event_handler_->SignalEventHook();
+  }
+}
+
+void Flow::EventHookWait() {
   if (event_handler_)
     event_handler_->EventHookWait();
 }
 
-EventMessage * Flow::GetEventMessages()
-{
-  if (event_handler_) {
-    return event_handler_->GetEventMessages();
-  }
+MessagePtr Flow::GetEventMessage() {
+  if (event_handler_)
+    return event_handler_->GetEventMessage();
+  return nullptr;
+}
+
+EventParamPtr Flow::GetEventParam(MessagePtr msg) {
+  if (msg)
+    return msg->GetEventParam();
   return nullptr;
 }
 
 void Flow::Input::SyncSendInputBehavior(std::shared_ptr<MediaBuffer> &input) {
   cached_buffer = input;
   coroutine->RunOnce();
+  cached_buffer.reset();
 }
 
 void Flow::Input::ASyncSendInputCommonBehavior(
     std::shared_ptr<MediaBuffer> &input) {
-  AutoLockMutex _alm(cond_mtx);
+  mtx.lock();
   if (max_cache_num > 0 && max_cache_num <= (int)cached_buffers.size()) {
     bool ret = (this->*async_full_behavior)(flow->enable);
-    if (!ret)
+    if (!ret) {
+      mtx.unlock();
       return;
+    }
   }
   cached_buffers.push_back(input);
-  cond_mtx.notify();
+  mtx.unlock();
+  AutoLockMutex _alm(flow->cond_mtx);
+  flow->cond_mtx.notify();
 }
 
 void Flow::Input::ASyncSendInputAtomicBehavior(
@@ -659,12 +744,12 @@ void Flow::Input::ASyncSendInputAtomicBehavior(
 bool Flow::Input::ASyncFullBlockingBehavior(volatile bool &pred) {
   do {
     msleep(5);
-    cond_mtx.unlock();
+    mtx.unlock();
     if (max_cache_num > (int)cached_buffers.size()) {
-      cond_mtx.lock();
+      mtx.lock();
       break;
     }
-    cond_mtx.lock();
+    mtx.lock();
   } while (pred);
 
   return pred;

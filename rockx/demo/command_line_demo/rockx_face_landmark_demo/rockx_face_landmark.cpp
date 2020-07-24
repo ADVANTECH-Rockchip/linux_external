@@ -94,13 +94,22 @@ int main(int argc, char** argv) {
 
         ret = rockx_face_landmark(face_landmark_handle, &input_image, &face_array.object[i].box, &out_landmark);
 
+        if (landmark_count == 5) {
+            rockx_image_t out_img;
+            memset(&out_img, 0, sizeof(rockx_image_t));
+            ret = rockx_face_align(face_landmark_handle, &input_image, &face_array.object[i].box, &out_landmark, &out_img);
+            rockx_image_write("./aligned.jpg", &out_img);
+            rockx_image_release(&out_img);
+        }
+
         ret = rockx_face_pose(&out_landmark, &out_angle);
 
-        printf("face %d:\n landmarks_count=%d angle=(pitch:%f yaw:%f roll:%f)\n", i,
-                out_landmark.landmarks_count,
+        printf("face %d:\n landmarks_count=%d landmark_score=%f angle=(pitch:%f yaw:%f roll:%f)\n", i,
+                out_landmark.landmarks_count, out_landmark.score,
                 out_angle.pitch, out_angle.yaw, out_angle.roll);
 
         for(int j = 0; j < out_landmark.landmarks_count; j++) {
+            printf("landmark %d %d %d\n", j, out_landmark.landmarks[j].x, out_landmark.landmarks[j].y);
             rockx_image_draw_circle(&input_image, {out_landmark.landmarks[j].x, out_landmark.landmarks[j].y}, 2, {0, 255, 0}, -1);
         }
     }

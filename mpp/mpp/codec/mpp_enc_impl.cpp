@@ -21,8 +21,10 @@
 #include "mpp_common.h"
 
 #include "h264e_api.h"
+#include "h264e_api_v2.h"
 #include "jpege_api.h"
 #include "h265e_api.h"
+#include "h265e_api_v2.h"
 #include "vp8e_api.h"
 #include "mpp_enc_impl.h"
 
@@ -44,6 +46,15 @@ static const EncImplApi *controllers[] = {
 #endif
 };
 
+static const EncImplApi *enc_apis[] = {
+#if HAVE_H264E
+    &api_h264e,
+#endif
+#if HAVE_H265E
+    &api_h265e,
+#endif
+};
+
 typedef struct EncImplCtx_t {
     EncImplCfg          cfg;
     const EncImplApi    *api;
@@ -60,13 +71,26 @@ MPP_RET enc_impl_init(EncImpl *impl, EncImplCfg *cfg)
     *impl = NULL;
 
     RK_U32 i;
-    for (i = 0; i < MPP_ARRAY_ELEMS(controllers); i++) {
-        const EncImplApi *api = controllers[i];
+    RK_U32 api_cnt = 0;
+    const EncImplApi **apis = NULL;
+
+    if (cfg->task_count < 0) {
+        apis = enc_apis;
+        api_cnt = MPP_ARRAY_ELEMS(enc_apis);
+    } else {
+        apis = controllers;
+        api_cnt = MPP_ARRAY_ELEMS(controllers);
+    }
+
+    for (i = 0; i < api_cnt; i++) {
+        const EncImplApi *api = apis[i];
+
         if (cfg->coding == api->coding) {
             EncImplCtx *p = mpp_calloc(EncImplCtx, 1);
             void *ctx = mpp_calloc_size(void, api->ctx_size);
+
             if (NULL == ctx || NULL == p) {
-                mpp_err_f("failed to alloc parser context\n");
+                mpp_err_f("failed to alloc encoder context\n");
                 mpp_free(p);
                 mpp_free(ctx);
                 return MPP_ERR_MALLOC;
@@ -136,7 +160,22 @@ MPP_RET enc_impl_gen_hdr(EncImpl impl, MppPacket pkt)
     return ret;
 }
 
-MPP_RET enc_impl_proc_dpb(EncImpl impl)
+MPP_RET enc_impl_start(EncImpl impl, HalEncTask *task)
+{
+    if (NULL == impl) {
+        mpp_err_f("found NULL input\n");
+        return MPP_ERR_NULL_PTR;
+    }
+
+    MPP_RET ret = MPP_OK;
+    EncImplCtx *p = (EncImplCtx *)impl;
+    if (p->api->start)
+        ret = p->api->start(p->ctx, task);
+
+    return ret;
+}
+
+MPP_RET enc_impl_proc_dpb(EncImpl impl, HalEncTask *task)
 {
     if (NULL == impl) {
         mpp_err_f("found NULL input\n");
@@ -146,22 +185,7 @@ MPP_RET enc_impl_proc_dpb(EncImpl impl)
     MPP_RET ret = MPP_OK;
     EncImplCtx *p = (EncImplCtx *)impl;
     if (p->api->proc_dpb)
-        ret = p->api->proc_dpb(p->ctx);
-
-    return ret;
-}
-
-MPP_RET enc_impl_proc_rc(EncImpl impl)
-{
-    if (NULL == impl) {
-        mpp_err_f("found NULL input\n");
-        return MPP_ERR_NULL_PTR;
-    }
-
-    MPP_RET ret = MPP_OK;
-    EncImplCtx *p = (EncImplCtx *)impl;
-    if (p->api->proc_rc)
-        ret = p->api->proc_rc(p->ctx);
+        ret = p->api->proc_dpb(p->ctx, task);
 
     return ret;
 }
@@ -181,21 +205,6 @@ MPP_RET enc_impl_proc_hal(EncImpl impl, HalEncTask *task)
     return ret;
 }
 
-MPP_RET enc_impl_update_dpb(EncImpl impl)
-{
-    if (NULL == impl) {
-        mpp_err_f("found NULL input\n");
-        return MPP_ERR_NULL_PTR;
-    }
-
-    MPP_RET ret = MPP_OK;
-    EncImplCtx *p = (EncImplCtx *)impl;
-    if (p->api->update_dpb)
-        ret = p->api->update_dpb(p->ctx);
-
-    return ret;
-}
-
 MPP_RET enc_impl_update_hal(EncImpl impl, HalEncTask *task)
 {
     if (NULL == impl || NULL == task) {
@@ -207,21 +216,6 @@ MPP_RET enc_impl_update_hal(EncImpl impl, HalEncTask *task)
     EncImplCtx *p = (EncImplCtx *)impl;
     if (p->api->update_hal)
         ret = p->api->update_hal(p->ctx, task);
-
-    return ret;
-}
-
-MPP_RET enc_impl_update_rc(EncImpl impl)
-{
-    if (NULL == impl) {
-        mpp_err_f("found NULL input\n");
-        return MPP_ERR_NULL_PTR;
-    }
-
-    MPP_RET ret = MPP_OK;
-    EncImplCtx *p = (EncImplCtx *)impl;
-    if (p->api->update_rc)
-        ret = p->api->update_rc(p->ctx);
 
     return ret;
 }

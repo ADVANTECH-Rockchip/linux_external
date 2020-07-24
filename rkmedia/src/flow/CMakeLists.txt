@@ -8,16 +8,30 @@
 
 set(EASY_MEDIA_FLOW_SOURCE_FILES
     flow/video_encoder_flow.cc
+    flow/audio_encoder_flow.cc
     flow/decoder_flow.cc
     flow/file_flow.cc
     flow/filter_flow.cc
+    flow/link_flow.cc
     flow/source_stream_flow.cc
+    flow/muxer_flow.cc
     flow/output_stream_flow.cc)
+
+if(ROCKFACE)
+  set(EASY_MEDIA_FLOW_SOURCE_FILES ${EASY_MEDIA_FLOW_SOURCE_FILES}
+      flow/rockface_flow.cc)
+
+  set(EASY_MEDIA_DEPENDENT_LIBS
+      ${EASY_MEDIA_DEPENDENT_LIBS}
+      rknn_api
+      rockface
+      PARENT_SCOPE)
+endif()
+
+if(MOVE_DETECTION)
+set(EASY_MEDIA_FLOW_SOURCE_FILES ${EASY_MEDIA_FLOW_SOURCE_FILES}
+                                 flow/move_detection_flow.cc)
+endif()
 
 set(EASY_MEDIA_SOURCE_FILES ${EASY_MEDIA_SOURCE_FILES}
                             ${EASY_MEDIA_FLOW_SOURCE_FILES} PARENT_SCOPE)
-
-option(FLOW_TEST "compile: flow wrapper test" ON)
-if(FLOW_TEST)
-  add_subdirectory(test)
-endif()

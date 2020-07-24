@@ -735,7 +735,7 @@ MPP_RET hal_jpegd_vdpu2_init(void *hal, MppHalCfg *cfg)
     MppDevCfg dev_cfg = {
         .type = MPP_CTX_DEC,              /* type */
         .coding = MPP_VIDEO_CodingMJPEG,  /* coding */
-        .platform = 0,                    /* platform */
+        .platform = HAVE_VDPU2,           /* platform */
         .pp_enable = 0,                   /* pp_enable */
     };
 
@@ -878,7 +878,7 @@ MPP_RET hal_jpegd_vdpu2_gen_regs(void *hal,  HalTaskInfo *syn)
             MppDevCfg dev_cfg = {
                 .type = MPP_CTX_DEC,              /* type */
                 .coding = MPP_VIDEO_CodingMJPEG,  /* coding */
-                .platform = 0,                    /* platform */
+                .platform = HAVE_VDPU2,           /* platform */
                 .pp_enable = 1,                   /* pp_enable */
             };
             ret = mpp_device_init(&JpegHalCtx->dev_ctx, &dev_cfg);
@@ -916,13 +916,26 @@ MPP_RET hal_jpegd_vdpu2_gen_regs(void *hal,  HalTaskInfo *syn)
 
 MPP_RET hal_jpegd_vdpu2_start(void *hal, HalTaskInfo *task)
 {
-    jpegd_dbg_func("enter\n");
     MPP_RET ret = MPP_OK;
     JpegdHalCtx *JpegHalCtx = (JpegdHalCtx *)hal;
-    RK_U32 *p_regs = (RK_U32 *)JpegHalCtx->regs;
+    RK_U32 *regs = (RK_U32 *)JpegHalCtx->regs;
+    JpegdIocRegInfo *info = (JpegdIocRegInfo *)regs;
+    RK_U32 nregs = sizeof(JpegdIocRegInfo) / sizeof(RK_U32);
 
-    ret = mpp_device_send_reg(JpegHalCtx->dev_ctx, p_regs,
-                              sizeof(JpegdIocRegInfo) / sizeof(RK_U32));
+    jpegd_dbg_func("enter\n");
+
+    if (mpp_get_ioctl_version()) {
+        ret = mpp_device_send_extra_info(JpegHalCtx->dev_ctx, &info->extra_info);
+        if (ret)
+            return MPP_ERR_VPUHW;
+
+        nregs = sizeof(JpegRegSet) / sizeof(RK_U32);
+    } else {
+        if (!mpp_device_patch_is_valid(&info->extra_info))
+            nregs -= sizeof(RegExtraInfo) / sizeof(RK_U32);
+    }
+
+    ret = mpp_device_send_reg(JpegHalCtx->dev_ctx, regs, nregs);
     if (ret) {
         mpp_err_f("mpp_device_send_reg Failed!!!\n");
         return MPP_ERR_VPUHW;
@@ -941,11 +954,18 @@ MPP_RET hal_jpegd_vdpu2_wait(void *hal, HalTaskInfo *task)
     JpegRegSet *reg_out = NULL;
     RK_U32 errinfo = 1;
     MppFrame tmp = NULL;
-    RK_U32 reg[184];
-    (void)task;
+    RK_U32 *reg = (RK_U32 *)JpegHalCtx->regs;
+    JpegdIocRegInfo *info = (JpegdIocRegInfo *)reg;
+    RK_U32 nregs = sizeof(JpegdIocRegInfo) / sizeof(RK_U32);
 
-    ret = mpp_device_wait_reg(JpegHalCtx->dev_ctx, reg,
-                              sizeof(reg) / sizeof(RK_U32));
+    if (mpp_get_ioctl_version()) {
+        nregs = sizeof(JpegRegSet) / sizeof(RK_U32);
+    } else {
+        if (!mpp_device_patch_is_valid(&info->extra_info))
+            nregs -= sizeof(RegExtraInfo) / sizeof(RK_U32);
+    }
+
+    ret = mpp_device_wait_reg(JpegHalCtx->dev_ctx, reg, nregs);
 
     reg_out = (JpegRegSet *)reg;
     if (reg_out->reg55_Interrupt.sw_dec_bus_int) {
@@ -992,6 +1012,9 @@ MPP_RET hal_jpegd_vdpu2_wait(void *hal, HalTaskInfo *task)
         }
     }
 
+    memset(&reg_out->reg55_Interrupt, 0, sizeof(RK_U32));
+
+    (void)task;
     jpegd_dbg_func("exit\n");
     return ret;
 }

@@ -5,9 +5,12 @@
 extern "C" {
 #endif
 
+#define RK_WIFI_VERSION "V1.1"
+
 #define RK_WIFI_SAVED_INFO_MAX 10
 #define SSID_BUF_LEN 64
 #define BSSID_BUF_LEN 20
+#define STATE_BUF_LEN 20
 
 typedef enum {
 	RK_WIFI_State_IDLE = 0,
@@ -19,6 +22,7 @@ typedef enum {
 	RK_WIFI_State_OPEN,
 	RK_WIFI_State_OFF,
 	RK_WIFI_State_SCAN_RESULTS,
+	RK_WIFI_State_DHCP_OK,
 } RK_WIFI_RUNNING_State_e;
 
 typedef enum {
@@ -36,13 +40,14 @@ typedef struct {
 	char wpa_state[20];
 	char ip_address[20];
 	char mac_address[20];
+	int reason;
 } RK_WIFI_INFO_Connection_s;
 
 typedef struct {
 	int id;
-	char bssid[20];
-	char ssid[64];
-	char state[20];
+	char bssid[BSSID_BUF_LEN];
+	char ssid[SSID_BUF_LEN];
+	char state[STATE_BUF_LEN];
 } RK_WIFI_SAVED_INFO_s;
 
 typedef struct {
@@ -73,10 +78,11 @@ int RK_wifi_ping(char *address);
 int RK_wifi_recovery(void);
 int RK_wifi_airkiss_start(char *ssid, char *password);
 void RK_wifi_airkiss_stop(void);
-int RK_wifi_forget_with_bssid(const char *bssid);
+int RK_wifi_forget_with_ssid(const char *ssid);
 int RK_wifi_cancel(void);
 int RK_wifi_getSavedInfo(RK_WIFI_SAVED_INFO *pSaveInfo);
-int RK_wifi_connect_with_bssid(const char* bssid);
+int RK_wifi_connect_with_ssid(const char* ssid);
+int RK_wifi_reset(void);
 
 #ifdef __cplusplus
 }

@@ -285,7 +285,6 @@ MPP_RET hal_vp8e_vepu1_init(void *hal, MppHalCfg *cfg)
     }
     ctx->buffer_ready = 0;
     ctx->frame_cnt = 0;
-    ctx->gop_len = 0;
     ctx->frame_type = VP8E_FRM_KEY;
     ctx->prev_frame_lost = 0;
     ctx->frame_size = 0;
@@ -305,7 +304,7 @@ MPP_RET hal_vp8e_vepu1_init(void *hal, MppHalCfg *cfg)
     MppDevCfg dev_cfg = {
         .type = MPP_CTX_ENC,            /* type */
         .coding = MPP_VIDEO_CodingVP8,  /* coding */
-        .platform = 0,                  /* platform */
+        .platform = HAVE_VEPU1,         /* platform */
         .pp_enable = 0,                 /* pp_enable */
     };
     ret = mpp_device_init(&ctx->dev_ctx, &dev_cfg);
@@ -326,7 +325,7 @@ MPP_RET hal_vp8e_vepu1_deinit(void *hal)
 
     hal_vp8e_buf_free(ctx);
 
-    ret = mpp_device_deinit(&ctx->dev_ctx);
+    ret = mpp_device_deinit(ctx->dev_ctx);
 
     if (ret) {
         mpp_err("mpp_device_deinit failed ret: %d\n", ret);
@@ -443,7 +442,7 @@ MPP_RET hal_vp8e_vepu1_wait(void *hal, HalTaskInfo *task)
 
     RcHalResult result;
     ctx->frame_cnt++;
-    if (ctx->frame_cnt % ctx->gop_len == 0) {
+    if (ctx->frame_cnt % ctx->rc->gop_len == 0) {
         ctx->frame_type = VP8E_FRM_KEY;
         result.type = INTRA_FRAME;
     } else {

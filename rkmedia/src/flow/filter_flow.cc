@@ -19,6 +19,19 @@ public:
   FilterFlow(const char *param);
   virtual ~FilterFlow() { StopAllThread(); }
   static const char *GetFlowName() { return "filter"; }
+  virtual int Control(unsigned long int request, ...) final {
+    int ret = 0;
+    if (!filters.size())
+      return -1;
+    for (auto &filter : filters) {
+      va_list vl;
+      va_start(vl, request);
+      void *arg = va_arg(vl, void *);
+      va_end(vl);
+      ret |= filter->IoCtrl(request, arg);
+    }
+    return ret;
+  }
 
 private:
   std::vector<std::shared_ptr<Filter>> filters;
@@ -81,8 +94,10 @@ FilterFlow::FilterFlow(const char *param)
     sm.hold_input.push_back((HoldInputMode)std::stoi(hold));
 
   sm.process = do_filters;
-  if (!InstallSlotMap(sm, name, -1)) {
-    LOG("Fail to InstallSlotMap, %s\n", filter_name);
+  std::string slot_name = "Filter:";
+  slot_name.append(filter_name);
+  if (!InstallSlotMap(sm, slot_name, -1)) {
+    LOG("Fail to InstallSlotMap for %s\n", slot_name.c_str());
     SetError(-EINVAL);
     return;
   }
@@ -96,8 +111,8 @@ FilterFlow::FilterFlow(const char *param)
       }
     }
   } else {
-    LOG_TODO();
-    SetError(-EINVAL);
+    // support async mode (one input, multi output)
+    support_async = true;
     return;
   }
 }

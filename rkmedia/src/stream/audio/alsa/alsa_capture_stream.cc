@@ -8,6 +8,8 @@
 #include <errno.h>
 
 #include "alsa_utils.h"
+#include "alsa_volume.h"
+#include "buffer.h"
 #include "media_type.h"
 #include "utils.h"
 
@@ -18,6 +20,7 @@ public:
   AlsaCaptureStream(const char *param);
   virtual ~AlsaCaptureStream();
   static const char *GetStreamName() { return "alsa_capture_stream"; }
+  virtual std::shared_ptr<MediaBuffer> Read();
   virtual size_t Read(void *ptr, size_t size, size_t nmemb) final;
   virtual int Seek(int64_t offset _UNUSED, int whence _UNUSED) final {
     return -1;
@@ -29,12 +32,18 @@ public:
   }
   virtual int Open() final;
   virtual int Close() final;
+  virtual int IoCtrl(unsigned long int request, ...) final;
+
+private:
+  size_t Readi(void *ptr, size_t size, size_t nmemb);
+  size_t Readn(void *ptr, size_t size, size_t nmemb);
 
 private:
   SampleInfo sample_info;
   std::string device;
   snd_pcm_t *alsa_handle;
   size_t frame_size;
+  int interleaved;
 };
 
 AlsaCaptureStream::AlsaCaptureStream(const char *param)
@@ -50,6 +59,7 @@ AlsaCaptureStream::AlsaCaptureStream(const char *param)
     SetReadable(true);
   else
     LOG("missing some necessary param\n");
+  interleaved = SampleFormatToInterleaved(sample_info.fmt);
 }
 
 AlsaCaptureStream::~AlsaCaptureStream() {
@@ -58,12 +68,19 @@ AlsaCaptureStream::~AlsaCaptureStream() {
 }
 
 size_t AlsaCaptureStream::Read(void *ptr, size_t size, size_t nmemb) {
+  if (interleaved)
+    return Readi(ptr, size, nmemb);
+  else
+    return Readn(ptr, size, nmemb);
+}
+
+size_t AlsaCaptureStream::Readi(void *vptr, size_t size, size_t nmemb) {
+  uint8_t *ptr = (uint8_t *)vptr;
   size_t buffer_len = size * nmemb;
   snd_pcm_sframes_t gotten = 0;
   snd_pcm_sframes_t nb_samples =
       (size == frame_size ? nmemb : buffer_len / frame_size);
   while (nb_samples > 0) {
-    // SND_PCM_ACCESS_RW_INTERLEAVED
     int status = snd_pcm_readi(alsa_handle, ptr, nb_samples);
     if (status < 0) {
       if (status == -EAGAIN) {
@@ -85,9 +102,75 @@ size_t AlsaCaptureStream::Read(void *ptr, size_t size, size_t nmemb) {
     }
     nb_samples -= status;
     gotten += status;
+    ptr += status * frame_size;
   }
 
   return gotten * frame_size / size;
+}
+
+size_t AlsaCaptureStream::Readn(void *ptr, size_t size, size_t nmemb) {
+  uint8_t *bufs[32];
+  int channels = sample_info.channels;
+  size_t sample_size = frame_size / channels;
+  size_t buffer_len = size * nmemb;
+  snd_pcm_sframes_t gotten = 0;
+  snd_pcm_sframes_t nb_samples =
+      (size == frame_size ? nmemb : buffer_len / frame_size);
+
+  for (int channel = 0; channel < channels; channel++)
+    bufs[channel] = (uint8_t *)ptr + nb_samples * sample_size * channel;
+
+  while (nb_samples > 0) {
+    int status = snd_pcm_readn(alsa_handle, (void **)bufs, nb_samples);
+    if (status < 0) {
+      if (status == -EAGAIN) {
+        /* Apparently snd_pcm_recover() doesn't handle this case - does it
+         * assume snd_pcm_wait() above? */
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+        errno = EAGAIN;
+        break;
+      }
+      status = snd_pcm_recover(alsa_handle, status, 0);
+      if (status < 0) {
+        /* Hmm, not much we can do - abort */
+        LOG("ALSA write failed (unrecoverable): %s\n", snd_strerror(status));
+        errno = EIO;
+        break;
+      }
+      errno = EIO;
+      break;
+    }
+    nb_samples -= status;
+    gotten += status;
+    for (int channel = 0; channel < channels; channel++)
+      bufs[channel] += sample_size * status;
+  }
+
+  return gotten * frame_size / size;
+}
+
+std::shared_ptr<MediaBuffer> AlsaCaptureStream::Read() {
+  int buffer_size = frame_size * sample_info.nb_samples;
+  int read_cnt = -1;
+  // struct timespec crt_tm = {0, 0};
+
+  auto sample_buffer = std::make_shared<easymedia::SampleBuffer>(
+      MediaBuffer::Alloc2(buffer_size), sample_info);
+
+  if (!sample_buffer) {
+    LOG("Alloc audio frame buffer failed:%d,%d!\n", buffer_size, frame_size);
+    return nullptr;
+  }
+
+  // clock_gettime(CLOCK_MONOTONIC, &crt_tm);
+  read_cnt = Read(sample_buffer->GetPtr(), frame_size, sample_info.nb_samples);
+  sample_buffer->SetValidSize(read_cnt * frame_size);
+  sample_buffer->SetSamples(read_cnt);
+  // sample_buffer->SetUSTimeStamp(crt_tm.tv_sec*1000000LL +
+  // crt_tm.tv_nsec/1000);
+  sample_buffer->SetUSTimeStamp(gettimeofday());
+
+  return sample_buffer;
 }
 
 int AlsaCaptureStream::Open() {
@@ -134,6 +217,7 @@ int AlsaCaptureStream::Open() {
   return 0;
 
 err:
+  LOG("AlsaCaptureStream::Open() failed\n");
   if (hwparams)
     snd_pcm_hw_params_free(hwparams);
   if (pcm_handle) {
@@ -154,12 +238,36 @@ int AlsaCaptureStream::Close() {
   return -1;
 }
 
+int AlsaCaptureStream::IoCtrl(unsigned long int request, ...) {
+  va_list vl;
+  va_start(vl, request);
+  void *arg = va_arg(vl, void *);
+  va_end(vl);
+  if (!arg)
+    return -1;
+  int ret = 0;
+  switch (request) {
+  case S_ALSA_VOLUME:
+    ret = SetCaptureVolume(device, *((int *)arg));
+    break;
+  case G_ALSA_VOLUME:
+    int volume;
+    ret = GetCaptureVolume(device, volume);
+    *((int *)arg) = volume;
+    break;
+  default:
+    ret = -1;
+    break;
+  }
+  return ret;
+}
+
 DEFINE_STREAM_FACTORY(AlsaCaptureStream, Stream)
 
 const char *FACTORY(AlsaCaptureStream)::ExpectedInputDataType() {
   return nullptr;
 }
 
-const char *FACTORY(AlsaCaptureStream)::OutPutDataType() { return AUDIO_PCM; }
+const char *FACTORY(AlsaCaptureStream)::OutPutDataType() { return ALSA_PCM; }
 
 } // namespace easymedia

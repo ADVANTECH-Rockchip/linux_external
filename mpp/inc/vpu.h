@@ -41,7 +41,6 @@ extern "C"
 #define VPU_REG_NUM_ENC                 (96)
 
 typedef enum {
-
     VPU_ENC                 = 0x0,
     VPU_DEC                 = 0x1,
     VPU_PP                  = 0x2,
@@ -50,9 +49,8 @@ typedef enum {
     VPU_DEC_RKV             = 0x5,
     VPU_ENC_RKV             = 0x6,
     VPU_DEC_AVS             = 0x7,
-    VPU_ENC_H265E           = 0x8,
+    VPU_ENC_VEPU22          = 0x8,
     VPU_TYPE_BUTT           ,
-
 } VPU_CLIENT_TYPE;
 
 /* Hardware decoder configuration description */
@@ -93,7 +91,6 @@ typedef struct VPUHwEndConfig {
 } VPUHwEncConfig_t;
 
 typedef enum {
-
     // common command
     VPU_CMD_REGISTER            ,
     VPU_CMD_REGISTER_ACK_OK     ,
@@ -110,6 +107,32 @@ typedef enum {
 
     VPU_CMD_BUTT                ,
 } VPU_CMD_TYPE;
+
+typedef enum {
+    MPP_DEV_CMD_QUERY_BASE              = 0,
+    MPP_DEV_CMD_PROBE_HW_SUPPORT        = MPP_DEV_CMD_QUERY_BASE + 0,
+    MPP_DEV_CMD_PROBE_IOMMU_STATUS      = MPP_DEV_CMD_QUERY_BASE + 1,
+
+    MPP_DEV_CMD_INIT_BASE = 0x100,
+    MPP_DEV_CMD_INIT_CLIENT_TYPE        = MPP_DEV_CMD_INIT_BASE + 0,
+    MPP_DEV_CMD_INIT_DRIVER_DATA        = MPP_DEV_CMD_INIT_BASE + 1,
+    MPP_DEV_CMD_INIT_TRANS_TABLE        = MPP_DEV_CMD_INIT_BASE + 2,
+
+    MPP_DEV_CMD_SEND_BASE               = 0x200,
+    MPP_DEV_CMD_SET_REG_WRITE           = MPP_DEV_CMD_SEND_BASE + 0,
+    MPP_DEV_CMD_SET_REG_READ            = MPP_DEV_CMD_SEND_BASE + 1,
+    MPP_DEV_CMD_SET_REG_ADDR_OFFSET     = MPP_DEV_CMD_SEND_BASE + 2,
+
+    MPP_DEV_CMD_POLL_BASE               = 0x300,
+    MPP_DEV_CMD_POLL_HW_FINISH          = MPP_DEV_CMD_POLL_BASE + 0,
+
+    MPP_DEV_CMD_CONTROL_BASE            = 0x400,
+    MPP_DEV_CMD_RESET_SESSION           = MPP_DEV_CMD_CONTROL_BASE + 0,
+    MPP_DEV_CMD_TRANS_FD_TO_IOVA        = MPP_DEV_CMD_CONTROL_BASE + 1,
+    MPP_DEV_CMD_RELEASE_FD              = MPP_DEV_CMD_CONTROL_BASE + 2,
+
+    MPP_DEV_CMD_BUTT,
+} MPP_DEV_CMD_TYPE;
 
 int VPUClientInit(VPU_CLIENT_TYPE type);
 RK_S32 VPUClientRelease(int socket);

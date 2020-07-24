@@ -40,10 +40,10 @@ MPP_RET hal_m2vd_vdpu1_init(void *hal, MppHalCfg *cfg)
     ctx->reg_len = M2VD_VDPU1_REG_NUM;
 
     MppDevCfg dev_cfg = {
-        .type = MPP_CTX_DEC,            /* type */
+        .type = MPP_CTX_DEC,             /* type */
         .coding = MPP_VIDEO_CodingMPEG2, /* coding */
-        .platform = 0,                  /* platform */
-        .pp_enable = 0,                 /* pp_enable */
+        .platform = HAVE_VDPU1,          /* platform */
+        .pp_enable = 0,                  /* pp_enable */
     };
 
     ret = mpp_device_init(&ctx->dev_ctx, &dev_cfg);
@@ -278,12 +278,11 @@ MPP_RET hal_m2vd_vdpu1_start(void *hal, HalTaskInfo *task)
 MPP_RET hal_m2vd_vdpu1_wait(void *hal, HalTaskInfo *task)
 {
     MPP_RET ret = MPP_OK;
-    M2vdVdpu1Reg_t reg_out;
     M2vdHalCtx *ctx = (M2vdHalCtx *)hal;
+    M2vdVdpu1Reg_t* reg_out = (M2vdVdpu1Reg_t * )ctx->regs;
 
-    memset(&reg_out, 0, sizeof(M2vdVdpu1Reg_t));
-    ret = mpp_device_wait_reg(ctx->dev_ctx, (RK_U32 *)&reg_out, ctx->reg_len);
-    if (reg_out.sw01.dec_error_int | reg_out.sw01.dec_buffer_int) {
+    ret = mpp_device_wait_reg(ctx->dev_ctx, (RK_U32 *)ctx->regs, ctx->reg_len);
+    if (reg_out->sw01.dec_error_int | reg_out->sw01.dec_buffer_int) {
         if (ctx->int_cb.callBack)
             ctx->int_cb.callBack(ctx->int_cb.opaque, NULL);
     }

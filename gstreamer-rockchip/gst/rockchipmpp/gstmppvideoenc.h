@@ -48,7 +48,6 @@ typedef struct _GstMppVideoEncClass GstMppVideoEncClass;
 
 #define MPP_MAX_BUFFERS                 4
 #define MAX_CODEC_FRAME                 (1<<16)
-#define MAX_EXTRA_DATA                  (1<<9)
 
 struct _GstMppVideoEnc
 {
@@ -64,7 +63,6 @@ struct _GstMppVideoEnc
   MppBuffer output_buffer[MPP_MAX_BUFFERS];
   MppFrame mpp_frame;
   MppPacket sps_packet;
-  GstCaps *outcaps;
 
   /* the currently format */
   GstVideoInfo info;
@@ -75,6 +73,7 @@ struct _GstMppVideoEnc
 
   /* State */
   GstVideoCodecState *input_state;
+  gboolean negotiated;
   gboolean processing;
   gboolean active;
   GstFlowReturn output_flow;
@@ -83,10 +82,10 @@ struct _GstMppVideoEnc
 struct _GstMppVideoEncClass
 {
   GstVideoEncoderClass parent_class;
-  gboolean (*set_format) (GstVideoEncoder * encoder,
-    GstVideoCodecState * state);
-  GstFlowReturn (*handle_frame) (GstVideoEncoder * encoder,
-    GstVideoCodecFrame * frame, GstCaps * outcaps);
+    gboolean (*set_format) (GstVideoEncoder * encoder,
+      GstVideoCodecState * state);
+    GstFlowReturn (*handle_frame) (GstVideoEncoder * encoder,
+      GstVideoCodecFrame * frame, GstCaps * outcaps);
 };
 
 GType gst_mpp_video_enc_get_type (void);

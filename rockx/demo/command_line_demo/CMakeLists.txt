@@ -33,7 +33,7 @@ add_subdirectory(rockx_face_attribute_demo)
 add_subdirectory(rockx_head_detection_demo)
 add_subdirectory(rockx_carplate_demo)
 add_subdirectory(rockx_object_track_demo)
-add_subdirectory(rockx_face_liveness_demo)
+add_subdirectory(rockx_body_mask_demo)
 
 install(PROGRAMS ${RockX_LIBS} DESTINATION lib)
 install(PROGRAMS ${RockX_BINS} DESTINATION lib)

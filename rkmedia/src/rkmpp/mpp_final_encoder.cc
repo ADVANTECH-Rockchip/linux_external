@@ -52,10 +52,23 @@ static bool MppEncPrepConfig(MppEncPrepCfg &prep_cfg,
 bool MPPMJPEGConfig::InitConfig(MPPEncoder &mpp_enc, const MediaConfig &cfg) {
   const ImageConfig &img_cfg = cfg.img_cfg;
   MppEncPrepCfg prep_cfg;
+  MppPollType timeout = MPP_POLL_BLOCK;
+  LOGD("MPP Encoder: Set output block mode.\n");
+  int ret = mpp_enc.EncodeControl(MPP_SET_OUTPUT_TIMEOUT, &timeout);
+  if (ret != 0) {
+    LOG("mpp control set output block failed ret %d\n", ret);
+    return false;
+  }
+  LOGD("MPP Encoder: Set input block mode.\n");
+  ret = mpp_enc.EncodeControl(MPP_SET_INPUT_TIMEOUT, &timeout);
+  if (ret != 0) {
+    LOG("mpp control set input block failed ret %d\n", ret);
+    return false;
+  }
 
   if (!MppEncPrepConfig(prep_cfg, img_cfg.image_info))
     return false;
-  int ret = mpp_enc.EncodeControl(MPP_ENC_SET_PREP_CFG, &prep_cfg);
+  ret = mpp_enc.EncodeControl(MPP_ENC_SET_PREP_CFG, &prep_cfg);
   if (ret) {
     LOG("mpi control enc set cfg failed\n");
     return false;
@@ -108,24 +121,32 @@ private:
   MppCodingType code_type;
 };
 
-static int CalcMppBps(MppEncRcCfg *rc_cfg, int bps) {
-  if (bps > MPPCommonConfig::kMPPMaxBps) {
-    LOG("bps <%d> too large\n", bps);
+static int CalcMppBps(MppEncRcCfg *rc_cfg, int bps_max) {
+  if ((bps_max > MPPCommonConfig::kMPPMaxBps) ||
+    (bps_max < MPPCommonConfig::kMPPMinBps)) {
+    LOG("ERROR: MPP Encoder: bps <%d> is not valid!\n", bps_max);
     return -1;
   }
 
   switch (rc_cfg->rc_mode) {
   case MPP_ENC_RC_MODE_CBR:
     // constant bitrate has very small bps range of 1/16 bps
-    rc_cfg->bps_target = bps;
-    rc_cfg->bps_max = bps * 17 / 16;
-    rc_cfg->bps_min = bps * 15 / 16;
+    rc_cfg->bps_max = bps_max;
+    rc_cfg->bps_target = bps_max * 16 / 17;
+    rc_cfg->bps_min = bps_max * 15 / 17;
     break;
   case MPP_ENC_RC_MODE_VBR:
-    // variable bitrate has large bps range
-    rc_cfg->bps_target = bps;
-    rc_cfg->bps_max = bps * 3 / 2;
-    rc_cfg->bps_min = bps * 1 / 2;
+    if (rc_cfg->quality == MPP_ENC_RC_QUALITY_CQP) {
+      /* constant QP does not have bps */
+      rc_cfg->bps_target   = -1;
+      rc_cfg->bps_max      = -1;
+      rc_cfg->bps_min      = -1;
+    } else {
+      // variable bitrate has large bps range
+      rc_cfg->bps_target = bps_max * 2 / 3;
+      rc_cfg->bps_max = bps_max;
+      rc_cfg->bps_min = bps_max * 1 / 3;
+    }
     break;
   default:
     // TODO
@@ -144,18 +165,22 @@ static int CalcMppBps(MppEncRcCfg *rc_cfg, int bps) {
 bool MPPCommonConfig::InitConfig(MPPEncoder &mpp_enc, const MediaConfig &cfg) {
   VideoConfig vconfig = cfg.vid_cfg;
   const ImageConfig &img_cfg = vconfig.image_cfg;
-  MpiCmd mpi_cmd = MPP_CMD_BASE;
-  MppParam param = NULL;
-
   MppEncRcCfg rc_cfg;
   MppEncPrepCfg prep_cfg;
   MppEncCodecCfg codec_cfg;
-  unsigned int need_block = 1;
-  int dummy = 1;
+  memset(&rc_cfg, 0, sizeof(rc_cfg));
+  memset(&prep_cfg, 0, sizeof(prep_cfg));
+  memset(&codec_cfg, 0, sizeof(codec_cfg));
 
-  mpi_cmd = MPP_SET_INPUT_BLOCK;
-  param = &need_block;
-  int ret = mpp_enc.EncodeControl(mpi_cmd, param);
+  MppPollType timeout = MPP_POLL_BLOCK;
+  LOGD("MPP Encoder: Set output block mode.\n");
+  int ret = mpp_enc.EncodeControl(MPP_SET_OUTPUT_TIMEOUT, &timeout);
+  if (ret != 0) {
+    LOG("mpp control set output block failed ret %d\n", ret);
+    return false;
+  }
+  LOGD("MPP Encoder: Set input block mode.\n");
+  ret = mpp_enc.EncodeControl(MPP_SET_INPUT_TIMEOUT, &timeout);
   if (ret != 0) {
     LOG("mpp control set input block failed ret %d\n", ret);
     return false;
@@ -169,15 +194,7 @@ bool MPPCommonConfig::InitConfig(MPPEncoder &mpp_enc, const MediaConfig &cfg) {
     return false;
   }
 
-  param = &dummy;
-  ret = mpp_enc.EncodeControl(MPP_ENC_PRE_ALLOC_BUFF, param);
-  if (ret) {
-    LOG("mpi control pre alloc buff failed ret %d\n", ret);
-    return false;
-  }
-
   rc_cfg.change = MPP_ENC_RC_CFG_CHANGE_ALL;
-
   rc_cfg.rc_mode = GetMPPRCMode(vconfig.rc_mode);
   if (rc_cfg.rc_mode == MPP_ENC_RC_MODE_BUTT) {
     LOG("Invalid rc mode %s\n", vconfig.rc_mode);
@@ -222,25 +239,42 @@ bool MPPCommonConfig::InitConfig(MPPEncoder &mpp_enc, const MediaConfig &cfg) {
   codec_cfg.coding = code_type;
   switch (code_type) {
   case MPP_VIDEO_CodingAVC:
-    codec_cfg.h264.change =
-        MPP_ENC_H264_CFG_CHANGE_PROFILE | MPP_ENC_H264_CFG_CHANGE_ENTROPY;
+    codec_cfg.h264.change = MPP_ENC_H264_CFG_CHANGE_PROFILE |
+        MPP_ENC_H264_CFG_CHANGE_ENTROPY | MPP_ENC_H264_CFG_CHANGE_QP_LIMIT;
     codec_cfg.h264.profile = profile;
     codec_cfg.h264.level = vconfig.level;
     codec_cfg.h264.entropy_coding_mode =
         (profile == 66 || profile == 77) ? (0) : (1);
     codec_cfg.h264.cabac_init_idc = 0;
 
-    // setup QP on CQP mode
-    codec_cfg.h264.change |= MPP_ENC_H264_CFG_CHANGE_QP_LIMIT;
     codec_cfg.h264.qp_init = img_cfg.qp_init;
+    codec_cfg.h264.qp_max_step = vconfig.qp_step;
     codec_cfg.h264.qp_min = vconfig.qp_min;
     codec_cfg.h264.qp_max = vconfig.qp_max;
-    codec_cfg.h264.qp_max_step = vconfig.qp_step;
+
+    if (vconfig.trans_8x8) {
+      if (profile == 100) {
+        codec_cfg.h264.change |= MPP_ENC_H264_CFG_CHANGE_TRANS_8x8;
+        codec_cfg.h264.transform8x8_mode = vconfig.trans_8x8;
+      } else {
+        LOG("the profile must be greater than 100"
+          "to enable h264 enc trans_8x8.\n");
+      }
+    }
     break;
   case MPP_VIDEO_CodingHEVC:
-    // copy from mpi_enc_test.c
+#ifdef RK_MPP_VERSION_NEW
+    codec_cfg.h265.change =
+      MPP_ENC_H265_CFG_INTRA_QP_CHANGE | MPP_ENC_H265_CFG_RC_QP_CHANGE;
+    codec_cfg.h265.qp_init = img_cfg.qp_init;
+    codec_cfg.h265.max_i_qp = vconfig.max_i_qp;
+    codec_cfg.h265.min_i_qp = vconfig.min_i_qp;
+    codec_cfg.h265.max_qp = vconfig.qp_max;
+    codec_cfg.h265.min_qp = vconfig.qp_min;
+#else
     codec_cfg.h265.change = MPP_ENC_H265_CFG_INTRA_QP_CHANGE;
     codec_cfg.h265.intra_qp = img_cfg.qp_init;
+#endif
     break;
   default:
     // will never go here, avoid gcc warning
@@ -254,6 +288,7 @@ bool MPPCommonConfig::InitConfig(MPPEncoder &mpp_enc, const MediaConfig &cfg) {
     return false;
   }
 
+#if 0
   if (bps >= 50000000) {
     RK_U32 qp_scale = 2; // 1 or 2
     ret = mpp_enc.EncodeControl(MPP_ENC_SET_QP_RANGE, &qp_scale);
@@ -263,7 +298,9 @@ bool MPPCommonConfig::InitConfig(MPPEncoder &mpp_enc, const MediaConfig &cfg) {
     }
     LOG("qp_scale:%d\n", qp_scale);
   }
+#endif
 
+#if 0
   MppPacket packet = nullptr;
   ret = mpp_enc.EncodeControl(MPP_ENC_GET_EXTRA_INFO, &packet);
   if (ret) {
@@ -282,18 +319,14 @@ bool MPPCommonConfig::InitConfig(MPPEncoder &mpp_enc, const MediaConfig &cfg) {
     mpp_enc.GetExtraData()->SetUserFlag(MediaBuffer::kExtraIntra);
     packet = NULL;
   }
+#endif
 
-#if MPP_SUPPORT_HW_OSD
-  MppEncOSDPlt palette;
-  memcpy((uint8_t *)palette.buf, (uint8_t *)yuv444_palette_table,
-         PALETTE_TABLE_LEN * 4);
-
-  ret = mpp_enc.EncodeControl(MPP_ENC_SET_OSD_PLT_CFG, &palette);
+  int header_mode = MPP_ENC_HEADER_MODE_EACH_IDR;
+  ret = mpp_enc.EncodeControl(MPP_ENC_SET_HEADER_MODE, &header_mode);
   if (ret) {
-    LOG("encode_control set osd plt cfg failed\n");
+    LOG("mpi control enc set codec cfg failed ret %d\n", ret);
     return false;
   }
-#endif
 
   mpp_enc.GetConfig().vid_cfg = vconfig;
   mpp_enc.GetConfig().type = Type::Video;
@@ -305,66 +338,195 @@ bool MPPCommonConfig::CheckConfigChange(MPPEncoder &mpp_enc, uint32_t change,
   VideoConfig &vconfig = mpp_enc.GetConfig().vid_cfg;
   MppEncRcCfg rc_cfg;
 
+  // reset all values.
+  memset(&rc_cfg, 0, sizeof(rc_cfg));
+
   if (change & VideoEncoder::kFrameRateChange) {
-    int new_frame_rate = val->GetValue();
-    assert(new_frame_rate > 0 && new_frame_rate < 120);
-    rc_cfg.change = MPP_ENC_RC_CFG_CHANGE_FPS_OUT;
-    rc_cfg.fps_out_flex = 0;
-    rc_cfg.fps_out_num = new_frame_rate;
-    rc_cfg.fps_out_denorm = 1;
-    if (mpp_enc.EncodeControl(MPP_ENC_SET_RC_CFG, &rc_cfg) != 0) {
-      LOG("encode_control MPP_ENC_SET_RC_CFG(MPP_ENC_RC_CFG_CHANGE_FPS_OUT) "
-          "error!\n");
+    uint8_t *values = (uint8_t *)val->GetPtr();
+    if (val->GetSize() < 2) {
+      LOG("ERROR: MPP Encoder: fps should be array[2Byte]={num, den}\n");
       return false;
     }
-    vconfig.frame_rate = new_frame_rate;
+    uint8_t new_fps_num = values[0];
+    uint8_t new_fps_den = values[1];
+    rc_cfg.change = MPP_ENC_RC_CFG_CHANGE_FPS_OUT;
+    rc_cfg.fps_out_flex = 0;
+    rc_cfg.fps_out_num = new_fps_num;
+    rc_cfg.fps_out_denorm = new_fps_den;
+    if (mpp_enc.EncodeControl(MPP_ENC_SET_RC_CFG, &rc_cfg) != 0) {
+      LOG("ERROR: MPP Encoder: fps control failed!\n");
+      return false;
+    }
+    vconfig.frame_rate = new_fps_num;
   } else if (change & VideoEncoder::kBitRateChange) {
     int new_bit_rate = val->GetValue();
-    assert(new_bit_rate > 0 && new_bit_rate < 60 * 1000 * 1000);
+    LOGD("MPP Encoder: new bpsmax:%d\n", new_bit_rate);
+    if((new_bit_rate < 0) ||(new_bit_rate > 60 * 1000 * 1000)) {
+      LOG("ERROR: MPP Encoder: bps should within (0, 60Mb]\n");
+      return false;
+    }
     rc_cfg.change = MPP_ENC_RC_CFG_CHANGE_BPS;
     rc_cfg.rc_mode = GetMPPRCMode(vconfig.rc_mode);
     rc_cfg.quality = GetMPPRCQuality(vconfig.rc_quality);
     if (CalcMppBps(&rc_cfg, new_bit_rate) < 0)
       return false;
     if (mpp_enc.EncodeControl(MPP_ENC_SET_RC_CFG, &rc_cfg) != 0) {
-      LOG("encode_control MPP_ENC_SET_RC_CFG(MPP_ENC_RC_CFG_CHANGE_BPS) "
-          "error!\n");
+      LOG("ERROR: MPP Encoder: bpsmax control failed!\n");
       return false;
     }
     vconfig.bit_rate = new_bit_rate;
+  } else if (change & VideoEncoder::kRcModeChange) {
+    char *new_mode = (char *)val->GetPtr();
+    LOGD("MPP Encoder: new rc_mode:%s\n", new_mode);
+    rc_cfg.rc_mode = GetMPPRCMode(new_mode);
+    if (rc_cfg.rc_mode == MPP_ENC_RC_MODE_BUTT) {
+      LOG("ERROR: MPP Encoder: rc_mode is invalid!"
+        "should be KEY_CBR/KEY_VBR/KEY_FIXQP.\n");
+      return false;
+    }
+    rc_cfg.quality = GetMPPRCQuality(vconfig.rc_quality);
+    rc_cfg.change =
+      MPP_ENC_RC_CFG_CHANGE_RC_MODE | MPP_ENC_RC_CFG_CHANGE_BPS;
+    //Recalculate bps
+    if (CalcMppBps(&rc_cfg, vconfig.bit_rate) < 0)
+      return false;
+    if (mpp_enc.EncodeControl(MPP_ENC_SET_RC_CFG, &rc_cfg) != 0) {
+      LOG("ERROR: MPP Encoder: rc_mode control failed!\n");
+      return false;
+    }
+    // save new value to encoder->vconfig.
+    if (rc_cfg.rc_mode == MPP_ENC_RC_MODE_VBR)
+      vconfig.rc_mode = KEY_VBR;
+    else
+      vconfig.rc_mode = KEY_CBR;
+  } else if (change & VideoEncoder::kRcQualityChange) {
+    char *new_quality = (char *)val->GetPtr();
+    LOGD("MPP Encoder: new rc_quality:%s\n", new_quality);
+    rc_cfg.quality = GetMPPRCQuality(new_quality);
+    if (rc_cfg.quality == MPP_ENC_RC_QUALITY_BUTT) {
+      LOG("ERROR: MPP Encoder: rc_quality is invalid!"
+        "should be [KEY_WORST, KEY_BEST].\n");
+      return false;
+    }
+    LOGD("MPP Encoder: current rc_mode:%s\n", vconfig.rc_mode);
+    rc_cfg.rc_mode = GetMPPRCMode(vconfig.rc_mode);
+    rc_cfg.change =
+      MPP_ENC_RC_CFG_CHANGE_QUALITY | MPP_ENC_RC_CFG_CHANGE_BPS;
+    //Recalculate bps
+    if (CalcMppBps(&rc_cfg, vconfig.bit_rate) < 0)
+      return false;
+    if (mpp_enc.EncodeControl(MPP_ENC_SET_RC_CFG, &rc_cfg) != 0) {
+      LOG("ERROR: MPP Encoder: rc_quality control failed!\n");
+      return false;
+    }
+    // save new value to encoder->vconfig.
+    if (!strcmp(new_quality, KEY_BEST))
+      vconfig.rc_quality = KEY_BEST;
+    else if (!strcmp(new_quality, KEY_BETTER))
+      vconfig.rc_quality = KEY_BETTER;
+    else if (!strcmp(new_quality, KEY_MEDIUM))
+      vconfig.rc_quality = KEY_MEDIUM;
+    else if (!strcmp(new_quality, KEY_WORSE))
+      vconfig.rc_quality = KEY_WORSE;
+    else if (!strcmp(new_quality, KEY_WORST))
+      vconfig.rc_quality = KEY_WORST;
   } else if (change & VideoEncoder::kForceIdrFrame) {
+    LOGD("MPP Encoder: force idr frame...\n");
     if (mpp_enc.EncodeControl(MPP_ENC_SET_IDR_FRAME, nullptr) != 0) {
-      LOG("encode_control MPP_ENC_SET_IDR_FRAME error!\n");
+      LOG("ERROR: MPP Encoder: force idr frame control failed!\n");
       return false;
     }
   } else if (change & VideoEncoder::kQPChange) {
-    if (code_type != MPP_VIDEO_CodingAVC) {
-      LOG("TODO codeing type: %d\n", code_type);
+    VideoEncoderQp *qps = (VideoEncoderQp *)val->GetPtr();
+    if (val->GetSize() < sizeof(VideoEncoderQp)) {
+      LOG("ERROR: MPP Encoder: Incomplete VideoEncoderQp information\n");
       return false;
     }
+    LOGD("MPP Encoder: new qp:(%d, %d, %d, %d, %d, %d)\n",
+      qps->qp_init, qps->qp_step, qps->qp_min, qps->qp_max,
+      qps->min_i_qp, qps->max_i_qp);
     MppEncCodecCfg codec_cfg;
-    assert(val->GetSize() == sizeof(int) * 4);
-    int *values = (int *)val->GetPtr();
-    codec_cfg.h264.change = MPP_ENC_H264_CFG_CHANGE_QP_LIMIT;
-    codec_cfg.h264.qp_init = values[0];
-    codec_cfg.h264.qp_min = values[1];
-    codec_cfg.h264.qp_max = values[2];
-    codec_cfg.h264.qp_max_step = values[3];
-    if (mpp_enc.EncodeControl(MPP_ENC_SET_CODEC_CFG, &codec_cfg) != 0) {
-      LOG("encode_control MPP_ENC_SET_CODEC_CFG error!\n");
+    if (code_type == MPP_VIDEO_CodingAVC) {
+      codec_cfg.h264.change = MPP_ENC_H264_CFG_CHANGE_QP_LIMIT;
+      codec_cfg.h264.qp_init = qps->qp_init;
+      codec_cfg.h264.qp_max_step = qps->qp_step;
+      codec_cfg.h264.qp_min = qps->qp_min;
+      codec_cfg.h264.qp_max = qps->qp_max;
+    } else if (code_type == MPP_VIDEO_CodingHEVC) {
+      codec_cfg.h265.change =
+        MPP_ENC_H265_CFG_INTRA_QP_CHANGE | MPP_ENC_H265_CFG_RC_QP_CHANGE;
+      codec_cfg.h265.qp_init = qps->qp_init;
+      codec_cfg.h265.qp_max_step = qps->qp_step;
+      codec_cfg.h265.min_qp = qps->qp_min;
+      codec_cfg.h265.max_qp = qps->qp_max;
+      codec_cfg.h265.max_i_qp = qps->max_i_qp;
+      codec_cfg.h265.min_i_qp = qps->min_i_qp;
+    } else {
+      LOG("ERROR: MPP Encoder: Encoder:%d not support this change\n",
+        code_type);
       return false;
     }
-    vconfig.image_cfg.qp_init = values[0];
-    vconfig.qp_min = values[1];
-    vconfig.qp_max = values[2];
-    vconfig.qp_step = values[3];
+    if (mpp_enc.EncodeControl(MPP_ENC_SET_CODEC_CFG, &codec_cfg) != 0) {
+      LOG("ERROR: MPP Encoder: qp control failed!\n");
+      return false;
+    }
+    vconfig.image_cfg.qp_init = qps->qp_init;
+    vconfig.qp_min = qps->qp_min;
+    vconfig.qp_max = qps->qp_max;
+    vconfig.qp_step = qps->qp_step;
+    vconfig.max_i_qp = qps->max_i_qp;
+    vconfig.min_i_qp = qps->min_i_qp;
+  } else if (change & VideoEncoder::kROICfgChange) {
+    EncROIRegion *regions = (EncROIRegion *)val->GetPtr();
+    if (val->GetSize() && (val->GetSize() < sizeof(EncROIRegion))) {
+      LOG("ERROR: MPP Encoder: ParameterBuffer size is invalid!\n");
+      return false;
+    }
+    int region_cnt = val->GetSize() / sizeof(EncROIRegion);
+    mpp_enc.RoiUpdateRegions(regions, region_cnt);
+  } else if (change & VideoEncoder::kSplitChange) {
+    if (val->GetSize() < (2 * sizeof(int))) {
+      LOG("ERROR: MPP Encoder: Incomplete split information\n");
+      return false;
+    }
+    MppEncSliceSplit split_cfg;
+    memset(&split_cfg, 0, sizeof(split_cfg));
+
+    RK_U32 split_mode = *((unsigned int *)val->GetPtr());
+    RK_U32 split_arg = *((unsigned int *)val->GetPtr() + 1);
+
+    LOGD("MPP Encoder: split_mode:%u, split_arg:%u\n", split_mode, split_arg);
+    split_cfg.change = MPP_ENC_SPLIT_CFG_CHANGE_ALL;
+    split_cfg.split_mode = split_mode;
+    split_cfg.split_arg = split_arg;
+    if (mpp_enc.EncodeControl(MPP_ENC_SET_SPLIT, &split_cfg) != 0) {
+      LOG("ERROR: MPP Encoder: set split mode failed!\n");
+      return false;
+    }
   }
-#if MPP_SUPPORT_HW_OSD
+#ifdef MPP_SUPPORT_HW_OSD
   else if (change & VideoEncoder::kOSDDataChange) {
-    // type: MppEncOSDData*
-    void *param = val->GetPtr();
-    if (mpp_enc.EncodeControl(MPP_ENC_SET_OSD_DATA_CFG, param) != 0) {
-      LOG("encode_control MPP_ENC_SET_OSD_DATA_CFG error!\n");
+    // type: OsdRegionData*
+    LOGD("MPP Encoder: config osd regions\n");
+    if (val->GetSize() < sizeof(OsdRegionData)) {
+      LOG("ERROR: MPP Encoder: palette buff should be OsdRegionData type\n");
+      return false;
+    }
+    OsdRegionData *param = (OsdRegionData *)val->GetPtr();
+    if (mpp_enc.OsdRegionSet(param)) {
+      LOG("ERROR: MPP Encoder: set osd regions error!\n");
+      return false;
+    }
+  } else if (change & VideoEncoder::kOSDPltChange) {
+    // type: 265 * U32 array.
+    LOGD("MPP Encoder: config osd palette\n");
+    if (val->GetSize() < (sizeof(int) * 4)) {
+      LOG("ERROR: MPP Encoder: palette buff should be U32 * 256\n");
+      return false;
+    }
+    uint32_t *param = (uint32_t *)val->GetPtr();
+    if (mpp_enc.OsdPaletteSet(param)) {
+      LOG("ERROR: MPP Encoder: set Palette error!\n");
       return false;
     }
   }
@@ -406,12 +568,15 @@ MPPFinalEncoder::MPPFinalEncoder(const char *param) : mpp_config(nullptr) {
 
 bool MPPFinalEncoder::InitConfig(const MediaConfig &cfg) {
   assert(!mpp_config);
+  MediaConfig new_cfg = cfg;
   switch (coding_type) {
   case MPP_VIDEO_CodingMJPEG:
     mpp_config = new MPPMJPEGConfig();
+    new_cfg.img_cfg.codec_type = codec_type;
     break;
   case MPP_VIDEO_CodingAVC:
   case MPP_VIDEO_CodingHEVC:
+    new_cfg.vid_cfg.image_cfg.codec_type = codec_type;
     mpp_config = new MPPCommonConfig(coding_type);
     break;
   default:
@@ -422,11 +587,18 @@ bool MPPFinalEncoder::InitConfig(const MediaConfig &cfg) {
     LOG_NO_MEMORY();
     return false;
   }
-  return mpp_config->InitConfig(*this, cfg);
+  return mpp_config->InitConfig(*this, new_cfg);
 }
 
 bool MPPFinalEncoder::CheckConfigChange(
     std::pair<uint32_t, std::shared_ptr<ParameterBuffer>> change_pair) {
+  //common ConfigChange process
+  if (change_pair.first & VideoEncoder::kEnableStatistics) {
+    bool value = (change_pair.second->GetValue())?true:false;
+    set_statistics_switch(value);
+    return true;
+  }
+
   assert(mpp_config);
   if (!mpp_config)
     return false;
@@ -438,6 +610,15 @@ DEFINE_VIDEO_ENCODER_FACTORY(MPPFinalEncoder)
 const char *FACTORY(MPPFinalEncoder)::ExpectedInputDataType() {
   return MppAcceptImageFmts();
 }
-const char *FACTORY(MPPFinalEncoder)::OutPutDataType() { return VIDEO_H264; }
+
+#define IMAGE_JPEG "image:jpeg"
+#define VIDEO_H264 "video:h264"
+#define VIDEO_H265 "video:h265"
+
+#define VIDEO_ENC_OUTPUT                     \
+  TYPENEAR(IMAGE_JPEG) TYPENEAR(VIDEO_H264)  \
+  TYPENEAR(VIDEO_H265)
+
+const char *FACTORY(MPPFinalEncoder)::OutPutDataType() { return VIDEO_ENC_OUTPUT; }
 
 } // namespace easymedia

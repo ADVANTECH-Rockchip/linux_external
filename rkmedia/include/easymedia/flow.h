@@ -6,8 +6,8 @@
 #define EASYMEDIA_FLOW_H_
 
 #include "lock.h"
-#include "reflector.h"
 #include "message.h"
+#include "reflector.h"
 
 #include <stdarg.h>
 
@@ -43,6 +43,20 @@ using FunctionProcess =
     std::add_pointer<bool(Flow *f, MediaBufferVector &input_vector)>::type;
 template <int in_index, int out_index>
 bool void_transaction(Flow *f, MediaBufferVector &input_vector);
+using LinkVideoHandler =
+    std::add_pointer<void(unsigned char *buffer, unsigned int buffer_size,
+                          unsigned int present_time, int nat_type)>::type;
+using LinkAudioHandler =
+    std::add_pointer<void(unsigned char *buffer, unsigned int buffer_size,
+                          unsigned int present_time)>::type;
+using LinkCaptureHandler =
+    std::add_pointer<void(unsigned char *buffer, unsigned int buffer_size,
+                          int type, const char *id)>::type;
+using PlayVideoHandler = std::add_pointer<void(Flow *f)>::type;
+using PlayAudioHandler = std::add_pointer<void(Flow *f)>::type;
+using UserHandler = std::add_pointer<void *>::type;
+using UserCallBack = std::add_pointer<void(void* handler,
+    int type, void *ptr, int size)>::type;
 
 class _API SlotMap {
 public:
@@ -87,16 +101,52 @@ public:
     return Control(S_SUB_REQUEST, &subreq);
   }
 
-  //get input size for this flow
-  virtual int GetInputSize() {return 0;}
+  // get input size for this flow
+  virtual int GetInputSize() { return 0; }
 
   // The global event hander is the same thread to the born thread of this
   // object.
   void RegisterEventHandler(std::shared_ptr<Flow> flow, EventHook proc);
   void UnRegisterEventHandler();
   void EventHookWait();
-  void NotifyToEventHandler(EventMessage *msg);
-  EventMessage * GetEventMessages();
+  void NotifyToEventHandler(EventParamPtr param, int type = MESSAGE_TYPE_FIFO);
+  void NotifyToEventHandler(int id, int type = MESSAGE_TYPE_FIFO);
+  MessagePtr GetEventMessage();
+  EventParamPtr GetEventParam(MessagePtr msg);
+
+  // Add Link hander For app Link
+  void SetVideoHandler(LinkVideoHandler hander) {
+    link_video_handler_ = hander;
+  }
+  LinkVideoHandler GetVideoHandler() { return link_video_handler_; }
+  void SetAudioHandler(LinkAudioHandler hander) {
+    link_audio_handler_ = hander;
+  }
+  LinkAudioHandler GetAudioHandler() { return link_audio_handler_; }
+  void SetCaptureHandler(LinkCaptureHandler hander) {
+    link_capture_handler_ = hander;
+  }
+  LinkCaptureHandler GetCaptureHandler() { return link_capture_handler_; }
+
+  // Add hander For rtsp flow
+  void SetPlayVideoHandler(PlayVideoHandler handler) {
+    play_video_handler_ = handler;
+  }
+  PlayVideoHandler GetPlayVideoHandler() { return play_video_handler_; }
+  void SetPlayAudioHandler(PlayAudioHandler handler) {
+    play_audio_handler_ = handler;
+  }
+  PlayAudioHandler GetPlayAudioHandler() { return play_audio_handler_; }
+
+  // Add common hander for user
+  void SetUserCallBack(UserHandler handler, UserCallBack callback) {
+    user_handler_ = handler;
+    user_callback_ = callback;
+  }
+  UserHandler GetUserHandler() { return user_handler_; }
+  UserCallBack GetUserCallBack() { return user_callback_; }
+
+  bool IsAllBuffEmpty();
 
 protected:
   class FlowInputMap {
@@ -150,7 +200,7 @@ protected:
     Model thread_model;
     bool fetch_block;
     std::deque<std::shared_ptr<MediaBuffer>> cached_buffers;
-    ConditionLockMutex cond_mtx;
+    ConditionLockMutex mtx;
     int max_cache_num;
     InputMode mode_when_full;
     std::shared_ptr<MediaBuffer> cached_buffer;
@@ -195,12 +245,22 @@ protected:
 private:
   volatile bool enable;
   volatile bool quit;
+  ConditionLockMutex cond_mtx;
 
   // event handler
-  EventHandler * event_handler_;
+  std::unique_ptr<EventHandler> event_handler_;
 
   friend class FlowCoroutine;
 
+  LinkVideoHandler link_video_handler_;
+  LinkAudioHandler link_audio_handler_;
+  LinkCaptureHandler link_capture_handler_;
+
+  PlayVideoHandler play_video_handler_;
+  PlayAudioHandler play_audio_handler_;
+
+  UserHandler user_handler_;
+  UserCallBack user_callback_;
   DEFINE_ERR_GETSET()
   DECLARE_PART_FINAL_EXPOSE_PRODUCT(Flow)
 };

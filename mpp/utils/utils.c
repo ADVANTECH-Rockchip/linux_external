@@ -20,6 +20,7 @@
 
 #include "mpp_mem.h"
 #include "mpp_log.h"
+#include "mpp_common.h"
 #include "utils.h"
 
 void _show_options(int count, OptionInfo *options)
@@ -261,8 +262,8 @@ void read_frm_crc(FILE *fp, FrmCrc *crc)
     }
 }
 
-MPP_RET read_yuv_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
-                       RK_U32 hor_stride, RK_U32 ver_stride, MppFrameFormat fmt)
+MPP_RET read_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
+                   RK_U32 hor_stride, RK_U32 ver_stride, MppFrameFormat fmt)
 {
     MPP_RET ret = MPP_OK;
     RK_U32 read_size;
@@ -270,6 +271,48 @@ MPP_RET read_yuv_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
     RK_U8 *buf_y = buf;
     RK_U8 *buf_u = buf_y + hor_stride * ver_stride; // NOTE: diff from gen_yuv_image
     RK_U8 *buf_v = buf_u + hor_stride * ver_stride / 4; // NOTE: diff from gen_yuv_image
+
+    if (MPP_FRAME_FMT_IS_FBC(fmt)) {
+        RK_U32 align_w = MPP_ALIGN(width, 16);
+        RK_U32 align_h = MPP_ALIGN(height, 16);
+        RK_U32 header_size = MPP_ALIGN(align_w * align_h / 16, SZ_4K);
+
+        /* read fbc header first */
+        read_size = fread(buf, 1, header_size, fp);
+        if (read_size != header_size) {
+            mpp_err_f("read fbc file header failed %d vs %d\n",
+                      read_size, header_size);
+            ret  = MPP_NOK;
+            goto err;
+        }
+        buf += header_size;
+
+        switch (fmt & MPP_FRAME_FMT_MASK) {
+        case MPP_FMT_YUV420SP : {
+            read_size = fread(buf, 1, align_w * align_h * 3 / 2, fp);
+            if (read_size != align_w * align_h * 3 / 2) {
+                mpp_err_f("read 420sp fbc file payload failed %d vs %d\n",
+                          read_size, align_w * align_h * 3 / 2);
+                ret  = MPP_NOK;
+                goto err;
+            }
+        } break;
+        case MPP_FMT_YUV422SP : {
+            read_size = fread(buf, 1, align_w * align_h * 2, fp);
+            if (read_size != align_w * align_h * 2) {
+                mpp_err_f("read 422sp fbc file payload failed %d vs %d\n",
+                          read_size, align_w * align_h * 2);
+                ret  = MPP_NOK;
+                goto err;
+            }
+        } break;
+        default : {
+            mpp_err_f("not supported fbc format %x\n", fmt);
+        } break;
+        }
+
+        return MPP_OK;
+    }
 
     switch (fmt) {
     case MPP_FMT_YUV420SP : {
@@ -319,15 +362,30 @@ MPP_RET read_yuv_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
             }
         }
     } break;
-    case MPP_FMT_ARGB8888 : {
+    case MPP_FMT_ARGB8888 :
+    case MPP_FMT_ABGR8888:
+    case MPP_FMT_BGRA8888:
+    case MPP_FMT_RGBA8888: {
         for (row = 0; row < height; row++) {
             read_size = fread(buf_y + row * hor_stride * 4, 1, width * 4, fp);
         }
     } break;
+    case MPP_FMT_YUV422P:
+    case MPP_FMT_YUV422SP:
+    case MPP_FMT_RGB565:
+    case MPP_FMT_BGR565:
     case MPP_FMT_YUV422_YUYV :
-    case MPP_FMT_YUV422_UYVY : {
+    case MPP_FMT_YUV422_YVYU :
+    case MPP_FMT_YUV422_UYVY :
+    case MPP_FMT_YUV422_VYUY : {
         for (row = 0; row < height; row++) {
-            read_size = fread(buf_y + row * hor_stride, 1, width * 2, fp);
+            read_size = fread(buf_y + row * hor_stride * 2, 1, width * 2, fp);
+        }
+    } break;
+    case MPP_FMT_RGB888 :
+    case MPP_FMT_BGR888: {
+        for (row = 0; row < height; row++) {
+            read_size = fread(buf_y + row * hor_stride * 3, 1, width * 3, fp);
         }
     } break;
     default : {
@@ -341,9 +399,9 @@ err:
     return ret;
 }
 
-MPP_RET fill_yuv_image(RK_U8 *buf, RK_U32 width, RK_U32 height,
-                       RK_U32 hor_stride, RK_U32 ver_stride, MppFrameFormat fmt,
-                       RK_U32 frame_count)
+MPP_RET fill_image(RK_U8 *buf, RK_U32 width, RK_U32 height,
+                   RK_U32 hor_stride, RK_U32 ver_stride, MppFrameFormat fmt,
+                   RK_U32 frame_count)
 {
     MPP_RET ret = MPP_OK;
     RK_U8 *buf_y = buf;
@@ -403,6 +461,21 @@ MPP_RET fill_yuv_image(RK_U8 *buf, RK_U32 width, RK_U32 height,
             }
         }
     } break;
+    case MPP_FMT_RGB888 :
+    case MPP_FMT_BGR888 :
+    case MPP_FMT_ARGB8888 : {
+        RK_U8 *p = buf_y;
+        RK_U32 pix_w = (fmt == MPP_FMT_ARGB8888 || fmt == MPP_FMT_ABGR8888) ? 4 : 4;
+
+        for (y = 0; y < height; y++, p += hor_stride * pix_w) {
+            for (x = 0; x < width; x++) {
+                p[x * 4 + 0] = x * 3 + 0 + y + frame_count * 3;
+                p[x * 4 + 1] = x * 3 + 1 + y + frame_count * 3;
+                p[x * 4 + 2] = x * 3 + 2 + y + frame_count * 3;
+                p[x * 4 + 3] = 0;
+            }
+        }
+    } break;
     default : {
         mpp_err_f("filling function do not support type %d\n", fmt);
         ret = MPP_NOK;
@@ -418,4 +491,105 @@ RK_S32 parse_config_line(const char *str, OpsLine *info)
                         &info->value1, &info->value2);
 
     return cnt;
+}
+
+static void get_extension(const char *file_name, char *extension)
+{
+    size_t length = strlen(file_name);
+    size_t i = length - 1;
+
+    while (i) {
+        if (file_name[i] == '.') {
+            strcpy(extension, file_name + i + 1);
+            return ;
+        }
+        i--;
+    }
+
+    extension[0] = '\0';
+}
+
+MPP_RET name_to_frame_format(const char *name, MppFrameFormat *fmt)
+{
+    MPP_RET ret = MPP_OK;
+    char ext[50];
+
+    get_extension(name, ext);
+
+    if (!strcmp(ext, "YUV420p")) {
+        mpp_log("found YUV420p");
+        *fmt = MPP_FMT_YUV420P;
+    } else if (!strcmp(ext, "YUV420sp")) {
+        mpp_log("found YUV420sp");
+        *fmt = MPP_FMT_YUV420SP;
+    } else if (!strcmp(ext, "YUV422p")) {
+        mpp_log("found YUV422p");
+        *fmt = MPP_FMT_YUV422P;
+    } else if (!strcmp(ext, "YUV422sp")) {
+        mpp_log("found YUV422sp");
+        *fmt = MPP_FMT_YUV422SP;
+    } else if (!strcmp(ext, "YUV422uyvy")) {
+        mpp_log("found YUV422uyvy");
+        *fmt = MPP_FMT_YUV422_UYVY;
+    } else if (!strcmp(ext, "YUV422vyuy")) {
+        mpp_log("found YUV422vyuy");
+        *fmt = MPP_FMT_YUV422_VYUY;
+    } else if (!strcmp(ext, "YUV422yuyv")) {
+        mpp_log("found YUV422yuyv");
+        *fmt = MPP_FMT_YUV422_YUYV;
+    } else if (!strcmp(ext, "YUV422yvyu")) {
+        mpp_log("found YUV422yvyu");
+        *fmt = MPP_FMT_YUV422_YVYU;
+    } else if (!strcmp(ext, "ABGR8888")) {
+        mpp_log("found ABGR8888");
+        *fmt = MPP_FMT_ABGR8888;
+    } else if (!strcmp(ext, "ARGB8888")) {
+        mpp_log("found ARGB8888");
+        *fmt = MPP_FMT_ARGB8888;
+    } else if (!strcmp(ext, "BGR565")) {
+        mpp_log("found BGR565");
+        *fmt = MPP_FMT_BGR565;
+    } else if (!strcmp(ext, "BGR888")) {
+        mpp_log("found BGR888");
+        *fmt = MPP_FMT_BGR888;
+    } else if (!strcmp(ext, "BGRA8888")) {
+        mpp_log("found BGRA8888");
+        *fmt = MPP_FMT_BGRA8888;
+    } else if (!strcmp(ext, "RGB565")) {
+        mpp_log("found RGB565");
+        *fmt = MPP_FMT_RGB565;
+    } else if (!strcmp(ext, "RGB888")) {
+        mpp_log("found RGB888");
+        *fmt = MPP_FMT_RGB888;
+    } else if (!strcmp(ext, "RGBA8888")) {
+        mpp_log("found RGBA8888");
+        *fmt = MPP_FMT_RGBA8888;
+    } else if (!strcmp(ext, "fbc")) {
+        mpp_log("found fbc");
+        *fmt = MPP_FMT_YUV420SP | MPP_FRAME_FBC_AFBC_V1;
+    } else {
+        ret = MPP_NOK;
+    }
+
+    return ret;
+}
+
+MPP_RET name_to_coding_type(const char *name, MppCodingType *coding)
+{
+    MPP_RET ret = MPP_OK;
+    char ext[50];
+
+    get_extension(name, ext);
+
+    if (!strcmp(ext, "264") || !strcmp(ext, "h264")) {
+        *coding = MPP_VIDEO_CodingAVC;
+    } else if (!strcmp(ext, "265") || !strcmp(ext, "h265")) {
+        *coding = MPP_VIDEO_CodingHEVC;
+    } else if (!strcmp(ext, "jpeg") || !strcmp(ext, "mjpeg") || !strcmp(ext, "jpg")) {
+        *coding = MPP_VIDEO_CodingMJPEG;
+    } else {
+        ret = MPP_NOK;
+    }
+
+    return ret;
 }

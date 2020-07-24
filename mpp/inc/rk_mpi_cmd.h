@@ -37,7 +37,7 @@
 /* separate encoder control command to different segment */
 #define CMD_CFG_ID_MASK                 (0x0000FF00)
 #define CMD_ENC_CFG_ALL                 (0x00000000)
-#define CMD_ENC_CFG_RC                  (0x00000100)
+#define CMD_ENC_CFG_RC_API              (0x00000100)
 #define CMD_ENC_CFG_FRM                 (0x00000200)
 #define CMD_ENC_CFG_PREP                (0x00000300)
 #define CMD_ENC_CFG_CODEC               (0x00001000)
@@ -106,11 +106,11 @@ typedef enum {
     MPP_ENC_GET_CODEC_CFG,              /* get MppEncCodecCfg structure */
     /* runtime encoder setup control */
     MPP_ENC_SET_IDR_FRAME,              /* next frame will be encoded as intra frame */
-    MPP_ENC_SET_OSD_PLT_CFG,            /* set OSD palette, parameter should be pointer to MppEncOSDPlt */
-    MPP_ENC_SET_OSD_DATA_CFG,           /* set OSD data with at most 8 regions, parameter should be pointer to MppEncOSDData */
-    MPP_ENC_GET_OSD_CFG,
-    MPP_ENC_SET_EXTRA_INFO,
-    MPP_ENC_GET_EXTRA_INFO,             /* get vps / sps / pps from hal */
+    MPP_ENC_SET_OSD_LEGACY_0,           /* deprecated */
+    MPP_ENC_SET_OSD_LEGACY_1,           /* deprecated */
+    MPP_ENC_SET_OSD_LEGACY_2,           /* deprecated */
+    MPP_ENC_GET_HDR_SYNC,               /* get vps / sps / pps which has better sync behavior parameter is MppPacket */
+    MPP_ENC_GET_EXTRA_INFO,             /* deprecated */
     MPP_ENC_SET_SEI_CFG,                /* SEI: Supplement Enhancemant Information, parameter is MppSeiMode */
     MPP_ENC_GET_SEI_DATA,               /* SEI: Supplement Enhancemant Information, parameter is MppPacket */
     MPP_ENC_PRE_ALLOC_BUFF,             /* allocate buffers before encoding */
@@ -118,9 +118,33 @@ typedef enum {
     MPP_ENC_SET_ROI_CFG,                /* set MppEncROICfg structure */
     MPP_ENC_SET_CTU_QP,                 /* for H265 Encoder,set CTU's size and QP */
 
-    MPP_ENC_CFG_RC                      = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_RC,
-    MPP_ENC_SET_RC,                     /* set MppEncRcCfg structure */
-    MPP_ENC_GET_RC,                     /* get MppEncRcCfg structure */
+    /* User define rate control stategy API control */
+    MPP_ENC_CFG_RC_API                  = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_RC_API,
+    /*
+     * Get RcApiQueryAll structure
+     * Get all available rate control stategy string and count
+     */
+    MPP_ENC_GET_RC_API_ALL              = MPP_ENC_CFG_RC_API + 1,
+    /*
+     * Get RcApiQueryType structure
+     * Get available rate control stategy string with certain type
+     */
+    MPP_ENC_GET_RC_API_BY_TYPE          = MPP_ENC_CFG_RC_API + 2,
+    /*
+     * Set RcImplApi structure
+     * Add new or update rate control stategy function pointers
+     */
+    MPP_ENC_SET_RC_API_CFG              = MPP_ENC_CFG_RC_API + 3,
+    /*
+     * Get RcApiBrief structure
+     * Get current used rate control stategy brief information (type and name)
+     */
+    MPP_ENC_GET_RC_API_CURRENT          = MPP_ENC_CFG_RC_API + 4,
+    /*
+     * Set RcApiBrief structure
+     * Set current used rate control stategy brief information (type and name)
+     */
+    MPP_ENC_SET_RC_API_CURRENT          = MPP_ENC_CFG_RC_API + 5,
 
     MPP_ENC_CFG_FRM                     = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_FRM,
     MPP_ENC_SET_FRM,                    /* set MppFrame structure */
@@ -140,6 +164,8 @@ typedef enum {
     MPP_ENC_CFG_MJPEG                   = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_MJPEG,
 
     MPP_ENC_CFG_MISC                    = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_MISC,
+    MPP_ENC_SET_HEADER_MODE,            /* set MppEncHeaderMode */
+    MPP_ENC_GET_HEADER_MODE,            /* get MppEncHeaderMode */
 
     MPP_ENC_CFG_SPLIT                   = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_SPLIT,
     MPP_ENC_SET_SPLIT,                  /* set MppEncSliceSplit structure */
@@ -147,6 +173,12 @@ typedef enum {
 
     MPP_ENC_CFG_GOPREF                  = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_GOPREF,
     MPP_ENC_SET_GOPREF,                 /* set MppEncGopRef structure */
+
+    MPP_ENC_CFG_OSD                     = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_OSD,
+    MPP_ENC_SET_OSD_PLT_CFG,            /* set OSD palette, parameter should be pointer to MppEncOSDPltCfg */
+    MPP_ENC_GET_OSD_PLT_CFG,            /* get OSD palette, parameter should be pointer to MppEncOSDPltCfg */
+    MPP_ENC_SET_OSD_DATA_CFG,           /* set OSD data with at most 8 regions, parameter should be pointer to MppEncOSDData */
+    MPP_ENC_GET_OSD_DATA_CFG,           /* get OSD data with at most 8 regions, parameter should be pointer to MppEncOSDData */
 
     MPP_ENC_CMD_END,
 

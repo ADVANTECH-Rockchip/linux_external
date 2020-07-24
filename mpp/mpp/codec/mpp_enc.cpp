@@ -25,27 +25,10 @@
 #include "mpp_packet_impl.h"
 
 #include "mpp.h"
+#include "mpp_enc_debug.h"
 #include "mpp_enc_impl.h"
 #include "mpp_hal.h"
 #include "hal_h264e_api.h"
-
-#define MPP_ENC_DBG_FUNCTION            (0x00000001)
-#define MPP_ENC_DBG_CONTROL             (0x00000002)
-#define MPP_ENC_DBG_STATUS              (0x00000010)
-#define MPP_ENC_DBG_DETAIL              (0x00000020)
-#define MPP_ENC_DBG_RESET               (0x00000040)
-#define MPP_ENC_DBG_NOTIFY              (0x00000080)
-
-RK_U32 mpp_enc_debug = 0;
-
-#define mpp_enc_dbg(flag, fmt, ...)     _mpp_dbg(mpp_enc_debug, flag, fmt, ## __VA_ARGS__)
-#define mpp_enc_dbg_f(flag, fmt, ...)   _mpp_dbg_f(mpp_enc_debug, flag, fmt, ## __VA_ARGS__)
-
-#define enc_dbg_func(fmt, ...)          mpp_enc_dbg_f(MPP_ENC_DBG_FUNCTION, fmt, ## __VA_ARGS__)
-#define enc_dbg_ctrl(fmt, ...)          mpp_enc_dbg_f(MPP_ENC_DBG_CONTROL, fmt, ## __VA_ARGS__)
-#define enc_dbg_status(fmt, ...)        mpp_enc_dbg_f(MPP_ENC_DBG_STATUS, fmt, ## __VA_ARGS__)
-#define enc_dbg_detail(fmt, ...)        mpp_enc_dbg_f(MPP_ENC_DBG_DETAIL, fmt, ## __VA_ARGS__)
-#define enc_dbg_notify(fmt, ...)        mpp_enc_dbg_f(MPP_ENC_DBG_NOTIFY, fmt, ## __VA_ARGS__)
 
 typedef struct MppEncImpl_t {
     MppCodingType       coding;
@@ -283,6 +266,8 @@ void *mpp_enc_control_thread(void *data)
                 mpp_assert(size);
                 mpp_buffer_get(mpp->mPacketGroup, &buffer, size);
                 mpp_packet_init_with_buffer(&packet, buffer);
+                /* NOTE: clear length for output */
+                mpp_packet_set_length(packet, 0);
                 mpp_buffer_put(buffer);
             }
             mpp_assert(packet);
@@ -349,23 +334,15 @@ void *mpp_enc_control_thread(void *data)
          * task_in may be null if output port is awaken by Mpp::clear()
          */
         if (task_out) {
-            //set motion info buffer to output task
+            MppMeta meta = mpp_packet_get_meta(packet);
+
             if (mv_info)
-                mpp_task_meta_set_buffer(task_out, KEY_MOTION_INFO, mv_info);
+                mpp_meta_set_buffer(meta, KEY_MOTION_INFO, mv_info);
 
-            mpp_task_meta_set_packet(task_out, KEY_OUTPUT_PACKET, packet);
-
-            {
-                RK_S32 is_intra = hal_task->is_intra;
-                RK_U32 flag = mpp_packet_get_flag(packet);
-
-                mpp_task_meta_set_s32(task_out, KEY_OUTPUT_INTRA, is_intra);
-                if (is_intra) {
-                    mpp_packet_set_flag(packet, flag | MPP_PACKET_FLAG_INTRA);
-                }
-            }
+            mpp_meta_set_s32(meta, KEY_OUTPUT_INTRA, hal_task->is_intra);
 
             // setup output task here
+            mpp_task_meta_set_packet(task_out, KEY_OUTPUT_PACKET, packet);
             mpp_port_enqueue(output, task_out);
         } else {
             mpp_packet_deinit(&packet);
@@ -430,6 +407,7 @@ MPP_RET mpp_enc_init(MppEnc *enc, MppEncCfg *cfg)
 
         EncImplCfg ctrl_cfg = {
             coding,
+            DEV_VEPU,
             &p->cfg,
             &p->set,
             task_count,
@@ -620,12 +598,17 @@ MPP_RET mpp_enc_control(MppEnc ctx, MpiCmd cmd, void *param)
 
     switch (cmd) {
     case MPP_ENC_SET_ALL_CFG : {
+        MppEncRcCfg *rc = &enc->set.rc;
+
         enc_dbg_ctrl("set all config\n");
         memcpy(&enc->set, param, sizeof(enc->set));
 
-        ret = enc_impl_proc_cfg(enc->impl, MPP_ENC_SET_RC_CFG, param);
+        if (rc->rc_mode == MPP_ENC_RC_MODE_VBR && rc->quality == MPP_ENC_RC_QUALITY_CQP)
+            rc->rc_mode = MPP_ENC_RC_MODE_FIXQP;
+
+        ret = enc_impl_proc_cfg(enc->impl, MPP_ENC_SET_RC_CFG, rc);
         if (!ret)
-            ret = mpp_hal_control(enc->hal, MPP_ENC_SET_RC_CFG, &enc->set.rc);
+            ret = mpp_hal_control(enc->hal, MPP_ENC_SET_RC_CFG, rc);
 
         if (!ret)
             mpp_enc_update_rc_cfg(&enc->cfg.rc, &enc->set.rc);
@@ -657,12 +640,17 @@ MPP_RET mpp_enc_control(MppEnc ctx, MpiCmd cmd, void *param)
         memcpy(p, &enc->cfg.prep, sizeof(*p));
     } break;
     case MPP_ENC_SET_RC_CFG : {
-        enc_dbg_ctrl("set rc config\n");
-        memcpy(&enc->set.rc, param, sizeof(enc->set.rc));
+        MppEncRcCfg *rc = &enc->set.rc;
 
-        ret = enc_impl_proc_cfg(enc->impl, cmd, param);
+        enc_dbg_ctrl("set rc config\n");
+        memcpy(rc, param, sizeof(*rc));
+
+        if (rc->rc_mode == MPP_ENC_RC_MODE_VBR && rc->quality == MPP_ENC_RC_QUALITY_CQP)
+            rc->rc_mode = MPP_ENC_RC_MODE_FIXQP;
+
+        ret = enc_impl_proc_cfg(enc->impl, cmd, rc);
         if (!ret)
-            ret = mpp_hal_control(enc->hal, cmd, param);
+            ret = mpp_hal_control(enc->hal, cmd, rc);
 
         if (!ret)
             mpp_enc_update_rc_cfg(&enc->cfg.rc, &enc->set.rc);

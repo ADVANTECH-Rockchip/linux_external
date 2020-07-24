@@ -40,17 +40,6 @@ include(CheckCXXCompilerFlag)
 # ----------------------------------------------------------------------------
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "CMakeTargets")
-# ----------------------------------------------------------------------------
-# enable test in this project
-# ----------------------------------------------------------------------------
-if(NOT DEFINED BUILD_TESTING)
-  option(BUILD_TESTING "Build easymedia with testing." OFF)
-  mark_as_advanced(BUILD_TESTING)
-endif()
-include(CTest)
-if(BUILD_TESTING)
-  enable_testing()
-endif()
 
 # ----------------------------------------------------------------------------
 # Compiler detection
@@ -83,7 +72,7 @@ elseif(CMAKE_COMPILER_IS_GNUCXX)
                   OUTPUT_VARIABLE GCC_VERSION)
 endif()
 
-if($(CMAKE_BUILD_TYPE) MATCHES "Release")
+if(${CMAKE_BUILD_TYPE} MATCHES "Release")
   set(CMAKE_C_VISIBILITY_PRESET hidden)
   set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 endif()
@@ -125,6 +114,9 @@ option(ENCODER "compile: encoder" ON)
 option(DECODER "compile: decoder" ON)
 option(MUXER "compile: muxer" ON)
 option(DEMUXER "compile: demuxer" ON)
+option(RKNN "compile: rknn wrapper" OFF)
+option(ROCKFACE "compile: rockface wrapper" OFF)
+option(ROCKX "compile: rockx wrapper" OFF)
 
 pkg_check_modules(LIBDRM libdrm)
 if(LIBDRM_FOUND)
@@ -142,6 +134,10 @@ endif()
 
 include_directories(include/easymedia)
 add_subdirectory(src)
-if(BUILD_TESTING)
+
+option(COMPILES_EXAMPLES "Enable compiles examples" OFF)
+if(COMPILES_EXAMPLES)
+  include(CTest)
+  enable_testing()
   add_subdirectory(test)
 endif()

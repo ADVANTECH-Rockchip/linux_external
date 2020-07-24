@@ -10,6 +10,9 @@
 
 #define KEY_PATH "path"
 #define KEY_OPEN_MODE "mode"
+#define KEY_SAVE_MODE "save_mode"
+#define KEY_SAVE_MODE_SINGLE "single_frame"
+#define KEY_SAVE_MODE_CONTIN "continuous_frame"
 #define KEY_DEVICE "device"
 
 #define KEY_NAME "name"
@@ -22,6 +25,7 @@
 #define KEY_BUFFER_HEIGHT "height"
 #define KEY_BUFFER_VIR_WIDTH "virtual_width"
 #define KEY_BUFFER_VIR_HEIGHT "virtual_height"
+#define KEY_CODECTYPE "codec_type"
 
 // (src_left, src_top, src_width, src_height)->(dst_left, dst_top, dst_width,
 // dst_height)
@@ -42,6 +46,11 @@
 #define KEY_COMPRESS_RC_QUALITY "rc_quality"
 #define KEY_COMPRESS_RC_MODE "rc_mode"
 #define KEY_NEED_EXTRA_OUTPUT "need_extra_output"
+#define KEY_NEED_EXTRA_MERGE "need_extra_merge"
+
+#define KEY_H265_MAX_I_QP "h265_max_i_qp"
+#define KEY_H265_MIN_I_QP "h265_min_i_qp"
+#define KEY_H264_TRANS_8x8 "h264_trans_8x8"
 
 #define KEY_WORST "worst"
 #define KEY_WORSE "worse"
@@ -58,6 +67,15 @@
 #define KEY_MPP_GROUP_MAX_FRAMES "fg_max_frames" // framegroup max frame num
 #define KEY_MPP_SPLIT_MODE "split_mode"
 #define KEY_OUTPUT_TIMEOUT "output_timeout"
+
+// move detection
+#define KEY_MD_SINGLE_REF "md_single_ref"
+#define KEY_MD_ORI_WIDTH "md_orignal_width"
+#define KEY_MD_ORI_HEIGHT "md_orignal_height"
+#define KEY_MD_DS_WIDTH "md_down_scale_width"
+#define KEY_MD_DS_HEIGHT "md_down_scale_height"
+#define KEY_MD_ROI_CNT "md_roi_cnt"
+#define KEY_MD_ROI_RECT "md_roi_rect"
 
 // audio info
 #define KEY_SAMPLE_FMT "sample_format"
@@ -107,6 +125,13 @@
 
 #define KEY_OUTPUT_HOLD_INPUT "output_hold_input"
 
+// muxer flow
+#define KEY_FILE_PREFIX "file_prefix"
+#define KEY_FILE_SUFFIX "file_suffix"
+#define KEY_FILE_DURATION "file_duration"
+#define KEY_FILE_INDEX "file_index"
+#define KEY_FILE_TIME "file_time"
+
 // drm
 #define KEY_CONNECTOR_ID "connector_id"
 #define KEY_CRTC_ID "crtc_id"
@@ -136,5 +161,14 @@
 #define KEY_TENSOR_FMT "tensor_fmt"
 #define KEY_NCHW "NCHW"
 #define KEY_NHWC "NHWC"
+
+// throuh_guard
+#define KEY_ALLOW_THROUGH_COUNT "allow_through_count"
+
+// uvc
+#define KEY_UVC_EVENT_CODE "uvc_event_code"
+#define KEY_UVC_WIDTH "uvc_width"
+#define KEY_UVC_HEIGHT "uvc_height"
+#define KEY_UVC_FORMAT "uvc_format"
 
 #endif // #ifndef EASYMEDIA_MEDIA_KEY_STRING_H_

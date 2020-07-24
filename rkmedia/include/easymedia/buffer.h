@@ -14,6 +14,7 @@
 #include "image.h"
 #include "media_type.h"
 #include "sound.h"
+#include "rknn_user.h"
 
 typedef int (*DeleteFun)(void *arg);
 
@@ -46,6 +47,8 @@ public:
   virtual ~MediaBuffer() = default;
   virtual PixelFormat GetPixelFormat() const { return PIX_FMT_NONE; }
   virtual SampleFormat GetSampleFormat() const { return SAMPLE_FMT_NONE; }
+  void BeginCPUAccess(bool readonly);
+  void EndCPUAccess(bool readonly);
   int GetFD() const { return fd; }
   void SetFD(int new_fd) { fd = new_fd; }
   void *GetPtr() const { return ptr; }
@@ -85,6 +88,18 @@ public:
       userdata.reset();
     }
   }
+  int64_t GetAtomicClock() const { return atomic_clock; }
+  struct timeval GetAtomicTimeVal() const {
+    struct timeval ret;
+    ret.tv_sec = atomic_clock / 1000000LL;
+    ret.tv_usec = atomic_clock % 1000000LL;
+    return ret;
+  }
+  void SetAtomicClock(int64_t us) { atomic_clock = us; }
+  void SetAtomicTimeVal(const struct timeval &val) {
+    atomic_clock = val.tv_sec * 1000000LL + val.tv_usec;
+  }
+
   void SetUserData(std::shared_ptr<void> user_data) { userdata = user_data; }
   std::shared_ptr<void> GetUserData() { return userdata; }
 
@@ -125,6 +140,7 @@ private:
   Type type;
   uint32_t user_flag;
   int64_t ustimestamp;
+  int64_t atomic_clock;
   bool eof;
 
   std::shared_ptr<void> userdata;
@@ -192,6 +208,7 @@ public:
   int GetVirWidth() const { return image_info.vir_width; }
   int GetVirHeight() const { return image_info.vir_height; }
   ImageInfo &GetImageInfo() { return image_info; }
+  std::list<FaceInfo> &GetFaceInfo() { return face_info; };
 
 private:
   void ResetValues() {
@@ -200,6 +217,7 @@ private:
     image_info.pix_fmt = PIX_FMT_NONE;
   }
   ImageInfo image_info;
+  std::list<FaceInfo> face_info;
 };
 
 } // namespace easymedia

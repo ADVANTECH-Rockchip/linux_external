@@ -47,12 +47,24 @@ enum class Type { None = -1, Audio = 0, Image, Video, Text };
 #define AUDIO_PCM_U8 "audio:pcm_u8"
 #define AUDIO_PCM_S16 "audio:pcm_s16"
 #define AUDIO_PCM_S32 "audio:pcm_s32"
-#define AUDIO_PCM                                                              \
-  TYPENEAR(AUDIO_PCM_U8) TYPENEAR(AUDIO_PCM_S16) TYPENEAR(AUDIO_PCM_S32)
+#define AUDIO_PCM_FLT "audio:pcm_flt"
+#define AUDIO_PCM_U8P "audio:pcm_u8p"
+#define AUDIO_PCM_S16P "audio:pcm_s16p"
+#define AUDIO_PCM_S32P "audio:pcm_s32p"
+#define AUDIO_PCM_FLTP "audio:pcm_fltp"
+
+#define AUDIO_PCM                                 \
+  TYPENEAR(AUDIO_PCM_U8) TYPENEAR(AUDIO_PCM_S16)  \
+  TYPENEAR(AUDIO_PCM_S32) TYPENEAR(AUDIO_PCM_FLT) \
+  TYPENEAR(AUDIO_PCM_U8P) TYPENEAR(AUDIO_PCM_S16P) \
+  TYPENEAR(AUDIO_PCM_S32P) TYPENEAR(AUDIO_PCM_FLTP)
 
 #define AUDIO_AAC "audio:aac"
 #define AUDIO_MP2 "audio:mp2"
 #define AUDIO_VORBIS "audio:vorbis"
+#define AUDIO_G711A "audio:g711a"
+#define AUDIO_G711U "audio:g711U"
+#define AUDIO_G726 "audio:g726"
 
 #define TEXT_PREFIX "text:"
 
@@ -65,6 +77,25 @@ enum class Type { None = -1, Audio = 0, Image, Video, Text };
 #define NN_INT8 "nn:int8"
 #define NN_UINT8 "nn:uint8"
 #define NN_INT16 "nn:int16"
+
+typedef enum {
+  CODEC_TYPE_NONE = -1,
+  //Audio
+  CODEC_TYPE_AAC,
+  CODEC_TYPE_MP2,
+  CODEC_TYPE_VORBIS,
+  CODEC_TYPE_G711A,
+  CODEC_TYPE_G711U,
+  CODEC_TYPE_G726,
+  //Video
+  CODEC_TYPE_H264,
+  CODEC_TYPE_H265,
+  CODEC_TYPE_JPEG,
+  CODEC_TYPE_NB
+} CodecType;
+
+__attribute__((visibility("default"))) const char *CodecTypeToString(CodecType fmt);
+__attribute__((visibility("default"))) CodecType StringToCodecType(const char *fmt_str);
 
 #include <string>
 

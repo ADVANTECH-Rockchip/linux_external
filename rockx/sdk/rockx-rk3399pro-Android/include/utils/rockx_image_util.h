@@ -69,6 +69,26 @@ rockx_ret_t rockx_image_convert(rockx_image_t *src, rockx_image_t *dst, rockx_im
 rockx_ret_t rockx_image_convert_keep_ration(rockx_image_t *src, rockx_image_t *dst, int dst_width, int dst_heigh,
                                             rockx_pixel_format dst_pixel_format, int pad_color, float *scale_w,
                                             float *scale_h);
+
+/**
+ * @brief Image Clarity
+ * 
+ * @param in_image [in] image
+ * @param clarity [out] clarity
+ * @return rockx_ret_t 
+ */
+rockx_ret_t rockx_image_clarity(rockx_image_t *in_image, float *clarity);
+
+/**
+ * @brief Image ROI
+ * 
+ * @param img [in] imag
+ * @param roi [in] roi
+ * @param roi_img [out] roi image
+ * @return rockx_ret_t 
+ */
+rockx_ret_t rockx_image_roi(rockx_image_t *img, rockx_rect_t *roi, rockx_image_t *roi_img);
+
 /**
  * Read Image From File(Need Release If Not Use @ref release_rockx_image)
  * @param img_path [in] Image file path
