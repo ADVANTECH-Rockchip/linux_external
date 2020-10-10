@@ -19,8 +19,9 @@
 #define WIFI_PRELOAD_INF	"/sys/class/rkwifi/preload"
 
 #define UNKKOWN_DRIVER_MODULE_ARG ""
+#define MRL_DRIVER_MODULE_ARG "cal_data_cfg=none sta_name=wlan wfd_name=p2p drv_mode=1 ps_mode=2 fw_name=mrvl/sduart8987_combo.bin"
 
-#define BT_TTY_DEV "/dev/ttyS4"
+#define BT_TTY_DEV "/dev/ttyS0"
 
 int check_wifi_chip_type(void);
 int check_wifi_chip_type_string(char *type);
@@ -82,6 +83,7 @@ static wifi_device supported_wifi_devices[] = {
 	{"AP6255",      "02d0:a9bf"},
 	{"AP6212A",     "02d0:a9a6"},
 	{"RTL8822BE",	"10ec:b822"},
+	{"AW358MA",		"02df:9149"},	// AW-358MA
 };
 
 // TODO: use new ANDROID_SOCKET mechanism, once support for multiple
@@ -101,6 +103,10 @@ static wifi_device supported_wifi_devices[] = {
 #define RTL8812AU_DRIVER_MODULE_PATH "/system/lib/modules/8812au.ko"
 #define RTL8822BE_DRIVER_MODULE_PATH "/system/lib/modules/8822be.ko"
 #define BCM_DRIVER_MODULE_PATH       "/system/lib/modules/bcmdhd.ko"
+#define MVL_DRIVER_MODULE_PATH0       "/system/lib/modules/mlan.ko"
+#define MVL_DRIVER_MODULE_PATH1       "/system/lib/modules/sd8xxx.ko"
+#define MVL_DRIVER_MODULE_PATH2       "/system/lib/modules/hci_uart.ko"
+
 #define DRIVER_MODULE_PATH_UNKNOW    ""
 
 #define RTL8822BS_DRIVER_MODULE_NAME "8822bs"
@@ -152,6 +158,7 @@ wifi_ko_file_name module_list[] =
 	{"AP6356",          BCM_DRIVER_MODULE_PATH, UNKKOWN_DRIVER_MODULE_ARG, AP6356_BT_FIRMWARE_MODULE_PATH},
 	{"AP6398S",         BCM_DRIVER_MODULE_PATH, UNKKOWN_DRIVER_MODULE_ARG, AP6398s_BT_FIRMWARE_MODULE_PATH},
 	{"APXXX",           BCM_DRIVER_MODULE_PATH, UNKKOWN_DRIVER_MODULE_ARG, ""},
+	{"AW358MA",      MVL_DRIVER_MODULE_PATH1, MRL_DRIVER_MODULE_ARG, "AW358MA"},
 	{"UNKNOW",       DRIVER_MODULE_PATH_UNKNOW, UNKKOWN_DRIVER_MODULE_ARG, ""}
 
 };
@@ -303,7 +310,7 @@ int check_wireless_ready(void)
 	}
 
 	while(fgets(line, 1024, fp)) {
-		if ((strstr(line, "wlan0:") != NULL) || (strstr(line, "p2p0:") != NULL)) {
+		if ((strstr(line, "wlan0:") != NULL) || (strstr(line, "p2p0:") != NULL) || (strstr(line, "mlan0:") != NULL) || (strstr(line, "w1p1s0:") != NULL)) {
 			printf("Wifi driver is ready for now... \n");
 			fclose(fp);
 			return 1;
@@ -407,6 +414,15 @@ int wifibt_load_driver(void)
 		return -1;
 	}
 
+	if (!strcmp(wifi_type , "AW358MA")) {
+		sprintf(temp, "insmod %s", MVL_DRIVER_MODULE_PATH0);
+		printf("%s %s\n", __func__, temp);
+		if (system(temp)) {
+			printf("%s insmod %s failed \n", __func__, MVL_DRIVER_MODULE_PATH0);
+			return -1;
+		}
+	}
+
 	sprintf(temp, "insmod %s %s", wifi_ko_path, wifi_ko_arg);
 	printf("%s %s\n", __func__, temp);
 	if (system(temp)) {
@@ -449,6 +465,18 @@ int wifibt_load_driver(void)
 		sprintf(temp, "rtk_hciattach -n -s 115200 %s rtk_h5 &", bt_tty_dev);
 		system(temp);
 		usleep(5000);
+	}else if (strstr(bt_firmware_patch , "AW358MA")) {
+		sprintf(temp, "insmod %s", MVL_DRIVER_MODULE_PATH2);
+		printf("%s %s\n", __func__, temp);
+		if (system(temp)) {
+			printf("%s insmod %s failed \n", __func__, MVL_DRIVER_MODULE_PATH2);
+			return -1;
+		}
+
+		usleep(500000);
+		memset(temp, 0, 256);
+		sprintf(temp, "hciattach %s any 115200 flow", bt_tty_dev);
+		system(temp);
 	}
 
 	return 0;
