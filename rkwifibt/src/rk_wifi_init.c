@@ -19,7 +19,7 @@
 #define WIFI_PRELOAD_INF	"/sys/class/rkwifi/preload"
 
 #define UNKKOWN_DRIVER_MODULE_ARG ""
-#define MRL_DRIVER_MODULE_ARG "cal_data_cfg=none sta_name=wlan wfd_name=p2p drv_mode=1 ps_mode=2 fw_name=mrvl/sduart8987_combo.bin"
+#define MRL_DRIVER_MODULE_ARG "cal_data_cfg=none sta_name=wlan wfd_name=p2p drv_mode=3 ps_mode=2 fw_name=mrvl/sduart8987_combo.bin cfg80211_wext=0x0c"
 
 #define BT_TTY_DEV "/dev/ttyS0"
 
@@ -473,7 +473,7 @@ int wifibt_load_driver(void)
 			return -1;
 		}
 
-		usleep(500000);
+		usleep(5000000);
 		memset(temp, 0, 256);
 		sprintf(temp, "hciattach %s any 115200 flow", bt_tty_dev);
 		system(temp);
