@@ -29,10 +29,6 @@
 #ifndef FREEDRENO_PRIV_H_
 #define FREEDRENO_PRIV_H_
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
@@ -49,6 +45,7 @@
 #include "xf86atomic.h"
 
 #include "util_double_list.h"
+#include "util_math.h"
 
 #include "freedreno_drmif.h"
 #include "freedreno_ringbuffer.h"
@@ -66,7 +63,8 @@ struct fd_device_funcs {
 			uint32_t flags, uint32_t *handle);
 	struct fd_bo * (*bo_from_handle)(struct fd_device *dev,
 			uint32_t size, uint32_t handle);
-	struct fd_pipe * (*pipe_new)(struct fd_device *dev, enum fd_pipe_id id);
+	struct fd_pipe * (*pipe_new)(struct fd_device *dev, enum fd_pipe_id id,
+			unsigned prio);
 	void (*destroy)(struct fd_device *dev);
 };
 
@@ -100,8 +98,12 @@ struct fd_device {
 	const struct fd_device_funcs *funcs;
 
 	struct fd_bo_cache bo_cache;
+	struct fd_bo_cache ring_cache;
 
 	int closefd;        /* call close(fd) upon destruction */
+
+	/* just for valgrind: */
+	int bo_size;
 };
 
 drm_private void fd_bo_cache_init(struct fd_bo_cache *cache, int coarse);
@@ -114,7 +116,8 @@ drm_private int fd_bo_cache_free(struct fd_bo_cache *cache, struct fd_bo *bo);
 drm_private void fd_device_del_locked(struct fd_device *dev);
 
 struct fd_pipe_funcs {
-	struct fd_ringbuffer * (*ringbuffer_new)(struct fd_pipe *pipe, uint32_t size);
+	struct fd_ringbuffer * (*ringbuffer_new)(struct fd_pipe *pipe, uint32_t size,
+			enum fd_ringbuffer_flags flags);
 	int (*get_param)(struct fd_pipe *pipe, enum fd_param_id param, uint64_t *value);
 	int (*wait)(struct fd_pipe *pipe, uint32_t timestamp, uint64_t timeout);
 	void (*destroy)(struct fd_pipe *pipe);
@@ -124,12 +127,8 @@ struct fd_pipe {
 	struct fd_device *dev;
 	enum fd_pipe_id id;
 	uint32_t gpu_id;
+	atomic_t refcnt;
 	const struct fd_pipe_funcs *funcs;
-};
-
-struct fd_ringmarker {
-	struct fd_ringbuffer *ring;
-	uint32_t *cur;
 };
 
 struct fd_ringbuffer_funcs {
@@ -141,8 +140,7 @@ struct fd_ringbuffer_funcs {
 	void (*emit_reloc)(struct fd_ringbuffer *ring,
 			const struct fd_reloc *reloc);
 	uint32_t (*emit_reloc_ring)(struct fd_ringbuffer *ring,
-			struct fd_ringbuffer *target, uint32_t cmd_idx,
-			uint32_t submit_offset, uint32_t size);
+			struct fd_ringbuffer *target, uint32_t cmd_idx);
 	uint32_t (*cmd_count)(struct fd_ringbuffer *ring);
 	void (*destroy)(struct fd_ringbuffer *ring);
 };
@@ -152,6 +150,7 @@ struct fd_bo_funcs {
 	int (*cpu_prep)(struct fd_bo *bo, struct fd_pipe *pipe, uint32_t op);
 	void (*cpu_fini)(struct fd_bo *bo);
 	int (*madvise)(struct fd_bo *bo, int willneed);
+	uint64_t (*iova)(struct fd_bo *bo);
 	void (*destroy)(struct fd_bo *bo);
 };
 
@@ -164,12 +163,19 @@ struct fd_bo {
 	atomic_t refcnt;
 	const struct fd_bo_funcs *funcs;
 
-	int bo_reuse;
+	enum {
+		NO_CACHE = 0,
+		BO_CACHE = 1,
+		RING_CACHE = 2,
+	} bo_reuse;
+
 	struct list_head list;   /* bucket-list entry */
 	time_t free_time;        /* time when added to bucket-list */
 };
 
-#define ALIGN(v,a) (((v) + (a) - 1) & ~((a) - 1))
+drm_private struct fd_bo *fd_bo_new_ring(struct fd_device *dev,
+		uint32_t size, uint32_t flags);
+
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 #define enable_debug 0  /* TODO make dynamic */
@@ -195,5 +201,58 @@ offset_bytes(void *end, void *start)
 {
 	return ((char *)end) - ((char *)start);
 }
+
+#if HAVE_VALGRIND
+#  include <memcheck.h>
+
+/*
+ * For tracking the backing memory (if valgrind enabled, we force a mmap
+ * for the purposes of tracking)
+ */
+static inline void VG_BO_ALLOC(struct fd_bo *bo)
+{
+	if (bo && RUNNING_ON_VALGRIND) {
+		VALGRIND_MALLOCLIKE_BLOCK(fd_bo_map(bo), bo->size, 0, 1);
+	}
+}
+
+static inline void VG_BO_FREE(struct fd_bo *bo)
+{
+	VALGRIND_FREELIKE_BLOCK(bo->map, 0);
+}
+
+/*
+ * For tracking bo structs that are in the buffer-cache, so that valgrind
+ * doesn't attribute ownership to the first one to allocate the recycled
+ * bo.
+ *
+ * Note that the list_head in fd_bo is used to track the buffers in cache
+ * so disable error reporting on the range while they are in cache so
+ * valgrind doesn't squawk about list traversal.
+ *
+ */
+static inline void VG_BO_RELEASE(struct fd_bo *bo)
+{
+	if (RUNNING_ON_VALGRIND) {
+		VALGRIND_DISABLE_ADDR_ERROR_REPORTING_IN_RANGE(bo, bo->dev->bo_size);
+		VALGRIND_MAKE_MEM_NOACCESS(bo, bo->dev->bo_size);
+		VALGRIND_FREELIKE_BLOCK(bo->map, 0);
+	}
+}
+static inline void VG_BO_OBTAIN(struct fd_bo *bo)
+{
+	if (RUNNING_ON_VALGRIND) {
+		VALGRIND_MAKE_MEM_DEFINED(bo, bo->dev->bo_size);
+		VALGRIND_ENABLE_ADDR_ERROR_REPORTING_IN_RANGE(bo, bo->dev->bo_size);
+		VALGRIND_MALLOCLIKE_BLOCK(bo->map, bo->size, 0, 1);
+	}
+}
+#else
+static inline void VG_BO_ALLOC(struct fd_bo *bo)   {}
+static inline void VG_BO_FREE(struct fd_bo *bo)    {}
+static inline void VG_BO_RELEASE(struct fd_bo *bo) {}
+static inline void VG_BO_OBTAIN(struct fd_bo *bo)  {}
+#endif
+
 
 #endif /* FREEDRENO_PRIV_H_ */

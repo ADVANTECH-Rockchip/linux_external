@@ -4,11 +4,16 @@
 
 #include <assert.h>
 
+#include "buffer.h"
 #include "encoder.h"
 #include "flow.h"
-#include "sound.h"
-#include "buffer.h"
 #include "media_type.h"
+#include "sound.h"
+
+#ifdef MOD_TAG
+#undef MOD_TAG
+#endif
+#define MOD_TAG 13
 
 namespace easymedia {
 
@@ -23,6 +28,7 @@ public:
   }
   static const char *GetFlowName() { return "audio_enc"; }
   int GetInputSize() override;
+
 private:
   std::shared_ptr<AudioEncoder> enc;
   int input_size;
@@ -43,19 +49,22 @@ bool encode(Flow *f, MediaBufferVector &input_vector) {
     return false;
 
   if (limit_size && (src->GetValidSize() > limit_size))
-    LOG("WARNING: AudioEncFlow: buffer(%d) is bigger than expected(%d)\n",
-      (int)src->GetValidSize(), (int)limit_size);
+    RKMEDIA_LOGW("AudioEncFlow: buffer(%d) is bigger than expected(%d)\n",
+                 (int)src->GetValidSize(), (int)limit_size);
   else if (src->GetValidSize() < limit_size) {
     // last frame?
     if (src->GetValidSize() <= 0)
-      src->SetValidSize(0); //as null frame.
+      src->SetValidSize(0); // as null frame.
     else if (src->GetSize() >= limit_size) {
       char *null_ptr = (char *)src->GetPtr() + src->GetValidSize();
       memset(null_ptr, 0, limit_size - src->GetValidSize());
       src->SetValidSize(limit_size);
       feed_null = true;
-    } else
-      src->SetValidSize(0); //as null frame.
+    } else if (src->GetSize() == src->GetValidSize()) {
+      // case AAC it is ok
+    } else {
+      src->SetValidSize(0); // as null frame.
+    }
   }
 
   // last frame.
@@ -65,7 +74,7 @@ bool encode(Flow *f, MediaBufferVector &input_vector) {
   int ret = enc->SendInput(src);
   if (ret < 0) {
     fprintf(stderr, "[Audio]: frame encode failed, ret=%d\n", ret);
-    //return -1;
+    // return -1;
   }
 
   if (feed_null) {
@@ -88,7 +97,7 @@ bool encode(Flow *f, MediaBufferVector &input_vector) {
     size_t out_len = dst->GetValidSize();
     if (out_len == 0)
       break;
-    LOGD("[Audio]: frame encoded, out %d bytes\n\n", (int)out_len);
+    RKMEDIA_LOGD("[Audio]: frame encoded, out %d bytes\n\n", (int)out_len);
     result = af->SetOutput(dst, 0);
     if (!result)
       break;
@@ -106,7 +115,7 @@ AudioEncoderFlow::AudioEncoderFlow(const char *param) {
   }
   std::string &codec_name = params[KEY_NAME];
   if (codec_name.empty()) {
-    LOG("missing codec name\n");
+    RKMEDIA_LOGI("missing codec name\n");
     SetError(-EINVAL);
     return;
   }
@@ -118,13 +127,12 @@ AudioEncoderFlow::AudioEncoderFlow(const char *param) {
     return;
   }
 
-#if 1
   if (!REFLECTOR(Encoder)::IsMatch(ccodec_name, rule.c_str())) {
-    LOG("Unsupport for audio encoder %s : [%s]\n", ccodec_name, rule.c_str());
+    RKMEDIA_LOGI("Unsupport for audio encoder %s : [%s]\n", ccodec_name,
+                 rule.c_str());
     SetError(-EINVAL);
     return;
   }
-#endif
 
   const std::string &enc_param_str = separate_list.back();
   std::map<std::string, std::string> enc_params;
@@ -141,14 +149,14 @@ AudioEncoderFlow::AudioEncoderFlow(const char *param) {
   auto encoder = REFLECTOR(Encoder)::Create<AudioEncoder>(
       ccodec_name, enc_param_str.c_str());
   if (!encoder) {
-    LOG("Fail to create audio encoder %s<%s>\n", ccodec_name,
-        enc_param_str.c_str());
+    RKMEDIA_LOGI("Fail to create audio encoder %s<%s>\n", ccodec_name,
+                 enc_param_str.c_str());
     SetError(-EINVAL);
     return;
   }
 
   if (!encoder->InitConfig(mc)) {
-    LOG("Fail to init config, %s\n", ccodec_name);
+    RKMEDIA_LOGI("Fail to init config, %s\n", ccodec_name);
     SetError(-EINVAL);
     return;
   }
@@ -165,15 +173,15 @@ AudioEncoderFlow::AudioEncoderFlow(const char *param) {
   sm.mode_when_full = InputMode::DROPFRONT;
   sm.input_maxcachenum.push_back(3);
   if (!InstallSlotMap(sm, "AudioEncoderFlow", 40)) {
-    LOG("Fail to InstallSlotMap for AudioEncoderFlow\n");
+    RKMEDIA_LOGI("Fail to InstallSlotMap for AudioEncoderFlow\n");
     SetError(-EINVAL);
     return;
   }
+
+  SetFlowTag("AudioEncoderFlow");
 }
 
-int AudioEncoderFlow::GetInputSize() {
-  return input_size;
-}
+int AudioEncoderFlow::GetInputSize() { return input_size; }
 
 DEFINE_FLOW_FACTORY(AudioEncoderFlow, Flow)
 // type depends on encoder

@@ -182,13 +182,13 @@ int main(int argc, char **argv)
             break;
 
         case APP_PAN_MENU_DISC:
-            app_disc_start_services(0);
+            app_disc_start_services(0, 0);
 
             break;
 
         case APP_PAN_MENU_DISC_PAN:
             app_disc_start_services(BSA_PANU_SERVICE_MASK |
-                    BSA_NAP_SERVICE_MASK | BSA_GN_SERVICE_MASK);
+                    BSA_NAP_SERVICE_MASK | BSA_GN_SERVICE_MASK, 0);
 
             break;
 

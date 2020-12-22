@@ -51,6 +51,7 @@ typedef struct
 
 #define BSA_EIR_DATA_LENGTH     HCI_EXT_INQ_RESPONSE_LEN
 
+#define PLAYROLE_LEN 48
 typedef struct
 {
     BD_ADDR bd_addr; /* BD address peer device. */
@@ -65,7 +66,7 @@ typedef struct
     UINT8 ble_addr_type;
     tBT_DEVICE_TYPE device_type;
 #endif
-    UINT8 playrole[48]; //Audio Sink? Audio Source? Unknow?
+    UINT8 playrole[PLAYROLE_LEN]; //Audio Sink? Audio Source? Unknow?
 } tBSA_DISC_REMOTE_DEV;
 
 typedef struct

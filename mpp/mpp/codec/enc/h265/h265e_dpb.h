@@ -88,57 +88,15 @@ typedef struct  H265eDpbFrm_t {
 typedef struct H265eRpsList_e {
     RK_S32 lt_num;
     RK_S32 st_num;
-    RK_S32 vgop_size;
-    RK_S32 gop_len;
     RK_S32 poc_cur_list;
 
     RK_S32 poc[RPSLIST_MAX];
-#if 0
-    RK_S32 SliceType[RPSLIST_MAX];
-    RK_S32 DeltaPocIdx[RPSLIST_MAX];
-    RK_S32 IsLongTerm[RPSLIST_MAX];
-    RK_S32 IsShortTerm[RPSLIST_MAX];
-    RK_S32 GopFirstFrmFlg[RPSLIST_MAX];
-    RK_U32 m_bRefenced[RPSLIST_MAX];
-#endif
-    RK_S32 delta_poc_idx[H265_MAX_GOP];
 
     RK_U32 used_by_cur[MAX_REFS];
 
     H265eRefPicListModification  *m_RefPicListModification;
 } H265eRpsList;
 
-typedef struct H265eDpbCfg_t {
-    RK_S32  maxNumReferences;
-    RK_S32  bBPyramid;
-    RK_S32  bOpenGOP;
-    RK_S32  nLongTerm;
-    RK_S32  gop_len;
-    RK_S32  vgop_size;
-    RK_S32  vi_gop_len;
-
-    RK_S32  nDeltaPocIdx[30];
-
-    EncFrmStatus ref_inf[H265_MAX_GOP_CNT];
-
-    RK_S32  tot_poc_num;
-    /* request current frame to be IDR frame */
-    RK_S32  force_idr;
-
-    /* request current frame to be a software all PSkip frame */
-    RK_S32  force_pskip;
-    /*
-     * request current frame to be mark as a long-reference frame
-     * -1   - not forced to be marked as long-term reference frame
-     */
-    RK_S32  force_lt_idx;
-
-    /*
-     * request current frame use long-term reference frame as its reference frame
-     * -1   - not forced to use long-term reference frame as reference frame
-     */
-    RK_S32  force_ref_lt_idx;
-} H265eDpbCfg;
 
 /*
  * dpb frame arrangement
@@ -151,25 +109,15 @@ typedef struct H265eDpbCfg_t {
  * next frame encoding.
  */
 typedef struct H265eDpb_t {
-    H265eDpbCfg        *cfg;
-
     RK_S32             seq_idx;
     RK_S32             gop_idx;
     // status and count for one gop structure
-    // idr_gop  - for intra / IDR frame group of picture
-    RK_S32             idr_gop_len;
-    RK_S32             vi_gop_len;
-    RK_S32             idr_gop_cnt;
-    RK_S32             idr_gop_idx;
 
     RK_S32              last_idr;
     RK_S32              poc_cra;
     RK_U32              refresh_pending;
-    RK_U32              is_long_term;
     RK_S32              max_ref_l0;
     RK_S32              max_ref_l1;
-    RK_S32              is_open_gop;
-    RK_U32              idr_gap;
 
     H265eRpsList        RpsList;
     H265eDpbFrm         *curr;
@@ -180,18 +128,13 @@ typedef struct H265eDpb_t {
 extern "C" {
 #endif
 
-void h265e_gop_init(H265eRpsList *RpsList, H265eDpbCfg *cfg, int procCurr);
 void h265e_set_ref_list(H265eRpsList *RpsList, H265eReferencePictureSet *m_pRps);
-MPP_RET h265e_dpb_init(H265eDpb **dpb, H265eDpbCfg *cfg);
+MPP_RET h265e_dpb_init(H265eDpb **dpb);
 MPP_RET h265e_dpb_deinit(H265eDpb *dpb);
 MPP_RET h265e_dpb_setup_buf_size(H265eDpb *dpb, RK_U32 size[], RK_U32 count);
 MPP_RET h265e_dpb_get_curr(H265eDpb *dpb);
-H265eDpbFrm *h265e_dpb_get_refr(H265eDpbFrm *frm);
-void h265e_dpb_build_list(H265eDpb *dpb);
-MppBuffer h265e_dpb_frm_get_buf(H265eDpbFrm *frm, RK_S32 index);
-MPP_RET h265e_dpb_set_cfg(H265eDpbCfg *dpb_cfg, MppEncCfgSet* cfg);
-MPP_RET h265e_dpb_bakup(H265eDpb *dpb, H265eDpb *dpb_bak);
-MPP_RET h265e_dpb_recover(H265eDpb *dpb, H265eDpb *dpb_bak);
+void h265e_dpb_build_list(H265eDpb *dpb, EncCpbStatus *cpb);
+void h265e_dpb_proc_cpb(H265eDpb *dpb, EncCpbStatus *cpb);
 
 #define h265e_dpb_dump_frms(dpb) h265e_dpb_dump_frm(dpb, __FUNCTION__)
 

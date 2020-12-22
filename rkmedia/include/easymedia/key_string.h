@@ -14,6 +14,7 @@
 #define KEY_SAVE_MODE_SINGLE "single_frame"
 #define KEY_SAVE_MODE_CONTIN "continuous_frame"
 #define KEY_DEVICE "device"
+#define KEY_CAMERA_ID "camera_id"
 
 #define KEY_NAME "name"
 #define KEY_INPUTDATATYPE "input_data_type"
@@ -38,30 +39,45 @@
 #define KEY_COMPRESS_QP_STEP "qp_step"
 #define KEY_COMPRESS_QP_MIN "qp_min"
 #define KEY_COMPRESS_QP_MAX "qp_max"
+#define KEY_COMPRESS_QP_MAX_I "qp_max_i"
+#define KEY_COMPRESS_QP_MIN_I "qp_min_i"
 #define KEY_COMPRESS_BITRATE "bitrate"
+#define KEY_COMPRESS_BITRATE_MAX "bitrate_max"
+#define KEY_COMPRESS_BITRATE_MIN "bitrate_min"
+// output frame rate, string formate: "num/den"
+// such as: KEY_FPS="30/1".
 #define KEY_FPS "framerate"
+// input frame rate, string formate: "num/den"
+#define KEY_FPS_IN "framerate_in"
 #define KEY_LEVEL "level"
 #define KEY_VIDEO_GOP "gop"
 #define KEY_PROFILE "profile"
+#define KEY_ROTATION "rotation"
 #define KEY_COMPRESS_RC_QUALITY "rc_quality"
 #define KEY_COMPRESS_RC_MODE "rc_mode"
 #define KEY_NEED_EXTRA_OUTPUT "need_extra_output"
 #define KEY_NEED_EXTRA_MERGE "need_extra_merge"
-
-#define KEY_H265_MAX_I_QP "h265_max_i_qp"
-#define KEY_H265_MIN_I_QP "h265_min_i_qp"
+#define KEY_FULL_RANGE "full_range"
 #define KEY_H264_TRANS_8x8 "h264_trans_8x8"
 
-#define KEY_WORST "worst"
-#define KEY_WORSE "worse"
-#define KEY_MEDIUM "medium"
-#define KEY_BETTER "better"
-#define KEY_BEST "best"
-#define KEY_CQP "cqp"
-#define KEY_AQ_ONLY "aq_only"
+#define KEY_JPEG_QFACTOR "jpeg_qfactor"
 
+#define KEY_ROI_REGIONS "roi_regions"
+
+#define KEY_LOWEST "lowest"
+#define KEY_LOWER "lower"
+#define KEY_LOW "low"
+#define KEY_MEDIUM "medium"
+#define KEY_HIGH "high"
+#define KEY_HIGHER "higher"
+#define KEY_HIGHEST "highest"
+
+#define KEY_FIXQP "fixqp"
 #define KEY_VBR "vbr"
 #define KEY_CBR "cbr"
+#define KEY_AVBR "avbr"
+
+#define KEY_REF_FRM_CFG "reference_frame_config"
 
 // mpp special
 #define KEY_MPP_GROUP_MAX_FRAMES "fg_max_frames" // framegroup max frame num
@@ -76,6 +92,14 @@
 #define KEY_MD_DS_HEIGHT "md_down_scale_height"
 #define KEY_MD_ROI_CNT "md_roi_cnt"
 #define KEY_MD_ROI_RECT "md_roi_rect"
+#define KEY_MD_SENSITIVITY "md_sensitivity"
+
+// occlusion detection
+#define KEY_OD_WIDTH "od_width"
+#define KEY_OD_HEIGHT "od_height"
+#define KEY_OD_ROI_CNT "od_roi_cnt"
+#define KEY_OD_ROI_RECT "od_roi_rect"
+#define KEY_OD_SENSITIVITY "od_sensitivity"
 
 // audio info
 #define KEY_SAMPLE_FMT "sample_format"
@@ -83,6 +107,16 @@
 #define KEY_SAMPLE_RATE "sample_rate"
 #define KEY_FRAMES "frame_num"
 #define KEY_FLOAT_QUALITY "compress_quality"
+#define KEY_LAYOUT "layout"
+#define KEY_VQE_ENABLE "vqe_enable"
+#define KEY_VQE_MODE "vqe_mode"
+#define KEY_VQE_OPEN_MASK "vqe_open_mask"
+#define KEY_VQE_WORK_SAMPLE_RATE "vqe_work_sample_rate"
+#define KEY_VQE_FRAME_SAMPLE "vqe_frame_sample"
+#define KEY_VQE_PARAM_FILE_PATH "vqe_param_file_path"
+#define KEY_ANR_POST_ADD_GAIN "anr_post_add_gain"
+#define KEY_ANR_GMIN "gmin"
+#define KEY_ANR_NOISE_FACTOR "noise_factor"
 
 // v4l2 info
 #define KEY_USE_LIBV4L2 "use_libv4l2"
@@ -92,6 +126,7 @@
 #define KEY_V4L2_MEM_TYPE "v4l2_mem_type"
 #define KEY_V4L2_M_TYPE(t) STR(t)
 #define KEY_V4L2_COLORSPACE "v4l2_colorspace"
+#define KEY_V4L2_QUANTIZATION "v4l2_quantization"
 #define KEY_V4L2_CS(t) STR(t)
 
 // rtsp
@@ -100,6 +135,7 @@
 #define KEY_USERPASSWORD "userpwd"
 #define KEY_CHANNEL_NAME "channel_name"
 
+#define KEY_MEM_CNT "mem_cnt"
 #define KEY_MEM_TYPE "mem_type"
 #define KEY_MEM_ION "ion"
 #define KEY_MEM_DRM "drm"
@@ -131,6 +167,8 @@
 #define KEY_FILE_DURATION "file_duration"
 #define KEY_FILE_INDEX "file_index"
 #define KEY_FILE_TIME "file_time"
+#define KEY_MUXER_FFMPEG_AVDICTIONARY "muxer_ffmpeg_avdictionary"
+#define KEY_ENABLE_STREAMING "enable_streaming"
 
 // drm
 #define KEY_CONNECTOR_ID "connector_id"
@@ -156,11 +194,34 @@
 #define KEY_FEATURE "FEATURE"
 
 // rknn
+#define KEY_DETECT_RECT "detect_rect"
 #define KEY_OUTPUT_WANT_FLOAT "rknn_output_want_float"
 #define KEY_TENSOR_TYPE "tensor_type"
 #define KEY_TENSOR_FMT "tensor_fmt"
 #define KEY_NCHW "NCHW"
 #define KEY_NHWC "NHWC"
+#define KEY_FACE_DETECT_TRACK_FRAME "track_frame"
+#define KEY_FACE_DETECT_LANDMARK "detect_landmark"
+#define KEY_NEED_HW_DRAW "need_hw_draw"
+#define KEY_DRAW_RECT_THICK "draw_rect_thick"
+#define KEY_DRAW_MIN_RECT "min_rect"
+#define KEY_DRAW_OFFSET_X "offset_x"
+#define KEY_DRAW_OFFSET_Y "offset_y"
+#define KEY_FRAME_INTERVAL "frame_interval"
+#define KEY_SCORE_THRESHOD "score_threshod"
+#define KEY_FRAME_RATE "frame_rate"
+#define KEY_FRAME_CACHES "frame_caches"
+#define KEY_ENABLE "enable"
+#define KEY_BODY_PERCENTAGE "percentage"
+#define KEY_BODY_DURATION "duration"
+#define KEY_ENBALE_FACE_DETECT "enable_face_detect"
+#define KEY_ENABLE_FACE_REG "enable_face_reg"
+#define KEY_CACHE_SIZE "cache_size"
+#define KEY_CLOCK_DELTA "clock_delta"
+
+// rockx
+#define KEY_ROCKX_MODEL "rockx_model"
+#define KEY_DB_PATH "db_path"
 
 // throuh_guard
 #define KEY_ALLOW_THROUGH_COUNT "allow_through_count"
@@ -170,5 +231,7 @@
 #define KEY_UVC_WIDTH "uvc_width"
 #define KEY_UVC_HEIGHT "uvc_height"
 #define KEY_UVC_FORMAT "uvc_format"
+
+#define KEY_ROCKX_ASYNC_CALLBACK "aysnc_callback_enable"
 
 #endif // #ifndef EASYMEDIA_MEDIA_KEY_STRING_H_

@@ -6,7 +6,7 @@
 #include "filter.h"
 #include <assert.h>
 extern "C" {
-#include <ANR/anr_provider.h>
+#include <AP_ANR.h>
 }
 
 #define DEBUG_FILE 0
@@ -30,10 +30,9 @@ private:
   int sample_rate;
   SampleFormat format;
   int nb_samples;
-  std::string param_path;
 
   bool anr_on;
-  APHandleType anr_handle;
+  RKAP_Handle anr_handle;
 
 #if DEBUG_FILE
   std::ofstream infile;
@@ -67,17 +66,20 @@ ANRFilter::ANRFilter(const char *param) : anr_on(true), anr_handle(nullptr) {
     nb_samples = std::atoi(s_nb_samples.c_str());
 
   /* support 8k~48k S16 format and 1 channels only */
-  assert(format == SAMPLE_FMT_S16P);
+  assert(format == SAMPLE_FMT_S16);
   assert(sample_rate >= 8000 && sample_rate <= 48000);
   assert(channels == 1);
   int frame_time = nb_samples * 1000 / sample_rate;
-  LOG("ANR: frame time %d\n", frame_time);
+  RKMEDIA_LOGI("ANR: frame time %d\n", frame_time);
   assert(frame_time == 10 || frame_time == 16 || frame_time == 20);
 
-  ANRProcessState state;
-  state.anr_enabled = 1;
-  state.sampling_rate = sample_rate; // 8k~48k
-  state.frame_size = nb_samples;     // only 10ms|16ms|20ms
+  RKAP_ANR_State state;
+  /* set parameter */
+  state.swSampleRate = sample_rate; // 8-48k
+  state.swFrameLen = nb_samples;    // 10ms|16ms|20ms
+  state.fGmin = -30;
+  state.fPostAddGain = 0;
+  state.fNoiseFactor = 0.98f;
 
   anr_handle = ANR_Init(&state);
   assert(anr_handle);
@@ -107,34 +109,33 @@ ANRFilter::~ANRFilter() {
 
 int ANRFilter::Process(std::shared_ptr<MediaBuffer> input,
                        std::shared_ptr<MediaBuffer> &output) {
-  if (!input || input->GetType() != Type::Audio)
+  if (!input)
     return -EINVAL;
   if (!output)
     return -EINVAL;
 
-  auto src = std::static_pointer_cast<easymedia::SampleBuffer>(input);
-  SampleInfo src_info = src->GetSampleInfo();
-  if (src_info.fmt != format || src_info.channels != channels ||
-      src_info.sample_rate != sample_rate ||
-      src_info.nb_samples != nb_samples) {
-    return -1;
-  }
-  if (anr_on) {
-    SampleInfo dst_info = {format, 1, sample_rate, nb_samples};
-    int size = GetSampleSize(dst_info) * nb_samples;
-    auto dst = std::make_shared<easymedia::SampleBuffer>(
-        MediaBuffer::Alloc2(size), dst_info);
-    assert(dst);
-    ANR_Process(anr_handle, (short int *)src->GetPtr(),
-                (short int *)dst->GetPtr());
+  SampleInfo dst_info = {format, channels, sample_rate, nb_samples};
+  int size = GetSampleSize(dst_info) * nb_samples;
+  auto dst = std::make_shared<easymedia::SampleBuffer>(
+      MediaBuffer::Alloc2(size), dst_info);
+  assert(dst);
+  assert(size == input->GetValidSize());
 
-#if DEBUG_FILE
-    infile.write((const char *)src->GetPtr(), src->GetValidSize());
-    outfile.write((const char *)dst->GetPtr(), dst->GetValidSize());
-#endif
+  if (anr_on) {
+    ANR_Process(anr_handle, (short int *)input->GetPtr(),
+                (short int *)dst->GetPtr());
   } else {
-    output = input;
+    memcpy(dst->GetPtr(), input->GetPtr(), size);
   }
+
+  dst->SetSamples(nb_samples);
+  dst->SetUSTimeStamp(input->GetUSTimeStamp());
+
+  output = dst;
+#if DEBUG_FILE
+  infile.write((const char *)input->GetPtr(), input->GetValidSize());
+  outfile.write((const char *)dst->GetPtr(), dst->GetValidSize());
+#endif
   return 0;
 }
 

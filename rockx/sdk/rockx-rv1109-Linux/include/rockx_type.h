@@ -28,15 +28,23 @@ typedef void *rockx_handle_t;
 /**
  * @brief Pointer of Async Callback Function
  */
-typedef void (*rockx_async_callback)(void *result, size_t result_size);
+typedef void (*rockx_async_callback_function)(void *result, size_t result_size, void *extra_data);
+
+typedef struct {
+    rockx_async_callback_function callback_func;
+    void *extra_data;
+} rockx_async_callback;
 
 /**
  * @brief Return Value of RockX functions
  */
 typedef enum {
-    ROCKX_RET_SUCCESS = 0,      ///< Success
-    ROCKX_RET_FAIL = -1,        ///< Fail
-    ROCKX_RET_PARAM_ERR = -2    ///< Input Param error
+    ROCKX_RET_SUCCESS = 0,       ///< Success
+    ROCKX_RET_FAIL = -1,         ///< Fail
+    ROCKX_RET_PARAM_ERR = -2,    ///< Input Param error
+    ROCKX_UNINIT_ERR = -3,       ///< Module uninitialized
+    ROCKX_RET_AUTH_FAIL = -99,   ///< Auth Error
+    ROCKX_RET_NOT_SUPPORT = -98  ///< Device no support
 } rockx_ret_t;
 
 /**
@@ -138,6 +146,7 @@ typedef struct rockx_image_t {
     rockx_pixel_format pixel_format;    ///< Image pixel format (@ref rockx_pixel_format)
     uint32_t width;                     ///< Image Width
     uint32_t height;                    ///< Image Height
+    float original_ratio;               ///< Image original ratio of width & height, default is 1
 } rockx_image_t;
 
 /**

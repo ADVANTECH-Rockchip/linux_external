@@ -57,7 +57,7 @@ typedef struct rockx_carplate_recog_result_t {
  * @return @ref rockx_ret_t
  */
 rockx_ret_t rockx_carplate_detect(rockx_handle_t handle, rockx_image_t *in_img, rockx_object_array_t *object_array,
-                                  rockx_async_callback callback);
+                                  rockx_async_callback *callback);
 
 /**
  * Car Plate Correction Alignment

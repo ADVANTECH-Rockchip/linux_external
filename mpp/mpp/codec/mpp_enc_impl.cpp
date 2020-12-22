@@ -14,44 +14,35 @@
  * limitations under the License.
  */
 
-#define  MODULE_TAG "mpp_enc"
+#define  MODULE_TAG "mpp_enc_impl"
+
+#include <string.h>
 
 #include "mpp_mem.h"
 #include "mpp_log.h"
 #include "mpp_common.h"
 
-#include "h264e_api.h"
 #include "h264e_api_v2.h"
-#include "jpege_api.h"
+#include "jpege_api_v2.h"
 #include "h265e_api.h"
-#include "h265e_api_v2.h"
-#include "vp8e_api.h"
+#include "vp8e_api_v2.h"
 #include "mpp_enc_impl.h"
 
 /*
  * all encoder controller static register here
  */
-static const EncImplApi *controllers[] = {
-#if HAVE_H264E
-    &api_h264e_controller,
-#endif
-#if HAVE_JPEGE
-    &api_jpege_controller,
-#endif
-#if HAVE_H265E
-    &api_h265e_controller,
-#endif
-#if HAVE_VP8E
-    &api_vp8e_controller,
-#endif
-};
-
 static const EncImplApi *enc_apis[] = {
 #if HAVE_H264E
     &api_h264e,
 #endif
 #if HAVE_H265E
     &api_h265e,
+#endif
+#if HAVE_JPEGE
+    &api_jpege,
+#endif
+#if HAVE_VP8E
+    &api_vp8e,
 #endif
 };
 
@@ -71,16 +62,8 @@ MPP_RET enc_impl_init(EncImpl *impl, EncImplCfg *cfg)
     *impl = NULL;
 
     RK_U32 i;
-    RK_U32 api_cnt = 0;
-    const EncImplApi **apis = NULL;
-
-    if (cfg->task_count < 0) {
-        apis = enc_apis;
-        api_cnt = MPP_ARRAY_ELEMS(enc_apis);
-    } else {
-        apis = controllers;
-        api_cnt = MPP_ARRAY_ELEMS(controllers);
-    }
+    const EncImplApi **apis = enc_apis;
+    RK_U32 api_cnt = MPP_ARRAY_ELEMS(enc_apis);
 
     for (i = 0; i < api_cnt; i++) {
         const EncImplApi *api = apis[i];
@@ -106,6 +89,7 @@ MPP_RET enc_impl_init(EncImpl *impl, EncImplCfg *cfg)
 
             p->api  = api;
             p->ctx  = ctx;
+            memcpy(&p->cfg, cfg, sizeof(p->cfg));
             *impl = p;
             return MPP_OK;
         }
@@ -205,7 +189,27 @@ MPP_RET enc_impl_proc_hal(EncImpl impl, HalEncTask *task)
     return ret;
 }
 
-MPP_RET enc_impl_update_hal(EncImpl impl, HalEncTask *task)
+MPP_RET enc_impl_add_prefix(EncImpl impl, MppPacket pkt, RK_S32 *length,
+                            RK_U8 uuid[16], const void *data, RK_S32 size)
+{
+    if (NULL == pkt || NULL == data) {
+        mpp_err_f("found NULL input\n");
+        return MPP_ERR_NULL_PTR;
+    }
+
+    MPP_RET ret = MPP_OK;
+    EncImplCtx *p = (EncImplCtx *)impl;
+
+    if (NULL == p->api->add_prefix)
+        return ret;
+
+    if (p->api->add_prefix)
+        ret = p->api->add_prefix(pkt, length, uuid, data, size);
+
+    return ret;
+}
+
+MPP_RET enc_impl_sw_enc(EncImpl impl, HalEncTask *task)
 {
     if (NULL == impl || NULL == task) {
         mpp_err_f("found NULL input\n");
@@ -214,23 +218,8 @@ MPP_RET enc_impl_update_hal(EncImpl impl, HalEncTask *task)
 
     MPP_RET ret = MPP_OK;
     EncImplCtx *p = (EncImplCtx *)impl;
-    if (p->api->update_hal)
-        ret = p->api->update_hal(p->ctx, task);
-
-    return ret;
-}
-
-MPP_RET hal_enc_callback(void *impl, void *err_info)
-{
-    if (NULL == impl) {
-        mpp_err_f("found NULL input\n");
-        return MPP_ERR_NULL_PTR;
-    }
-
-    MPP_RET ret = MPP_OK;
-    EncImplCtx *p = (EncImplCtx *)impl;
-    if (p->api->callback)
-        ret = p->api->callback(p->ctx, err_info);
+    if (p->api->sw_enc)
+        ret = p->api->sw_enc(p->ctx, task);
 
     return ret;
 }

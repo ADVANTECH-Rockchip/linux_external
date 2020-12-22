@@ -38,9 +38,26 @@ G_BEGIN_DECLS
 typedef struct _GstMppH264Enc GstMppH264Enc;
 typedef struct _GstMppH264EncClass GstMppH264EncClass;
 
+typedef enum
+{
+  GST_MPP_H264_PROFILE_BASELINE = 66,
+  GST_MPP_H264_PROFILE_MAIN = 77,
+  GST_MPP_H264_PROFILE_HIGH = 100,
+} GstMppH264Profile;
+
 struct _GstMppH264Enc
 {
   GstMppVideoEnc parent;
+
+  GstMppH264Profile profile;
+  guint level;
+
+  guint qp_init;
+  guint qp_min;
+  guint qp_max;
+  gint qp_max_step;
+
+  gboolean prop_dirty;
 };
 
 struct _GstMppH264EncClass

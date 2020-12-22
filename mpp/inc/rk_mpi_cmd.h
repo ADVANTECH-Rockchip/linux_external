@@ -34,23 +34,21 @@
 #define CMD_CTX_ID_ENC                  (0x00020000)
 #define CMD_CTX_ID_ISP                  (0x00030000)
 
-/* separate encoder control command to different segment */
+/* separate encoder / decoder control command to different segment */
 #define CMD_CFG_ID_MASK                 (0x0000FF00)
+
+/* decoder control command */
+#define CMD_DEC_CFG_ALL                 (0x00000000)
+#define CMD_DEC_QUERY                   (0x00000100)
+#define CMD_DEC_CFG                     (0x00000200)
+
+/* encoder control command */
 #define CMD_ENC_CFG_ALL                 (0x00000000)
 #define CMD_ENC_CFG_RC_API              (0x00000100)
-#define CMD_ENC_CFG_FRM                 (0x00000200)
-#define CMD_ENC_CFG_PREP                (0x00000300)
-#define CMD_ENC_CFG_CODEC               (0x00001000)
-#define CMD_ENC_CFG_H264                (0x00001000)
-#define CMD_ENC_CFG_H265                (0x00001800)
-#define CMD_ENC_CFG_VP8                 (0x00002000)
-#define CMD_ENC_CFG_VP9                 (0x00002800)
-#define CMD_ENC_CFG_AV1                 (0x00003000)
-#define CMD_ENC_CFG_MJPEG               (0x00004000)
 
 #define CMD_ENC_CFG_MISC                (0x00008000)
 #define CMD_ENC_CFG_SPLIT               (0x00008100)
-#define CMD_ENC_CFG_GOPREF              (0x00008200)
+#define CMD_ENC_CFG_REF                 (0x00008200)
 #define CMD_ENC_CFG_ROI                 (0x00008300)
 #define CMD_ENC_CFG_OSD                 (0x00008400)
 
@@ -92,18 +90,27 @@ typedef enum {
     MPP_DEC_SET_DISABLE_ERROR,          /* When set it will disable sw/hw error (H.264 / H.265) */
     MPP_DEC_SET_IMMEDIATE_OUT,
     MPP_DEC_SET_ENABLE_DEINTERLACE,     /* MPP enable deinterlace by default. Vpuapi can disable it */
+
+    MPP_DEC_CMD_QUERY                   = CMD_MODULE_CODEC | CMD_CTX_ID_DEC | CMD_DEC_QUERY,
+    /* query decoder runtime information for decode stage */
+    MPP_DEC_QUERY,                      /* set and get MppDecQueryCfg structure */
+
+    CMD_DEC_CMD_CFG                     = CMD_MODULE_CODEC | CMD_CTX_ID_DEC | CMD_DEC_CFG,
+    MPP_DEC_SET_CFG,                    /* set MppDecCfg structure */
+    MPP_DEC_GET_CFG,                    /* get MppDecCfg structure */
+
     MPP_DEC_CMD_END,
 
     MPP_ENC_CMD_BASE                    = CMD_MODULE_CODEC | CMD_CTX_ID_ENC,
     /* basic encoder setup control */
-    MPP_ENC_SET_ALL_CFG,                /* set MppEncCfgSet structure */
-    MPP_ENC_GET_ALL_CFG,                /* get MppEncCfgSet structure */
-    MPP_ENC_SET_PREP_CFG,               /* set MppEncPrepCfg structure */
-    MPP_ENC_GET_PREP_CFG,               /* get MppEncPrepCfg structure */
-    MPP_ENC_SET_RC_CFG,                 /* set MppEncRcCfg structure */
-    MPP_ENC_GET_RC_CFG,                 /* get MppEncRcCfg structure */
-    MPP_ENC_SET_CODEC_CFG,              /* set MppEncCodecCfg structure */
-    MPP_ENC_GET_CODEC_CFG,              /* get MppEncCodecCfg structure */
+    MPP_ENC_SET_CFG,                    /* set MppEncCfg structure */
+    MPP_ENC_GET_CFG,                    /* get MppEncCfg structure */
+    MPP_ENC_SET_PREP_CFG,               /* deprecated set MppEncPrepCfg structure, use MPP_ENC_SET_CFG instead */
+    MPP_ENC_GET_PREP_CFG,               /* deprecated get MppEncPrepCfg structure, use MPP_ENC_GET_CFG instead */
+    MPP_ENC_SET_RC_CFG,                 /* deprecated set MppEncRcCfg structure, use MPP_ENC_SET_CFG instead */
+    MPP_ENC_GET_RC_CFG,                 /* deprecated get MppEncRcCfg structure, use MPP_ENC_GET_CFG instead */
+    MPP_ENC_SET_CODEC_CFG,              /* deprecated set MppEncCodecCfg structure, use MPP_ENC_SET_CFG instead */
+    MPP_ENC_GET_CODEC_CFG,              /* deprecated get MppEncCodecCfg structure, use MPP_ENC_GET_CFG instead */
     /* runtime encoder setup control */
     MPP_ENC_SET_IDR_FRAME,              /* next frame will be encoded as intra frame */
     MPP_ENC_SET_OSD_LEGACY_0,           /* deprecated */
@@ -146,23 +153,6 @@ typedef enum {
      */
     MPP_ENC_SET_RC_API_CURRENT          = MPP_ENC_CFG_RC_API + 5,
 
-    MPP_ENC_CFG_FRM                     = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_FRM,
-    MPP_ENC_SET_FRM,                    /* set MppFrame structure */
-    MPP_ENC_GET_FRM,                    /* get MppFrame structure */
-
-
-    MPP_ENC_CFG_PREP                    = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_PREP,
-    MPP_ENC_SET_PREP,                   /* set MppEncPrepCfg structure */
-    MPP_ENC_GET_PREP,                   /* get MppEncPrepCfg structure */
-
-    MPP_ENC_CFG_H264                    = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_H264,
-
-    MPP_ENC_CFG_H265                    = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_H265,
-
-    MPP_ENC_CFG_VP8                     = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_VP8,
-
-    MPP_ENC_CFG_MJPEG                   = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_MJPEG,
-
     MPP_ENC_CFG_MISC                    = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_MISC,
     MPP_ENC_SET_HEADER_MODE,            /* set MppEncHeaderMode */
     MPP_ENC_GET_HEADER_MODE,            /* get MppEncHeaderMode */
@@ -171,14 +161,13 @@ typedef enum {
     MPP_ENC_SET_SPLIT,                  /* set MppEncSliceSplit structure */
     MPP_ENC_GET_SPLIT,                  /* get MppEncSliceSplit structure */
 
-    MPP_ENC_CFG_GOPREF                  = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_GOPREF,
-    MPP_ENC_SET_GOPREF,                 /* set MppEncGopRef structure */
+    MPP_ENC_CFG_REF                     = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_REF,
+    MPP_ENC_SET_REF_CFG,                /* set MppEncRefCfg structure */
 
     MPP_ENC_CFG_OSD                     = CMD_MODULE_CODEC | CMD_CTX_ID_ENC | CMD_ENC_CFG_OSD,
     MPP_ENC_SET_OSD_PLT_CFG,            /* set OSD palette, parameter should be pointer to MppEncOSDPltCfg */
     MPP_ENC_GET_OSD_PLT_CFG,            /* get OSD palette, parameter should be pointer to MppEncOSDPltCfg */
     MPP_ENC_SET_OSD_DATA_CFG,           /* set OSD data with at most 8 regions, parameter should be pointer to MppEncOSDData */
-    MPP_ENC_GET_OSD_DATA_CFG,           /* get OSD data with at most 8 regions, parameter should be pointer to MppEncOSDData */
 
     MPP_ENC_CMD_END,
 
@@ -191,6 +180,9 @@ typedef enum {
     MPI_CMD_BUTT,
 } MpiCmd;
 
+#include "rk_vdec_cmd.h"
 #include "rk_venc_cmd.h"
+#include "rk_venc_cfg.h"
+#include "rk_venc_ref.h"
 
 #endif /*__RK_MPI_CMD_H__*/

@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
     std::vector<std::pair<int,int>> posePairs;
     if (pose_module == ROCKX_MODULE_POSE_BODY)
         posePairs = posePairs_v1;
-    else if (pose_module == ROCKX_MODULE_POSE_BODY_V2 || pose_module == ROCKX_MODULE_POSE_BODY_V2_LARGE)
+    else if (pose_module == ROCKX_MODULE_POSE_BODY_V2)
         posePairs = posePairs_v2;
 
     // process result
@@ -79,7 +79,8 @@ int main(int argc, char** argv) {
             int y = body_array.keypoints[i].points[j].y;
             float score = body_array.keypoints[i].score[j];
             printf("  %s [%d, %d] %f\n", ROCKX_POSE_BODY_KEYPOINTS_NAME[j], x, y, score);
-            rockx_image_draw_circle(&input_image, {x, y}, 3, {255, 0, 0}, -1);
+            if (x>0 && y>0)
+                rockx_image_draw_circle(&input_image, {x, y}, 3, {255, 0, 0}, -1);
         }
 
         for(int j = 0; j < posePairs.size(); j ++) {

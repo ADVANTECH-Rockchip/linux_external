@@ -80,15 +80,26 @@ endif()
 # set c++11
 set(CMAKE_CXX_STANDARD 11)
 # rtti may be expensive on Embedded Platform, obey Google C++ Style Guide
-add_definitions(-fno-rtti)
+# add_definitions(-fno-rtti)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
 
 # add PIC flag
 add_definitions(-fPIC)
 # set (CMAKE_SHARED_LINKER_FLAGS ${CMAKE_EXE_LINKER_FLAGS})
 
-add_definitions(-fvisibility=hidden -fvisibility-inlines-hidden)
-
+# add_definitions(-fvisibility=hidden -fvisibility-inlines-hidden)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden -fvisibility-inlines-hidden")
 include_directories(./)
+
+if(USE_RKAIQ)
+    find_package(RkAiq REQUIRED)
+    include_directories(${RKAIQ_INCLUDE_DIRS})
+    add_definitions(-DRKAIQ)
+endif()
+
+if(AUDIO_ALGORITHM)
+  add_definitions(-DAUDIO_ALGORITHM_ENABLE)
+endif()
 
 # ----------------------------------------------------------------------------
 # Build options
@@ -108,7 +119,6 @@ if(WARNINGS_AS_ERRORS)
   endif()
 endif(WARNINGS_AS_ERRORS)
 
-option(SANITIZER "compile with sanitizer" OFF)
 option(FILTER "compile: filter" ON)
 option(ENCODER "compile: encoder" ON)
 option(DECODER "compile: decoder" ON)
@@ -117,6 +127,23 @@ option(DEMUXER "compile: demuxer" ON)
 option(RKNN "compile: rknn wrapper" OFF)
 option(ROCKFACE "compile: rockface wrapper" OFF)
 option(ROCKX "compile: rockx wrapper" OFF)
+
+option(SANITIZER_STATIC "compile with sanitizer (static library linker)" OFF)
+if(SANITIZER_STATIC)
+	add_definitions(-fsanitize=address -static-libasan -g -ggdb -gdwarf -funwind-tables -rdynamic -O0)
+	add_definitions(-fno-stack-protector -fno-omit-frame-pointer -fsanitize-recover=address)
+	# add_definitions(-fsanitize=undefined)
+	link_libraries(libasan.a dl m rt)
+endif()
+
+option(SANITIZER_DYNAMIC "compile with sanitizer (dynamic library linker)" OFF)
+if(SANITIZER_DYNAMIC)
+	# NOTE: copy libasan.so with manual operation
+	add_definitions(-fsanitize=address -g -ggdb -gdwarf -funwind-tables -rdynamic -O0)
+	add_definitions(-fno-stack-protector -fno-omit-frame-pointer -fsanitize-recover=address)
+	# add_definitions(-fsanitize=undefined)
+	link_libraries(asan)
+endif()
 
 pkg_check_modules(LIBDRM libdrm)
 if(LIBDRM_FOUND)
@@ -132,12 +159,20 @@ if(LIBION_FOUND)
 endif()
 endif()
 
+if (MINILOGGER)
+find_package(MiniLogger REQUIRED)
+set(EASY_MEDIA_DEPENDENT_LIBS
+  ${EASY_MEDIA_DEPENDENT_LIBS} MiniLogger::MiniLogger)
+add_definitions(-DRKMEDIA_SUPPORT_MINILOG)
+endif()
+
 include_directories(include/easymedia)
+include_directories(include/rkmedia)
 add_subdirectory(src)
 
 option(COMPILES_EXAMPLES "Enable compiles examples" OFF)
 if(COMPILES_EXAMPLES)
   include(CTest)
   enable_testing()
-  add_subdirectory(test)
+  add_subdirectory(examples)
 endif()

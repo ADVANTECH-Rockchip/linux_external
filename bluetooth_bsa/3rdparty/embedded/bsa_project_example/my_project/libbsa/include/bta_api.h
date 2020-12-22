@@ -5,8 +5,8 @@
 **  Description:    This is the public interface file for BTA, Widcomm's
 **                  Bluetooth application layer for mobile phones.
 **
-**  Copyright (c) 2003-2016, Broadcom Corp., All Rights Reserved.
-**  Broadcom Bluetooth Core. Proprietary and confidential.
+**  COPYRIGHT (C) 2018, CYPRESS SEMICONDUCTOR, ALL RIGHTS RESERVED.
+**  PROPRIETARY AND CONFIDENTIAL.
 **
 *****************************************************************************/
 #ifndef BTA_API_H
@@ -411,12 +411,16 @@ typedef tBTM_BLE_AFP   tBTA_BLE_AFP;
 typedef UINT8 tBTA_BLE_ADV_EVT;
 
 /* adv tx power level */
+#if (defined BSA_ADV_TX_PWR_DBM && BSA_ADV_TX_PWR_DBM == TRUE)
+typedef INT8 tBTA_BLE_ADV_TX_POWER;
+#else
 #define BTA_BLE_ADV_TX_POWER_MIN        0           /* minimum tx power */
 #define BTA_BLE_ADV_TX_POWER_LOW        1           /* low tx power     */
 #define BTA_BLE_ADV_TX_POWER_MID        2           /* middle tx power  */
 #define BTA_BLE_ADV_TX_POWER_UPPER      3           /* upper tx power   */
 #define BTA_BLE_ADV_TX_POWER_MAX        4           /* maximum tx power */
 typedef UINT8 tBTA_BLE_ADV_TX_POWER;
+#endif
 
 /* advertising instance parameters */
 typedef struct
@@ -1401,6 +1405,30 @@ typedef union
 
 /* coexistence operations completion callback */
 typedef void (tBTA_DM_COEX_CBACK)(tBTA_DM_COEX_RES event, UINT8 ctr_id, tBTA_DM_COEX_RES_PARAMS *p_data);
+
+#if ((defined BLE_INCLUDED) && (BLE_INCLUDED == TRUE))
+typedef enum
+{
+    BTA_DM_BLE_CONN_UPDATE_EVT
+} tBTA_DM_BLE_EVT;
+
+typedef struct
+{
+    BD_ADDR     bd_addr;
+    tBTA_STATUS status;
+    UINT16      conn_interval;
+    UINT16      conn_latency;
+    UINT16      conn_timeout;
+} tBTA_DM_BLE_CONN_UPDATE;
+
+typedef union
+{
+    tBTA_DM_BLE_CONN_UPDATE     conn_update;
+} tBTA_DM_BLE;
+
+/* BLE events callback */
+typedef void (tBTA_DM_BLE_CBACK)(tBTA_DM_BLE_EVT event, tBTA_DM_BLE *p_data);
+#endif
 
 /*****************************************************************************
 **  External Function Declarations
@@ -2512,6 +2540,116 @@ BTA_API extern void BTA_DmMpsDiscover(BD_ADDR remote_device, tBTA_DM_SEARCH_CBAC
 
 #endif  /* BTA_MPS_INCLUDED */
 
+/*******************************************************************************
+**
+** Function         BTA_DmBleRegCback
+**
+** Description      This function is called to register callback to be called
+**                  when some BLE related event is received from controller
+**
+** Parameters       p_cback: callback function to notify upper layer
+**
+** Returns          BTA_SUCCESS on success, BTA_FAILURE otherwise.
+**
+*******************************************************************************/
+BTA_API extern tBTA_STATUS BTA_DmBleRegCback(tBTA_DM_BLE_CBACK *p_cback);
+
+#if defined(BLE_2M_PHY_INCLUDED) && (BLE_2M_PHY_INCLUDED == TRUE)
+/* BLE PHY operation completion events */
+enum
+{
+    BTA_DM_BLE_READ_PHY_EVT,
+    BTA_DM_BLE_SET_DEFAULT_PHY_EVT,
+    BTA_DM_BLE_PHY_UPDATE_EVT
+};
+typedef UINT8 tBTA_DM_BLE_PHY_EVT;
+
+typedef struct
+{
+  tBTA_STATUS           status;
+  BD_ADDR               bd_addr;
+  UINT8                 tx_phy;
+  UINT8                 rx_phy;
+} tBTA_DM_BLE_READ_PHY;
+
+typedef struct
+{
+  tBTA_STATUS           status;
+} tBTA_DM_BLE_SET_DEFAULT_PHY;
+
+typedef tBTA_DM_BLE_READ_PHY tBTA_DM_BLE_PHY_UPDATE;
+
+typedef union
+{
+    tBTA_DM_BLE_READ_PHY        read_phy;
+    tBTA_DM_BLE_SET_DEFAULT_PHY default_phy;
+    tBTA_DM_BLE_PHY_UPDATE      phy_update;
+} tBTA_DM_BLE_PHY;
+
+/* BLE PHY operations completion callback */
+typedef void (tBTA_DM_BLE_PHY_CBACK)(tBTA_DM_BLE_PHY_EVT event, tBTA_DM_BLE_PHY *p_data);
+
+/*******************************************************************************
+**
+** Function         BTA_DmBleRegPhyCback
+**
+** Description      This function is called to register callback to be called
+**                  when some BLE phy related event is received from controller
+**
+** Parameters       p_cback: callback function to notify upper layer
+**
+** Returns          BTA_SUCCESS on success, BTA_FAILURE otherwise.
+**
+*******************************************************************************/
+BTA_API extern tBTA_STATUS BTA_DmBleRegPhyCback(tBTA_DM_BLE_PHY_CBACK *p_cback);
+
+/*******************************************************************************
+**
+** Function         BTA_DmBleReadPhy
+**
+** Description      This function reads PHY adaptation status from a BLE link,
+**                  can only be used when connection is up
+**
+** Parameters       bd_addr: BD address of the peer
+**
+** Returns          BTA_SUCCESS on success, BTA_FAILURE otherwise.
+**
+*******************************************************************************/
+BTA_API extern tBTA_STATUS BTA_DmBleReadPhy(BD_ADDR bd_addr);
+
+/*******************************************************************************
+**
+** Function         BTA_DmBleSetDefaultPhy
+**
+** Description      This function sets default preferred PHY adaptation
+**
+** Parameters       tx_phy: TX phy
+**                  rx_phy: RX phy
+**
+** Returns          BTA_SUCCESS on success, BTA_FAILURE otherwise.
+**
+*******************************************************************************/
+BTA_API extern tBTA_STATUS BTA_DmBleSetDefaultPhy(UINT8 tx_phy, UINT8 rx_phy);
+
+/*******************************************************************************
+**
+** Function         BTA_DmBleSetPhy
+**
+** Description      This function sets preferred PHY adaptation for a BLE link,
+**                  can only be used when connection is up
+**
+** Parameters       bd_addr: BD address of the peer
+**                  tx_phy : TX phy
+**                  rx_phy : RX phy
+**                  phy_opt: phy options
+**
+** Returns          BTA_SUCCESS on success, BTA_FAILURE otherwise.
+**
+*******************************************************************************/
+BTA_API extern tBTA_STATUS BTA_DmBleSetPhy(BD_ADDR bd_addr,
+    UINT8 tx_phy, UINT8 rx_phy, UINT16 phy_opt);
+
+#endif //#if defined(BLE_2M_PHY_INCLUDED) && (BLE_2M_PHY_INCLUDED == TRUE)
 #ifdef __cplusplus
 }
 #endif

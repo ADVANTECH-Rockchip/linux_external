@@ -22,8 +22,16 @@
 extern "C" {
 #endif
 
-extern const RcImplApi default_h264e;
-extern const RcImplApi default_h265e;
+MPP_RET rc_model_v2_init(void *ctx, RcCfg *cfg);
+MPP_RET rc_model_v2_deinit(void *ctx);
+
+MPP_RET rc_model_v2_check_reenc(void *ctx, EncRcTask *task);
+
+MPP_RET rc_model_v2_start(void *ctx, EncRcTask *task);
+MPP_RET rc_model_v2_end(void *ctx, EncRcTask *task);
+
+MPP_RET rc_model_v2_hal_start(void *ctx, EncRcTask *task);
+MPP_RET rc_model_v2_hal_end(void *ctx, EncRcTask *task);
 
 #ifdef  __cplusplus
 }

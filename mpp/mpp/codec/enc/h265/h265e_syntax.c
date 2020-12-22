@@ -32,7 +32,7 @@ static void fill_picture_parameters(const H265eCtx *h,
 
     pp->pic_width  = h->cfg->prep.width;
     pp->pic_height = h->cfg->prep.height;
-    pp->hor_stride  = h->cfg->prep.hor_stride;
+    pp->hor_stride = h->cfg->prep.hor_stride;
     pp->ver_stride = h->cfg->prep.ver_stride;
     pp->pps_id = h->slice->m_ppsId;
     pp->sps_id = pps->m_SPSId;
@@ -95,10 +95,10 @@ static void fill_picture_parameters(const H265eCtx *h,
                                               (pps->m_bUseWeightPred                              <<  4) |
                                               (pps->m_useWeightedBiPred                           <<  5) |
                                               (pps->m_transquantBypassEnableFlag                  <<  6) |
-                                              (0                                                  <<  7) |
+                                              (pps->m_tiles_enabled_flag                          <<  7) |
                                               (pps->m_entropyCodingSyncEnabledFlag                <<  8) |
-                                              (0                                                  <<  9) |
-                                              (0                                                  << 10) |
+                                              (pps->m_bTileUniformSpacing                         <<  9) |
+                                              (pps->m_loopFilterAcrossTilesEnabledFlag            << 10) |
                                               (pps->m_LFCrossSliceBoundaryFlag                    << 11) |
                                               (pps->m_deblockingFilterOverrideEnabledFlag         << 12) |
                                               (pps->m_picDisableDeblockingFilterFlag              << 13) |
@@ -111,6 +111,21 @@ static void fill_picture_parameters(const H265eCtx *h,
     pp->pps_beta_offset_div2             = pps->m_deblockingFilterBetaOffsetDiv2;
     pp->pps_tc_offset_div2               = pps->m_deblockingFilterTcOffsetDiv2;
     pp->log2_parallel_merge_level_minus2 = pps->m_log2ParallelMergeLevelMinus2 - 2;
+    if (pps->m_tiles_enabled_flag) {
+        RK_U8 i = 0;
+
+        mpp_assert(pps->m_nNumTileColumnsMinus1 <= 19);
+        mpp_assert(pps->m_nNumTileRowsMinus1 <= 21);
+
+        pp->num_tile_columns_minus1 = pps->m_nNumTileColumnsMinus1;
+        pp->num_tile_rows_minus1 = pps->m_nNumTileRowsMinus1;
+
+        for (i = 0; i < pp->num_tile_columns_minus1; i++)
+            pp->column_width_minus1[i] = pps->m_nTileColumnWidthArray[i];
+
+        for (i = 0; i < pp->num_tile_rows_minus1; i++)
+            pp->row_height_minus1[i] = pps->m_nTileRowHeightArray[i];
+    }
 }
 
 static void fill_slice_parameters( const H265eCtx *h,
@@ -168,7 +183,7 @@ static void fill_slice_parameters( const H265eCtx *h,
     sp->sli_cb_qp_ofst = slice->m_sliceQpDeltaCb;
     sp->sli_qp = slice->m_sliceQp;
     sp->max_mrg_cnd = slice->m_maxNumMergeCand;
-
+    sp->non_reference_flag = slice->m_temporalLayerNonReferenceFlag;
     sp->col_ref_idx = 0;
     sp->col_frm_l0_flg = slice->m_colFromL0Flag;
     sp->sli_poc_lsb = (slice->poc - slice->last_idr + (1 << slice->m_sps->m_bitsForPOC)) %
@@ -333,14 +348,6 @@ RK_S32 fill_ref_parameters(const H265eCtx *h, H265eSlicParams *sp)
     return  0;
 }
 
-
-RK_S32 fill_frm_info(H265eCtx *h, H265eFrmInfo *syn_frms)
-{
-    H265eFrmInfo *frms = &h->frms;
-    memcpy(syn_frms, frms, sizeof(*frms));
-    return  0;
-}
-
 RK_S32 h265e_syntax_fill(void *ctx)
 {
     H265eCtx *h = (H265eCtx *)ctx;
@@ -348,6 +355,5 @@ RK_S32 h265e_syntax_fill(void *ctx)
     fill_picture_parameters(h, &syn->pp);
     fill_slice_parameters(h, &syn->sp);
     fill_ref_parameters(h, &syn->sp);
-    fill_frm_info(h, &syn->frms);
     return 0;
 }

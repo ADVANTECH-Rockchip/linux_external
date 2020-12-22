@@ -47,9 +47,11 @@ public:
     int         RkRgaInit();
     void        RkRgaDeInit();
     int         RkRgaAllocBuffer(int drm_fd /* input */, bo_t *bo_info,
-                                 int width, int height, int bpp);
+                                 int width, int height, int bpp, int flags);
     int         RkRgaFreeBuffer(int drm_fd /* input */, bo_t *bo_info);
+    int         RkRgaGetAllocBufferExt(bo_t *bo_info, int width, int height, int bpp, int flags);
     int         RkRgaGetAllocBuffer(bo_t *bo_info, int width, int height, int bpp);
+    int         RkRgaGetAllocBufferCache(bo_t *bo_info, int width, int height, int bpp);
     int         RkRgaGetMmap(bo_t *bo_info);
     int         RkRgaUnmap(bo_t *bo_info);
     int         RkRgaFree(bo_t *bo_info);
@@ -62,7 +64,6 @@ public:
     void        RkRgaSetAlwaysLogFlag(bool log) {mLogAlways = log;}
     void        RkRgaLogOutRgaReq(struct rga_req rgaReg);
     int         RkRgaLogOutUserPara(rga_info *rgaInfo);
-    inline bool RkRgaIsReady() { return mSupportRga; }
 
 /************************************private***********************************/
 private:

@@ -32,10 +32,13 @@ RTPSink *MP2ServerMediaSubsession::createNewRTPSink(
     Groupsock *rtpGroupsock, unsigned char /*rtpPayloadTypeIfDynamic*/,
     FramedSource *inputSource) {
   if (!inputSource) {
-    LOG("inputSource is not ready, can not create new rtp sink\n");
+    RKMEDIA_LOGI("inputSource is not ready, can not create new rtp sink\n");
     return NULL;
   }
-  return MPEG1or2AudioRTPSink::createNew(envir(), rtpGroupsock);
+  setAudioRTPSinkBufferSize();
+  RTPSink *rtpsink = MPEG1or2AudioRTPSink::createNew(envir(), rtpGroupsock);
+  setVideoRTPSinkBufferSize();
+  return rtpsink;
 }
 
 // std::mutex MP2ServerMediaSubsession::kMutex;
@@ -55,14 +58,14 @@ void MP2ServerMediaSubsession::startStream(
   if (fMediaInput.GetStartAudioStreamCallback() != NULL) {
     fMediaInput.GetStartAudioStreamCallback()();
   }
-  LOG("%s - clientSessionId: 0x%08x\n", __func__, clientSessionId);
+  RKMEDIA_LOGI("%s - clientSessionId: 0x%08x\n", __func__, clientSessionId);
   kSessionIdList.push_back(clientSessionId);
   // kMutex.unlock();
 }
 void MP2ServerMediaSubsession::deleteStream(unsigned clientSessionId,
                                             void *&streamToken) {
   // kMutex.lock();
-  LOG("%s - clientSessionId: 0x%08x\n", __func__, clientSessionId);
+  RKMEDIA_LOGI("%s - clientSessionId: 0x%08x\n", __func__, clientSessionId);
   kSessionIdList.remove(clientSessionId);
   if (kSessionIdList.empty())
     fMediaInput.Stop(envir());

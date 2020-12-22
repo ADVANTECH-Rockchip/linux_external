@@ -63,7 +63,7 @@ typedef struct rockx_object_array_t {
  * @return @ref rockx_ret_t
  */
 rockx_ret_t rockx_object_detect(rockx_handle_t handle, rockx_image_t *in_img, rockx_object_array_t *object_array,
-                              rockx_async_callback callback);
+                              rockx_async_callback *callback);
 
 /**
  * Head Detection
@@ -74,7 +74,19 @@ rockx_ret_t rockx_object_detect(rockx_handle_t handle, rockx_image_t *in_img, ro
  * @return @ref rockx_ret_t
  */
 rockx_ret_t rockx_head_detect(rockx_handle_t handle, rockx_image_t *in_img, rockx_object_array_t *object_array,
-                              rockx_async_callback callback);
+                              rockx_async_callback *callback);
+
+
+/**
+ * Person Detection
+ * @param handle [in] Handle of a created ROCKX_MODULE_BODY_DETECTION module(created by @ref rockx_create)
+ * @param in_img [in] Input image
+ * @param object_array [out] Detection Result
+ * @param callback [in] Async callback function pointer
+ * @return @ref rockx_ret_t
+ */
+rockx_ret_t rockx_person_detect(rockx_handle_t handle, rockx_image_t *in_img, rockx_object_array_t *object_array,
+                              rockx_async_callback *callback);
 
 #ifdef __cplusplus
 } //extern "C"

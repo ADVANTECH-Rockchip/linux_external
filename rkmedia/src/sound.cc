@@ -14,11 +14,12 @@ static const struct SampleFormatEntry {
   SampleFormat fmt;
   const char *fmt_str;
 } sample_format_string_map[] = {
-    {SAMPLE_FMT_U8, AUDIO_PCM_U8},   {SAMPLE_FMT_S16, AUDIO_PCM_S16},
-    {SAMPLE_FMT_S32, AUDIO_PCM_S32}, {SAMPLE_FMT_FLT, AUDIO_PCM_FLT},
+    {SAMPLE_FMT_U8, AUDIO_PCM_U8},     {SAMPLE_FMT_S16, AUDIO_PCM_S16},
+    {SAMPLE_FMT_S32, AUDIO_PCM_S32},   {SAMPLE_FMT_FLT, AUDIO_PCM_FLT},
     {SAMPLE_FMT_U8P, AUDIO_PCM_U8P},   {SAMPLE_FMT_S16P, AUDIO_PCM_S16P},
     {SAMPLE_FMT_S32P, AUDIO_PCM_S32P}, {SAMPLE_FMT_FLTP, AUDIO_PCM_FLTP},
-    {SAMPLE_FMT_G711A, AUDIO_G711A}, {SAMPLE_FMT_G711U, AUDIO_G711U}
+    {SAMPLE_FMT_G711A, AUDIO_G711A},   {SAMPLE_FMT_G711U, AUDIO_G711U},
+    {SAMPLE_FMT_FLTP, AUDIO_AAC},
 };
 
 const char *SampleFmtToString(SampleFormat fmt) {
@@ -65,7 +66,7 @@ bool ParseSampleInfoFromMap(std::map<std::string, std::string> &params,
   CHECK_EMPTY(value, params, KEY_INPUTDATATYPE)
   si.fmt = StringToSampleFmt(value.c_str());
   if (si.fmt == SAMPLE_FMT_NONE) {
-    LOG("unsupport sample fmt %s\n", value.c_str());
+    RKMEDIA_LOGI("unsupport sample fmt %s\n", value.c_str());
     return false;
   }
   CHECK_EMPTY(value, params, KEY_CHANNELS)

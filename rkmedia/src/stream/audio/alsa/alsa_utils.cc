@@ -11,18 +11,16 @@ static const struct SampleFormatEntry {
   SampleFormat fmt;
   snd_pcm_format_t alsa_fmt;
   int interleaved;
-} sample_format_alsa_map[] = {
-    {SAMPLE_FMT_U8, SND_PCM_FORMAT_U8, 1},
-    {SAMPLE_FMT_S16, SND_PCM_FORMAT_S16_LE, 1},
-    {SAMPLE_FMT_S32, SND_PCM_FORMAT_S32_LE, 1},
-    {SAMPLE_FMT_FLT, SND_PCM_FORMAT_FLOAT_LE, 1},
-    {SAMPLE_FMT_U8P, SND_PCM_FORMAT_U8, 0},
-    {SAMPLE_FMT_S16P, SND_PCM_FORMAT_S16_LE, 0},
-    {SAMPLE_FMT_S32P, SND_PCM_FORMAT_S32_LE, 0},
-    {SAMPLE_FMT_FLTP, SND_PCM_FORMAT_FLOAT_LE, 0},
-    {SAMPLE_FMT_G711A, SND_PCM_FORMAT_A_LAW, 1},
-    {SAMPLE_FMT_G711U, SND_PCM_FORMAT_MU_LAW, 1}
-};
+} sample_format_alsa_map[] = {{SAMPLE_FMT_U8, SND_PCM_FORMAT_U8, 1},
+                              {SAMPLE_FMT_S16, SND_PCM_FORMAT_S16_LE, 1},
+                              {SAMPLE_FMT_S32, SND_PCM_FORMAT_S32_LE, 1},
+                              {SAMPLE_FMT_FLT, SND_PCM_FORMAT_FLOAT_LE, 1},
+                              {SAMPLE_FMT_U8P, SND_PCM_FORMAT_U8, 0},
+                              {SAMPLE_FMT_S16P, SND_PCM_FORMAT_S16_LE, 0},
+                              {SAMPLE_FMT_S32P, SND_PCM_FORMAT_S32_LE, 0},
+                              {SAMPLE_FMT_FLTP, SND_PCM_FORMAT_FLOAT_LE, 0},
+                              {SAMPLE_FMT_G711A, SND_PCM_FORMAT_A_LAW, 1},
+                              {SAMPLE_FMT_G711U, SND_PCM_FORMAT_MU_LAW, 1}};
 
 snd_pcm_format_t SampleFormatToAlsaFormat(SampleFormat fmt) {
   FIND_ENTRY_TARGET(fmt, sample_format_alsa_map, fmt, alsa_fmt)
@@ -46,7 +44,8 @@ void ShowAlsaAvailableFormats(snd_pcm_t *handle, snd_pcm_hw_params_t *params) {
 
 int ParseAlsaParams(const char *param,
                     std::map<std::string, std::string> &params,
-                    std::string &device, SampleInfo &sample_info) {
+                    std::string &device, SampleInfo &sample_info,
+                    AI_LAYOUT_E &layout) {
   int ret = 0;
   if (!easymedia::parse_media_param_map(param, params))
     return 0;
@@ -55,7 +54,7 @@ int ParseAlsaParams(const char *param,
     if (key == KEY_SAMPLE_FMT) {
       SampleFormat fmt = StringToSampleFmt(p.second.c_str());
       if (fmt == SAMPLE_FMT_NONE) {
-        LOG("unknown pcm fmt: %s\n", p.second.c_str());
+        RKMEDIA_LOGI("unknown pcm fmt: %s\n", p.second.c_str());
         return 0;
       }
       sample_info.fmt = fmt;
@@ -72,10 +71,77 @@ int ParseAlsaParams(const char *param,
     } else if (key == KEY_FRAMES) {
       sample_info.nb_samples = stoi(p.second);
       ret++;
+    } else if (key == KEY_LAYOUT) {
+      layout = (AI_LAYOUT_E)stoi(p.second);
+      ret++;
     }
   }
   return ret;
 }
+
+#ifdef AUDIO_ALGORITHM_ENABLE
+int ParseVQEParams(const char *param,
+                   std::map<std::string, std::string> &params, bool *bVqeEnable,
+                   VQE_CONFIG_S *stVqeConfig) {
+  int ret = 0;
+  if (!easymedia::parse_media_param_map(param, params))
+    return 0;
+  for (auto &p : params) {
+    const std::string &key = p.first;
+    if (key == KEY_VQE_ENABLE) {
+      *bVqeEnable = stoi(p.second);
+    } else if (key == KEY_VQE_MODE) {
+      stVqeConfig->u32VQEMode = (VQE_MODE_E)stoi(p.second);
+    }
+  }
+  if ((*bVqeEnable == 0) || (stVqeConfig->u32VQEMode > VQE_MODE_AO))
+    return 0;
+
+  if (stVqeConfig->u32VQEMode == VQE_MODE_AI_TALK) {
+    for (auto &p : params) {
+      const std::string &key = p.first;
+      if (key == KEY_VQE_OPEN_MASK)
+        stVqeConfig->stAiTalkConfig.u32OpenMask = stoi(p.second);
+      else if (key == KEY_VQE_WORK_SAMPLE_RATE)
+        stVqeConfig->stAiTalkConfig.s32WorkSampleRate = stoi(p.second);
+      else if (key == KEY_VQE_FRAME_SAMPLE)
+        stVqeConfig->stAiTalkConfig.s32FrameSample = stoi(p.second);
+      else if (key == KEY_VQE_PARAM_FILE_PATH)
+        strcpy(stVqeConfig->stAiTalkConfig.aParamFilePath, p.second.c_str());
+    }
+  } else if (stVqeConfig->u32VQEMode == VQE_MODE_AI_RECORD) {
+    for (auto &p : params) {
+      const std::string &key = p.first;
+      if (key == KEY_VQE_OPEN_MASK)
+        stVqeConfig->stAiRecordConfig.u32OpenMask = stoi(p.second);
+      else if (key == KEY_VQE_WORK_SAMPLE_RATE)
+        stVqeConfig->stAiRecordConfig.s32WorkSampleRate = stoi(p.second);
+      else if (key == KEY_VQE_FRAME_SAMPLE)
+        stVqeConfig->stAiRecordConfig.s32FrameSample = stoi(p.second);
+      else if (key == KEY_ANR_POST_ADD_GAIN)
+        stVqeConfig->stAiRecordConfig.stAnrConfig.fPostAddGain = stoi(p.second);
+      else if (key == KEY_ANR_GMIN)
+        stVqeConfig->stAiRecordConfig.stAnrConfig.fGmin = stoi(p.second);
+      else if (key == KEY_ANR_NOISE_FACTOR)
+        stVqeConfig->stAiRecordConfig.stAnrConfig.fNoiseFactor = stoi(p.second);
+    }
+  } else if (stVqeConfig->u32VQEMode == VQE_MODE_AO) {
+    for (auto &p : params) {
+      const std::string &key = p.first;
+      if (key == KEY_VQE_OPEN_MASK)
+        stVqeConfig->stAoConfig.u32OpenMask = stoi(p.second);
+      else if (key == KEY_VQE_WORK_SAMPLE_RATE)
+        stVqeConfig->stAoConfig.s32WorkSampleRate = stoi(p.second);
+      else if (key == KEY_VQE_FRAME_SAMPLE)
+        stVqeConfig->stAoConfig.s32FrameSample = stoi(p.second);
+      else if (key == KEY_VQE_PARAM_FILE_PATH)
+        strcpy(stVqeConfig->stAoConfig.aParamFilePath, p.second.c_str());
+    }
+  }
+
+  return ret;
+}
+#endif
 
 // open device, and set format/channel/samplerate.
 snd_pcm_t *AlsaCommonOpenSetHwParams(const char *device,
@@ -92,13 +158,13 @@ snd_pcm_t *AlsaCommonOpenSetHwParams(const char *device,
 
   int status = snd_pcm_open(&pcm_handle, device, stream, mode);
   if (status < 0 || !pcm_handle) {
-    LOG("audio open error: %s\n", snd_strerror(status));
+    RKMEDIA_LOGI("audio open error: %s\n", snd_strerror(status));
     goto err;
   }
 
   status = snd_pcm_hw_params_any(pcm_handle, hwparams);
   if (status < 0) {
-    LOG("Couldn't get hardware config: %s\n", snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't get hardware config: %s\n", snd_strerror(status));
     goto err;
   }
 #ifndef NDEBUG
@@ -107,52 +173,53 @@ snd_pcm_t *AlsaCommonOpenSetHwParams(const char *device,
     snd_output_stdio_attach(&log, stderr, 0);
     // fprintf(stderr, "HW Params of device \"%s\":\n",
     //        snd_pcm_name(pcm_handle));
-    LOG("--------------------\n");
+    RKMEDIA_LOGI("--------------------\n");
     snd_pcm_hw_params_dump(hwparams, log);
-    LOG("--------------------\n");
+    RKMEDIA_LOGI("--------------------\n");
     snd_output_close(log);
   }
 #endif
 
   if (interleaved)
     status = snd_pcm_hw_params_set_access(pcm_handle, hwparams,
-                                        SND_PCM_ACCESS_RW_INTERLEAVED);
+                                          SND_PCM_ACCESS_RW_INTERLEAVED);
   else
     status = snd_pcm_hw_params_set_access(pcm_handle, hwparams,
-                                        SND_PCM_ACCESS_RW_NONINTERLEAVED);
+                                          SND_PCM_ACCESS_RW_NONINTERLEAVED);
   if (status < 0) {
-    LOG("Couldn't set access type: %s\n", snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't set access type: %s\n", snd_strerror(status));
     goto err;
   }
   status = snd_pcm_hw_params_set_format(pcm_handle, hwparams, pcm_fmt);
   if (status < 0) {
-    LOG("Couldn't find any hardware audio formats\n");
+    RKMEDIA_LOGI("Couldn't find any hardware audio formats\n");
     ShowAlsaAvailableFormats(pcm_handle, hwparams);
     goto err;
   }
   status = snd_pcm_hw_params_set_channels(pcm_handle, hwparams,
                                           sample_info.channels);
   if (status < 0) {
-    LOG("Couldn't set audio channels<%d>: %s\n", sample_info.channels,
-        snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't set audio channels<%d>: %s\n", sample_info.channels,
+                 snd_strerror(status));
     goto err;
   }
   status = snd_pcm_hw_params_get_channels(hwparams, &channels);
   if (status < 0 || channels != (unsigned int)sample_info.channels) {
-    LOG("final channels do not match expected, %d != %d. resample require.\n",
+    RKMEDIA_LOGI(
+        "final channels do not match expected, %d != %d. resample require.\n",
         channels, sample_info.channels);
     goto err;
   }
   status = snd_pcm_hw_params_set_rate_near(pcm_handle, hwparams, &rate, NULL);
   if (status < 0) {
-    LOG("Couldn't set audio frequency<%d>: %s\n", sample_info.sample_rate,
-        snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't set audio frequency<%d>: %s\n",
+                 sample_info.sample_rate, snd_strerror(status));
     goto err;
   }
   if (rate != (unsigned int)sample_info.sample_rate) {
-    LOG("final sample rate do not match expected, %d != %d. resample "
-        "require.\n",
-        rate, sample_info.sample_rate);
+    RKMEDIA_LOGI("final sample rate do not match expected, %d != %d. resample "
+                 "require.\n",
+                 rate, sample_info.sample_rate);
     goto err;
   }
 

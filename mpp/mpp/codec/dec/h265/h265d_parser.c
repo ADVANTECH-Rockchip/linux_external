@@ -480,12 +480,13 @@ __BITREAD_ERR:
 static RK_S32 set_sps(HEVCContext *s, const HEVCSPS *sps)
 {
     RK_U32 num = 0, den = 0;
+    MppFrameFormat fmt = s->h265dctx->cfg->base.out_fmt & (~MPP_FRAME_FMT_MASK);
 
     s->h265dctx->coded_width         = sps->width;
     s->h265dctx->coded_height        = sps->height;
     s->h265dctx->width               = sps->output_width;
     s->h265dctx->height              = sps->output_height;
-    s->h265dctx->pix_fmt             = sps->pix_fmt;
+    s->h265dctx->pix_fmt             = fmt | sps->pix_fmt;
     s->h265dctx->nBitDepth           = sps->bit_depth;
     s->h265dctx->sample_aspect_ratio = sps->vui.sar;
 
@@ -1048,14 +1049,18 @@ static RK_S32 hls_slice_header(HEVCContext *s)
             }
         }
     }
-#if 0
     if (s->pps->slice_header_extension_present_flag) {
+        //if slice_header_extension_present_flag is 1, we should cut the extension data.
         RK_U32 length = 0;
+
+        s->start_bit = gb->used_bits;
         READ_UE(gb, &length);
-        for (i = 0; (RK_U32)i < length; i++)
+        for (i = 0; (RK_U32)i < length; i++) {
             SKIP_BITS(gb, 8);  // slice_header_extension_data_byte
+        }
+        s->end_bit = gb->used_bits;
     }
-#endif
+
     // Inferred parameters
     sh->slice_qp = 26U + s->pps->pic_init_qp_minus26 + sh->slice_qp_delta;
     if (sh->slice_qp > 51 ||
@@ -1110,12 +1115,12 @@ static RK_S32 hls_nal_unit(HEVCContext *s)
 
     s->temporal_id = s->temporal_id - 1;
 
-    if (s->temporal_id < 0)
-        return  MPP_ERR_STREAM;
-
     h265d_dbg(H265D_DBG_GLOBAL,
               "nal_unit_type: %d, nuh_layer_id: %d temporal_id: %d\n",
               s->nal_unit_type, s->nuh_layer_id, s->temporal_id);
+
+    if (s->temporal_id < 0)
+        return  MPP_ERR_STREAM;
 
     return (s->nuh_layer_id);
 __BITREAD_ERR:
@@ -1199,7 +1204,7 @@ static RK_S32 hevc_frame_start(HEVCContext *s)
     if (ret < 0)
         goto fail;
 
-    if (!s->h265dctx->disable_error && s->miss_ref_flag) {
+    if (!s->h265dctx->cfg->base.disable_error && s->miss_ref_flag) {
         if (!IS_IRAP(s)) {
             mpp_frame_set_errinfo(s->frame, MPP_FRAME_ERR_UNKNOW);
             s->ref->error_flag = 1;
@@ -1313,6 +1318,7 @@ static RK_S32 parser_nal_unit(HEVCContext *s, const RK_U8 *nal, int length)
         h265d_dbg(H265D_DBG_FUNCTION, "hls_slice_header in");
         ret = hls_slice_header(s);
         h265d_dbg(H265D_DBG_FUNCTION, "hls_slice_header out");
+
         if (ret < 0) {
             mpp_err("hls_slice_header error ret = %d", ret);
             return ret;
@@ -1331,7 +1337,7 @@ static RK_S32 parser_nal_unit(HEVCContext *s, const RK_U8 *nal, int length)
             s->poc <= s->max_ra) {
             s->is_decoded = 0;
             break;
-        } else if (!s->h265dctx->disable_error &&
+        } else if (!s->h265dctx->cfg->base.disable_error &&
                    (s->poc < s->max_ra) && !IS_IRAP(s)) { //when seek to I slice skip the stream small then I slic poc
             s->is_decoded = 0;
             break;
@@ -1561,7 +1567,8 @@ static RK_S32 split_nal_units(HEVCContext *s, RK_U8 *buf, RK_U32 length)
 
         mpp_set_bitread_ctx(&s->HEVClc->gb, (RK_U8 *)nal->data, nal->size);
         mpp_set_pre_detection(&s->HEVClc->gb);
-        hls_nal_unit(s);
+        if (hls_nal_unit(s) < 0)
+            s->nb_nals--;
 
         if (s->nal_unit_type < NAL_VPS) {
 
@@ -1581,15 +1588,47 @@ fail:
     return ret;
 
 }
+
 static RK_S32 parser_nal_units(HEVCContext *s)
 {
     /* parse the NAL units */
-    RK_S32 i, ret = 0;
+    RK_S32 i, ret = 0, slice_cnt = 0;
+
     for (i = 0; i < s->nb_nals; i++) {
         ret = parser_nal_unit(s, s->nals[i].data, s->nals[i].size);
         if (ret < 0) {
             mpp_err("Error parsing NAL unit #%d,error ret = 0xd.\n", i, ret);
             goto fail;
+        }
+        /* update slice data if slice_header_extension_present_flag is 1*/
+        if (s->nal_unit_type < 32) {
+            switch (s->nal_unit_type) {
+            case NAL_TRAIL_R:
+            case NAL_TRAIL_N:
+            case NAL_TSA_N:
+            case NAL_TSA_R:
+            case NAL_STSA_N:
+            case NAL_STSA_R:
+            case NAL_BLA_W_LP:
+            case NAL_BLA_W_RADL:
+            case NAL_BLA_N_LP:
+            case NAL_IDR_W_RADL:
+            case NAL_IDR_N_LP:
+            case NAL_CRA_NUT:
+            case NAL_RADL_N:
+            case NAL_RADL_R:
+            case NAL_RASL_N:
+            case NAL_RASL_R:
+                if (s->pps->slice_header_extension_present_flag) {
+                    h265d_dxva2_picture_context_t *temp = (h265d_dxva2_picture_context_t *)s->hal_pic_private;
+                    temp->slice_cut_param[slice_cnt].start_bit = s->start_bit;
+                    temp->slice_cut_param[slice_cnt].end_bit = s->end_bit;
+                    temp->slice_cut_param[slice_cnt].is_enable = 1;
+                    break;
+                }
+            default: break;
+            }
+            slice_cnt++;
         }
     }
 fail:
@@ -1703,8 +1742,7 @@ MPP_RET h265d_prepare(void *ctx, MppPacket pkt, HalDecTask *task)
         }
     }
 
-    if (h265dctx->need_split && !s->is_nalff) {
-
+    if (h265dctx->cfg->base.split_parse && !s->is_nalff) {
         RK_S32 consume = 0;
         RK_U8 *split_out_buf = NULL;
         RK_S32 split_size = 0;
@@ -1914,9 +1952,9 @@ MPP_RET h265d_init(void *ctx, ParserCfg *parser_cfg)
         h265dctx->priv_data = s;
     }
 
-    h265dctx->need_split = parser_cfg->need_split;
+    h265dctx->cfg = parser_cfg->cfg;
 
-    if (sc == NULL && h265dctx->need_split) {
+    if (sc == NULL && h265dctx->cfg->base.split_parse) {
         h265d_split_init((void**)&sc);
         if (sc == NULL) {
             mpp_err("split contxt malloc fail");
@@ -1991,16 +2029,9 @@ MPP_RET h265d_reset(void *ctx)
 
 MPP_RET h265d_control(void *ctx, MpiCmd cmd, void *param)
 {
-    H265dContext_t *h265dctx = (H265dContext_t *)ctx;
-
-    switch (cmd) {
-    case MPP_DEC_SET_DISABLE_ERROR: {
-        h265dctx->disable_error = *((RK_U32 *)param);
-    }
-    default : {
-    } break;
-    }
-
+    (void) ctx;
+    (void) cmd;
+    (void) param;
     return MPP_OK;
 }
 
@@ -2009,7 +2040,7 @@ MPP_RET h265d_callback(void *ctx, void *err_info)
     H265dContext_t *h265dctx = (H265dContext_t *)ctx;
     HalDecTask *task_dec = (HalDecTask *)err_info;
 
-    if (!h265dctx->disable_error) {
+    if (!h265dctx->cfg->base.disable_error) {
         HEVCContext *s = (HEVCContext *)h265dctx->priv_data;
         MppFrame frame = NULL;
         RK_U32 i = 0;
@@ -2032,8 +2063,6 @@ MPP_RET h265d_callback(void *ctx, void *err_info)
     return MPP_OK;
 }
 
-
-
 const ParserApi api_h265d_parser = {
     .name = "h265d_parse",
     .coding = MPP_VIDEO_CodingHEVC,
@@ -2048,5 +2077,4 @@ const ParserApi api_h265d_parser = {
     .control = h265d_control,
     .callback = h265d_callback,
 };
-
 

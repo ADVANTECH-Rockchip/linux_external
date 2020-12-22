@@ -45,15 +45,18 @@ RK_U32 rc_debug = 0;
 
 const static char default_rc_api[] = "default";
 
-MPP_RET rc_init(RcCtx *ctx, MppCodingType type, const char *name)
+MPP_RET rc_init(RcCtx *ctx, MppCodingType type, const char **request_name)
 {
     MPP_RET ret = MPP_NOK;
     MppRcImpl *p = NULL;
+    const char *name = NULL;
 
     mpp_env_get_u32("rc_debug", &rc_debug, 0);
 
-    if (NULL == name)
+    if (NULL == request_name || NULL == *request_name)
         name = default_rc_api;
+    else
+        name = *request_name;
 
     rc_dbg_func("enter type %x name %s\n", type, name);
 
@@ -74,12 +77,15 @@ MPP_RET rc_init(RcCtx *ctx, MppCodingType type, const char *name)
             p->ctx = rc_ctx;
             p->api = api;
             p->frm_cnt = -1;
-            mpp_err_f("using rc impl %s\n", api->name);
+            if (request_name && *request_name)
+                mpp_log("using rc impl %s\n", api->name);
             ret = MPP_OK;
         }
     }
 
     *ctx = p;
+    if (request_name)
+        *request_name = name;
 
     rc_dbg_func("leave %p\n", p);
 
@@ -165,6 +171,17 @@ MPP_RET rc_frm_check_drop(RcCtx ctx, EncRcTask *task)
     rc_dbg_func("leave %p drop %d\n", ctx, task->frm.drop);
 
     return ret;
+}
+
+MPP_RET rc_frm_check_reenc(RcCtx ctx, EncRcTask *task)
+{
+    MppRcImpl *p = (MppRcImpl *)ctx;
+    const RcImplApi *api = p->api;
+
+    if (!api || !api->check_reenc || !p->ctx || !task)
+        return MPP_OK;
+
+    return api->check_reenc(p->ctx, task);
 }
 
 MPP_RET rc_frm_start(RcCtx ctx, EncRcTask *task)

@@ -7,6 +7,8 @@
 **  Copyright (c) 2003-2012, Broadcom Corp., All Rights Reserved.
 **  Broadcom Bluetooth Core. Proprietary and confidential.
 **
+**  Copyright (C) 2018 Cypress Semiconductor Corporation
+**
 *****************************************************************************/
 #ifndef BTA_PBC_CO_H
 #define BTA_PBC_CO_H
@@ -16,6 +18,8 @@
 #include "bta_api.h"
 #include "goep_fs.h"
 #include "obx_api.h"
+#include "bd.h"
+#include "bta_pbc_api.h"
 
 /*****************************************************************************
 **  Constants and Data Types
@@ -105,7 +109,6 @@ typedef UINT16 tBTA_PBC_CO_STATUS;
 **  Function Declarations
 *****************************************************************************/
 
-
 /*******************************************************************************
 **
 ** Function         bta_pbc_co_open
@@ -114,10 +117,8 @@ typedef UINT16 tBTA_PBC_CO_STATUS;
 **                  The phone uses this function to open
 **                  a file for reading or writing.
 **
-** Parameters       p_path  - Fully qualified path and file name.
-**                  oflags  - permissions and mode (see constants above)
-**                  size    - size of file to put (0 if unavailable or not applicable)
-**                  evt     - event that must be passed into the call-in function.
+** Parameters       evt     - event that must be passed into the call-in function.
+**                  bd_addr - BD address
 **                  app_id  - application ID specified in the enable functions.
 **                            It can be used to identify which profile is the caller
 **                            of the call-out function.
@@ -129,9 +130,7 @@ typedef UINT16 tBTA_PBC_CO_STATUS;
 **                        are returned in the call-in function, bta_pbc_ci_open().
 **
 *******************************************************************************/
-// BTA_API extern void bta_pbc_co_open(const char *p_path, int oflags, UINT32 size,
-                           // UINT16 evt, UINT8 app_id);
-void bta_pbc_co_open(UINT16 evt, UINT8 app_id);
+BTA_API extern void bta_pbc_co_open(UINT16 evt, BD_ADDR bd_addr, UINT8 app_id);
                         
 /*******************************************************************************
 **
@@ -154,50 +153,19 @@ BTA_API extern tBTA_PBC_CO_STATUS bta_pbc_co_close(int fd, UINT8 app_id);
 
 /*******************************************************************************
 **
-** Function         bta_pbc_co_read
-**
-** Description      This function is called by BTA to read in data from the
-**                  previously opened file on the phone.
-**
-** Parameters       fd      - file descriptor of file to read from.
-**                  p_buf   - buffer to read the data into.
-**                  nbytes  - number of bytes to read into the buffer.
-**                  evt     - event that must be passed into the call-in function.
-**                  ssn     - session sequence number. Ignored, if bta_pbc_co_open
-**                            was not called with BTA_PBC_CO_RELIABLE.
-**                  app_id  - application ID specified in the enable functions.
-**                            It can be used to identify which profile is the caller
-**                            of the call-out function.
-**
-** Returns          void
-**
-**                  Note: Upon completion of the request, bta_pbc_ci_read() is
-**                        called with the buffer of data, along with the number
-**                        of bytes read into the buffer, and a status.  The
-**                        call-in function should only be called when ALL requested
-**                        bytes have been read, the end of file has been detected,
-**                        or an error has occurred.
-**
-*******************************************************************************/
-BTA_API extern void bta_pbc_co_read(int fd, UINT8 *p_buf, UINT16 nbytes, UINT16 evt,
-                           UINT8 ssn, UINT8 app_id);
-
-/*******************************************************************************
-**
 ** Function         bta_pbc_co_write
 **
 ** Description      This function is called by io to send file data to the
 **                  phone.
 **
-** Parameters       fd      - file descriptor of file to write to.
-**                  p_buf   - buffer to read the data from.
-**                  nbytes  - number of bytes to write out to the file.
-**                  evt     - event that must be passed into the call-in function.
-**                  ssn     - session sequence number. Ignored, if bta_pbc_co_open
-**                            was not called with BTA_PBC_CO_RELIABLE.
-**                  app_id  - application ID specified in the enable functions.
-**                            It can be used to identify which profile is the caller
-**                            of the call-out function.
+** Parameters       fd          - file descriptor of file to write to.
+**                  p_buf       - buffer to read the data from.
+**                  nbytes      - number of bytes to write out to the file.
+**                  evt         - event that must be passed into the call-in function.
+**                  bd_addr     - BD address
+**                  app_id      - application ID specified in the enable functions.
+**                                It can be used to identify which profile is the caller
+**                                of the call-out function.
 **
 ** Returns          void
 **
@@ -207,7 +175,7 @@ BTA_API extern void bta_pbc_co_read(int fd, UINT8 *p_buf, UINT16 nbytes, UINT16 
 **                        bytes have been written, or an error has been detected,
 **
 *******************************************************************************/
-BTA_API extern void bta_pbc_co_write(int fd, const UINT8 *p_buf, UINT16 nbytes, UINT16 evt,
-                            UINT8 ssn, UINT8 app_id);
+BTA_API extern void bta_pbc_co_write(int fd, const UINT8 *p_buf, UINT16 nbytes,
+                            UINT16 evt, BD_ADDR bd_addr, UINT8 app_id);
 
 #endif /* BTA_PBC_CO_H */

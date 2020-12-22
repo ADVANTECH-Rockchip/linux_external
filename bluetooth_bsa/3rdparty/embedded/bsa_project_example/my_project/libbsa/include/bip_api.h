@@ -395,6 +395,9 @@ enum
     BIP_INVALID_PARAM,        /* bad parameter(s)                 */
     BIP_OBEX_FAILURE,         /* OBEX failure                     */
     BIP_BAD_REQUEST,          /* bad request                      */
+#if defined(CAC_OPEN_EVENT_STATUS_CHANGE) && (CAC_OPEN_EVENT_STATUS_CHANGE == TRUE)
+    BIP_SERVICE_UNAVAILABLE,  /* Service Unavailable */
+#endif
     BIP_XML_ERROR
 };
 typedef UINT8 tBIP_STATUS;

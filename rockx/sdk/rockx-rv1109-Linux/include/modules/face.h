@@ -39,12 +39,9 @@ typedef struct rockx_face_landmark_t {
  */
 typedef struct rockx_face_mask_t {
     rockx_rect_t face_box;          ///< Face region
-    rockx_point_t landmarks[5];     ///< Landmark points
-    float score;                    ///< Score (Only 5 points has score)
     float mask_score;               ///< Mask score
     int hasMask;                  ///< Mask flag
 } rockx_face_mask_t;
-
 
 /**
  * @brief Face mask arrays
@@ -53,7 +50,6 @@ typedef struct rockx_face_mask_array_t {
     int count;                                  ///< Face masks count
     rockx_face_mask_t face_masks[128];          ///< Face masks
 } rockx_face_mask_array_t;
-
 
 /**
  * @brief Face Angle Result (get from @ref rockx_face_pose)
@@ -82,18 +78,6 @@ typedef struct rockx_face_attribute_t {
 } rockx_face_attribute_t;
 
 /**
- * @brief Face Antispoof Result
- */
-typedef struct rockx_face_liveness_t {
-    float rgb_fake_score;   ///< score of fake
-    float rgb_real_score;   ///< score of real
-    float ir_fake_score;
-    float ir_real_score;
-    float depth_fake_score;
-    float depth_real_score;
-} rockx_face_liveness_t;
-
-/**
  * Face Detection
  * @param handle [in] Handle of a created ROCKX_MODULE_FACE_DETECTION module(created by @ref rockx_create)
  * @param in_img [in] Input image
@@ -102,7 +86,7 @@ typedef struct rockx_face_liveness_t {
  * @return @ref rockx_ret_t
  */
 rockx_ret_t rockx_face_detect(rockx_handle_t handle, rockx_image_t *in_img, rockx_object_array_t *face_array,
-        rockx_async_callback callback);
+        rockx_async_callback *callback);
 
 /**
  * Face Landmark KeyPoint (Current can get 68 or 5 key points)
@@ -120,6 +104,23 @@ rockx_ret_t rockx_face_landmark(rockx_handle_t handle, rockx_image_t* in_img, ro
         rockx_face_landmark_t *out_landmark);
 
 /**
+ * Face Landmark KeyPoint (106 key points)
+ *
+ * Face Landmark 68 KeyPoint As Show In Figure 1.
+ * @image html res/face_landmark68.png Figure 1 Face Landmark 68 KeyPoint
+ *
+ * @param handle [in] Handle of a created ROCKX_MODULE_FACE_LANDMARK_68 or ROCKX_MODULE_FACE_LANDMARK_5 module(created by @ref rockx_create)
+ * @param in_img [in] Input image
+ * @param in_box [in] Face region(get from rockx_face_detect)
+ * @param in_landmark [in] 5-points Face landmark
+ * @param out_landmark [out] Face landmark
+ * @param out_angle [out] Angle of Face
+ * @return @ref rockx_ret_t
+ */
+rockx_ret_t rockx_face_landmark106(rockx_handle_t handle, rockx_image_t* in_img, rockx_rect_t *in_box,
+        rockx_face_landmark_t *in_landmark, rockx_face_landmark_t *out_landmark, rockx_face_angle_t *out_angle);
+
+/**
  * Face Pose
  * @param in_landmark [in] Face landmark result (get from @ref rockx_face_landmark)
  * @param out_angle [out] Angle of Face
@@ -133,11 +134,25 @@ rockx_ret_t rockx_face_pose(rockx_face_landmark_t *in_landmark, rockx_face_angle
  * @param in_img [in] Input image
  * @param in_box [in] Detection Result
  * @param in_landmark [in] Face landmark result (if set NULL will call @ref rockx_face_landmark to get a landmark result)
+ * @param need_crop [in] need crop image flag
  * @param out_img [out] Aligned face image
  * @return @ref rockx_ret_t
  */
 rockx_ret_t rockx_face_align(rockx_handle_t handle, rockx_image_t *in_img, rockx_rect_t *in_box,
                              rockx_face_landmark_t *in_landmark, rockx_image_t *out_img);
+
+/**
+ * Face Correction Alignment(crop max face box)
+ * @param handle [in] Handle of a created ROCKX_MODULE_FACE_LANDMARK_5 module(created by @ref rockx_create)
+ * @param in_img [in] Input image
+ * @param in_box [in] Detection Result
+ * @param in_landmark [in] Face landmark result (if set NULL will call @ref rockx_face_landmark to get a landmark result)
+ * @param need_crop [in] need crop image flag
+ * @param out_img [out] Aligned face image
+ * @return @ref rockx_ret_t
+ */
+rockx_ret_t rockx_face_align2(rockx_handle_t handle, rockx_image_t *in_img, rockx_rect_t *in_box,
+                             rockx_face_landmark_t *in_landmark, rockx_image_t *out_img,int need_crop);
 
 /**
  * Get Face Feature
@@ -167,27 +182,13 @@ rockx_ret_t rockx_face_feature_similarity(rockx_face_feature_t *in_feature1, roc
 rockx_ret_t rockx_face_attribute(rockx_handle_t handle, rockx_image_t *in_img, rockx_face_attribute_t *attr);
 
 /**
- * Face Liveness Detection
- * @param handle [in] Handle of a created ROCKX_MODULE_FACE_LIVENESS module(created by @ref rockx_create)
- * @param in_ir_img [in] Input IR image (need specified ir camera)
- * @param box [in] Face Detect Area
- * @param out_liveness_result [out] Liveness result
+ * Face Beauty
+ * @param handle [in] Handle of a created ROCKX_MODULE_FACE_BEAUTY module(created by @ref rockx_create)
+ * @param in_img [in] Input Image
+ * @param attr [out] Face beauty
  * @return @ref rockx_ret_t
  */
-rockx_ret_t rockx_face_liveness_detect(rockx_handle_t handle, rockx_image_t* in_ir_img, rockx_rect_t *in_box, rockx_face_liveness_t *out_liveness_result);
-
-/**
- * Face Liveness Detection For Struct Light Camera
- * @param handle [in] Handle of a created ROCKX_MODULE_FACE_LIVENESS_RMSL module(created by @ref rockx_create)
- * @param in_ir_img [in] Input RGB image
- * @param in_ir_img [in] Input IR image
- * @param in_ir_img [in] Input Depth image
- * @param box [in] Face Detect Area (Detected in IR Image)
- * @param out_liveness_result [out] Liveness result
- * @return @ref rockx_ret_t
- */
-rockx_ret_t rockx_face_liveness_detect_rmsl(rockx_handle_t handle, rockx_image_t* in_rgb_img, rockx_image_t* in_ir_img, rockx_image_t *in_depth_img, 
-                                                rockx_rect_t *in_box, rockx_face_liveness_t *out_liveness_result);
+rockx_ret_t rockx_face_beauty(rockx_handle_t handle, rockx_image_t *in_img, void *beauty_score);
 
 /**
  * Face Masks Detection
@@ -198,8 +199,29 @@ rockx_ret_t rockx_face_liveness_detect_rmsl(rockx_handle_t handle, rockx_image_t
  * @return @ref rockx_ret_t
  */
 rockx_ret_t rockx_face_masks_detect(rockx_handle_t handle, rockx_image_t *in_img, rockx_face_mask_array_t *face_mask_array,
-                                     rockx_async_callback callback);
+                                     rockx_async_callback *callback);
 
+/**
+ * Face mask Classifier
+ * @param handle [in] Handle of a created ROCKX_MODULE_FACE_MASK_CLASSIFIER module(created by @ref rockx_create)
+ * @param input_image [in] Input image
+ * @param face_box [in] deceted face box
+ * @param out_tensors [out] classifier result
+ * @return @ref rockx_ret_t
+ */
+rockx_ret_t rockx_face_mask_classifier(rockx_handle_t handle, rockx_image_t* input_image, rockx_rect_t *face_box, float *out_score);
+
+/**
+ * Face Masks Detection
+ * @param handle [in] Handle of a created ROCKX_MODULE_FACE_SMILE_DETECTION module(created by @ref rockx_create)
+ * @param align_image [in] align image,get frome rockx_face_align api
+ * @param smile_valu [out] Face smile value, 0.0 ~ 1.0
+ * @return @ref rockx_ret_t
+ */
+rockx_ret_t rockx_face_smile_detect(rockx_handle_t handle, rockx_image_t* align_image, float *smile_valu);
+
+
+rockx_ret_t rockx_face_filter(rockx_handle_t handle, rockx_image_t *in_img, rockx_rect_t *in_box, int *is_false_face);
 
 #ifdef __cplusplus
 } //extern "C"

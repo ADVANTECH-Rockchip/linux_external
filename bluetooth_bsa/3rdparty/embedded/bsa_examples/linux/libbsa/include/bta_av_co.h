@@ -29,8 +29,6 @@
 #define BTA_AV_CP_DTCP_ID       0x0001
 
 #define BTA_AV_CP_LOSC                  2
-#define BTA_AV_CP_INFO_LEN              3
-
 
 #define BTA_AV_CP_SCMS_COPY_ALLOWED     0x00
 #define BTA_AV_CP_SCMS_COPY_ONCE        0x10

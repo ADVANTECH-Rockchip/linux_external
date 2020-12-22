@@ -50,6 +50,7 @@
 #define MPP_DEC_NOTIFY_TASK_HND_VALID       (0x00000100)
 #define MPP_DEC_NOTIFY_TASK_PREV_DONE       (0x00000200)
 #define MPP_DEC_NOTIFY_BUFFER_MATCH         (0x00000400)
+#define MPP_DEC_CONTROL                     (0x00010000)
 #define MPP_DEC_RESET                       (MPP_RESET)
 
 /* mpp enc event flags */
@@ -166,10 +167,11 @@ private:
     RK_U32          mStatus;
 
     /* decoder paramter before init */
+    MppDecCfgSet    mDecInitcfg;
     RK_U32          mParserFastMode;
     RK_U32          mParserNeedSplit;
     RK_U32          mParserInternalPts;     /* for MPEG2/MPEG4 */
-
+    RK_U32          mImmediateOut;
     /* backup extra packet for seek */
     MppPacket       mExtraPacket;
 

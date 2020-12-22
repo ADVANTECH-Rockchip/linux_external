@@ -31,7 +31,7 @@ typedef struct H265ePicParams_t {
     RK_U16      ver_stride;
     RK_U16      pic_ofsty;
     RK_U16      pic_oftx;
-    RK_U16      mpp_format;
+    RK_U32      mpp_format;
     union {
         struct {
             RK_U16  chroma_format_idc                       : 2;
@@ -107,6 +107,10 @@ typedef struct H265ePicParams_t {
     };
     RK_S8  pps_cb_qp_offset;
     RK_S8  pps_cr_qp_offset;
+    RK_U8   num_tile_columns_minus1;
+    RK_U8   num_tile_rows_minus1;
+    RK_S32  column_width_minus1[19];
+    RK_S32  row_height_minus1[21];
     RK_U8  diff_cu_qp_delta_depth;
     RK_S8  pps_beta_offset_div2;
     RK_S8  pps_tc_offset_div2;
@@ -189,6 +193,7 @@ typedef struct H265eSlicParams_t {
     RK_U16 dlt_poc_msb_cycl2;
     RK_U32 sli_splt_byte;
     RK_U32 tot_poc_num;
+    RK_U32 non_reference_flag;
 } H265eSlicParams;
 /*
  * Split reference frame configure to two parts
@@ -198,22 +203,6 @@ typedef struct H265eSlicParams_t {
  * and ref_frm_index. This part is inited from dpb gop hierarchy info.
  */
 
-typedef struct H265eFrmInfo_s {
-    RK_S32              seq_idx;
-
-    RK_S32              curr_idx;
-    RK_S32              refr_idx;
-
-    // current frame rate control and dpb status info
-    RK_S32              mb_per_frame;
-    RK_S32              mb_raw;
-    RK_S32              mb_wid;
-    RK_S32              frame_type;
-    RK_S32              last_frame_type;
-
-    RK_S32              usage[MAX_REFS + 1];
-} H265eFrmInfo;
-
 typedef struct UserDatas_t {
     void *plt_data;
 } UserDatas;
@@ -222,7 +211,6 @@ typedef struct H265eSyntax_new_t {
     RK_S32          idr_request;
     H265ePicParams  pp;
     H265eSlicParams sp;
-    H265eFrmInfo    frms;
 } H265eSyntax_new;
 
 #ifdef __cplusplus

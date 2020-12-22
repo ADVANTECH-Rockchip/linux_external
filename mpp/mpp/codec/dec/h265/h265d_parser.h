@@ -329,6 +329,7 @@ typedef struct HEVCPPS {
     RK_U8 slice_header_extension_present_flag;
 
     RK_U8 pps_extension_flag;
+    RK_U8 pps_range_extensions_flag;
     RK_U8 pps_extension_data_flag;
     // Inferred parameters
     RK_U32 *column_width;  ///< ColumnWidth
@@ -593,7 +594,10 @@ typedef struct HEVCContext {
     RK_S64 pts;
     RK_U8  has_get_eos;
     RK_U8  miss_ref_flag;
-    IOInterruptCB notify_cb;
+
+    /*temporary storage for slice_cut_param*/
+    RK_U32  start_bit;
+    RK_U32  end_bit;
 } HEVCContext;
 
 RK_S32 mpp_hevc_decode_short_term_rps(HEVCContext *s, ShortTermRPS *rps,

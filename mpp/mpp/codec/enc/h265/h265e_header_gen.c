@@ -124,23 +124,18 @@ static MPP_RET h265e_encapsulate_nals(H265eExtraInfo *out)
     return MPP_OK;
 }
 
-static MPP_RET h265e_sei_write(H265eStream *s, RK_U8 *payload,
+static MPP_RET h265e_sei_write(H265eStream *s, RK_U8 uuid[16], const RK_U8 *payload,
                                RK_S32 payload_size, RK_S32 payload_type)
 {
-#define H265E_UUID_LENGTH 16
-
-    static const RK_U8 h265e_sei_uuid[H265E_UUID_LENGTH] = {
-        0x63, 0xfc, 0x6a, 0x3c, 0xd8, 0x5c, 0x44, 0x1e,
-        0x87, 0xfb, 0x3f, 0xab, 0xec, 0xb3, 0xb6, 0x77
-    };
-
     RK_S32 i = 0;
+    RK_S32 uuid_len = H265E_UUID_LENGTH;
     RK_S32 data_len = payload_size;
+
     h265e_dbg_func("enter\n");
 
     h265e_stream_realign(s);
 
-    payload_size += H265E_UUID_LENGTH;
+    payload_size += uuid_len;
 
     for (i = 0; i <= payload_type - 255; i += 255)
         h265e_stream_write_with_log(s, 0xff, 8,
@@ -156,8 +151,8 @@ static MPP_RET h265e_sei_write(H265eStream *s, RK_U8 *payload,
     h265e_stream_write_with_log(s,  payload_size - i, 8,
                                 "sei_last_payload_size_byte");
 
-    for (i = 0; i < H265E_UUID_LENGTH; i++) {
-        h265e_stream_write_with_log(s, h265e_sei_uuid[i], 8,
+    for (i = 0; i < uuid_len; i++) {
+        h265e_stream_write_with_log(s, uuid[i], 8,
                                     "sei_uuid_byte");
     }
 
@@ -171,28 +166,6 @@ static MPP_RET h265e_sei_write(H265eStream *s, RK_U8 *payload,
 
     return MPP_OK;
 }
-
-#if 0
-MPP_RET h265e_sei_encode(H265eCtx *ctx, RcSyntax *rc_syn)
-{
-    H265eExtraInfo *info = (H265eExtraInfo *)ctx->extra_info;
-    char *str = (char *)info->sei_buf;
-    RK_S32 str_len = 0;
-
-    h265e_sei_pack2str(str + H265E_UUID_LENGTH, ctx, rc_syn);
-    str_len = strlen(str) + 1;
-    if (str_len > H265E_SEI_BUF_SIZE) {
-        h265e_hal_err("SEI actual string length %d exceed malloced size %d",
-                      str_len, H265E_SEI_BUF_SIZE);
-        return MPP_NOK;
-    } else {
-        ;// h265e_rkv_sei_write(&info->stream, (RK_U8 *)str, str_len,
-        //                    H264E_SEI_USER_DATA_UNREGISTERED);
-    }
-
-    return MPP_OK;
-}
-#endif
 
 void codeProfileTier(H265eStream *s, ProfileTierLevel* ptl)
 {
@@ -511,6 +484,7 @@ static MPP_RET h265e_pps_write(H265ePps *pps, H265eSps *sps, H265eStream *s)
 {
     (void) sps;
     RK_S32 pps_byte_start = 0;
+    RK_S32 i;
     h265e_stream_realign(s);
     pps_byte_start = s->enc_stream.byte_cnt;
 
@@ -539,8 +513,23 @@ static MPP_RET h265e_pps_write(H265ePps *pps, H265eSps *sps, H265eStream *s)
     h265e_stream_write1_with_log(s, pps->m_bUseWeightPred ? 1 : 0,                    "weighted_pred_flag");  // Use of Weighting Prediction (P_SLICE)
     h265e_stream_write1_with_log(s, pps->m_useWeightedBiPred ? 1 : 0,                 "weighted_bipred_flag"); // Use of Weighting Bi-Prediction (B_SLICE)
     h265e_stream_write1_with_log(s, pps->m_transquantBypassEnableFlag ? 1 : 0, "transquant_bypass_enable_flag");
-    h265e_stream_write1_with_log(s, 0,                                          "tiles_enabled_flag");
+    h265e_stream_write1_with_log(s, pps->m_tiles_enabled_flag,                  "tiles_enabled_flag");
     h265e_stream_write1_with_log(s, pps->m_entropyCodingSyncEnabledFlag ? 1 : 0, "entropy_coding_sync_enabled_flag");
+    if (pps->m_tiles_enabled_flag) {
+        h265e_stream_write_ue_with_log(s, pps->m_nNumTileColumnsMinus1, "num_tile_columns_minus1");
+        h265e_stream_write_ue_with_log(s, pps->m_nNumTileRowsMinus1, "num_tile_rows_minus1");
+        h265e_stream_write1_with_log(s, pps->m_bTileUniformSpacing, "uniform_spacing_flag");
+        if (!pps->m_bTileUniformSpacing) {
+            for ( i = 0; i < pps->m_nNumTileColumnsMinus1; i++) {
+                h265e_stream_write_ue_with_log(s, pps->m_nTileColumnWidthArray[i + 1] - pps->m_nTileColumnWidthArray[i] - 1, "column_width_minus1");
+            }
+            for (i = 0; i < pps->m_nNumTileRowsMinus1; i++) {
+                h265e_stream_write_ue_with_log(s, pps->m_nTileRowHeightArray[i + 1] - pps->m_nTileRowHeightArray[i - 1], "row_height_minus1");
+            }
+        }
+        mpp_assert((pps->m_nNumTileColumnsMinus1 + pps->m_nNumTileRowsMinus1) != 0);
+        h265e_stream_write1_with_log(s, pps->m_loopFilterAcrossTilesEnabledFlag ? 1 : 0, "loop_filter_across_tiles_enabled_flag");
+    }
     h265e_stream_write1_with_log(s, pps->m_LFCrossSliceBoundaryFlag ? 1 : 0, "loop_filter_across_slices_enabled_flag");
 
     // TODO: Here have some time sequence problem, we set below field in initEncSlice(), but use them in getStreamHeaders() early
@@ -669,7 +658,7 @@ MPP_RET h265e_set_extra_info(H265eCtx *ctx)
     return MPP_OK;
 }
 
-RK_U32 h265e_insert_user_data(void *dst, void *play_load, RK_S32 play_size)
+RK_U32 h265e_data_to_sei(void *dst, RK_U8 uuid[16], const void *payload, RK_S32 size)
 {
     H265eNal sei_nal;
     H265eStream stream;
@@ -682,7 +671,7 @@ RK_U32 h265e_insert_user_data(void *dst, void *play_load, RK_S32 play_size)
     sei_nal.i_type = NAL_SEI_PREFIX;
     sei_nal.p_payload = &stream.buf[stream.enc_stream.byte_cnt];
 
-    h265e_sei_write(&stream, play_load, play_size, H265_SEI_USER_DATA_UNREGISTERED);
+    h265e_sei_write(&stream, uuid, payload, size, H265_SEI_USER_DATA_UNREGISTERED);
 
     RK_U8 *end = &stream.buf[stream.enc_stream.byte_cnt];
     sei_nal.i_payload = (RK_S32)(end - sei_nal.p_payload);

@@ -27,11 +27,11 @@
 
 #include "mpp_enc_hal.h"
 #include "h264e_debug.h"
-#include "h264e_syntax_new.h"
+#include "h264e_sps.h"
+#include "h264e_pps.h"
 #include "h264e_slice.h"
-#include "h264e_stream.h"
 
-#include "hal_h264e_com.h"
+#include "hal_h264e_debug.h"
 #include "hal_h264e_vpu_tbl.h"
 #include "hal_h264e_vepu_v2.h"
 
@@ -40,7 +40,7 @@
 typedef struct HalH264eVepu2Ctx_t {
     MppEncCfgSet            *cfg;
 
-    MppDevCtx               dev_ctx;
+    MppDev                  dev;
     RK_S32                  frame_cnt;
 
     /* buffers management */
@@ -57,17 +57,16 @@ typedef struct HalH264eVepu2Ctx_t {
 
     /* syntax for input from enc_impl */
     RK_U32                  updated;
-    SynH264eSps             *sps;
-    SynH264ePps             *pps;
+    H264eSps                *sps;
+    H264ePps                *pps;
     H264eSlice              *slice;
     H264eFrmInfo            *frms;
     H264eReorderInfo        *reorder;
     H264eMarkingInfo        *marking;
+    H264ePrefixNal          *prefix;
 
     /* special TSVC stream header fixup */
-    size_t                  buf_size;
-    RK_U8                   *src_buf;
-    RK_U8                   *dst_buf;
+    HalH264eVepuStreamAmend amend;
 
     /* vepu2 macroblock ratecontrol context */
     HalH264eVepuMbRcCtx     rc_ctx;
@@ -82,9 +81,9 @@ static MPP_RET hal_h264e_vepu2_deinit_v2(void *hal)
 
     hal_h264e_dbg_func("enter %p\n", p);
 
-    if (p->dev_ctx) {
-        mpp_device_deinit(p->dev_ctx);
-        p->dev_ctx = NULL;
+    if (p->dev) {
+        mpp_dev_deinit(p->dev);
+        p->dev = NULL;
     }
 
     h264e_vepu_buf_deinit(&p->hw_bufs);
@@ -94,8 +93,7 @@ static MPP_RET hal_h264e_vepu2_deinit_v2(void *hal)
         p->rc_ctx = NULL;
     }
 
-    MPP_FREE(p->src_buf);
-    MPP_FREE(p->dst_buf);
+    h264e_vepu_stream_amend_deinit(&p->amend);
 
     hal_h264e_dbg_func("leave %p\n", p);
 
@@ -106,22 +104,20 @@ static MPP_RET hal_h264e_vepu2_init_v2(void *hal, MppEncHalCfg *cfg)
 {
     HalH264eVepu2Ctx *p = (HalH264eVepu2Ctx *)hal;
     MPP_RET ret = MPP_OK;
-    MppDevCfg dev_cfg = {
-        .type = MPP_CTX_ENC,            /* type */
-        .coding = MPP_VIDEO_CodingAVC,  /* coding */
-        .platform = 0,                  /* platform */
-        .pp_enable = 0,                 /* pp_enable */
-    };
 
     hal_h264e_dbg_func("enter %p\n", p);
 
     p->cfg = cfg->cfg;
 
-    ret = mpp_device_init(&p->dev_ctx, &dev_cfg);
+    /* update output to MppEnc */
+    cfg->type = VPU_CLIENT_VEPU2;
+
+    ret = mpp_dev_init(&cfg->dev, cfg->type);
     if (ret) {
-        mpp_err_f("mpp_device_init failed ret: %d\n", ret);
+        mpp_err_f("mpp_dev_init failed ret: %d\n", ret);
         goto DONE;
     }
+    p->dev = cfg->dev;
 
     ret = h264e_vepu_buf_init(&p->hw_bufs);
     if (ret) {
@@ -136,9 +132,7 @@ static MPP_RET hal_h264e_vepu2_init_v2(void *hal, MppEncHalCfg *cfg)
     }
 
     /* create buffer to TSVC stream */
-    p->buf_size = SZ_128K;
-    p->src_buf = mpp_calloc(RK_U8, p->buf_size);
-    p->dst_buf = mpp_calloc(RK_U8, p->buf_size);
+    h264e_vepu_stream_amend_init(&p->amend);
 
 DONE:
     if (ret)
@@ -177,10 +171,10 @@ static RK_U32 update_vepu2_syntax(HalH264eVepu2Ctx *ctx, MppSyntax *syntax)
             hal_h264e_dbg_detail("update frames");
             ctx->frms = desc->p;
         } break;
-        case H264E_SYN_RC : {
-            hal_h264e_dbg_detail("update rc");
+        case H264E_SYN_PREFIX : {
+            hal_h264e_dbg_detail("update prefix nal");
+            ctx->prefix = desc->p;
         } break;
-        case H264E_SYN_ROI :
         default : {
             mpp_log_f("invalid syntax type %d\n", desc->type);
         } break;
@@ -230,6 +224,9 @@ static MPP_RET hal_h264e_vepu2_get_task_v2(void *hal, HalEncTask *task)
     hw_addr->recn[1] = hw_addr->recn[0] + (yuv_size << 10);
     hw_addr->refr[1] = hw_addr->refr[0] + (yuv_size << 10);
 
+    h264e_vepu_stream_amend_config(&ctx->amend, task->packet, ctx->cfg,
+                                   ctx->slice, ctx->prefix);
+
     hal_h264e_dbg_func("leave %p\n", hal);
 
     return MPP_OK;
@@ -237,7 +234,7 @@ static MPP_RET hal_h264e_vepu2_get_task_v2(void *hal, HalEncTask *task)
 
 static RK_S32 setup_output_packet(RK_U32 *reg, MppBuffer buf, RK_U32 offset)
 {
-    RK_U32 offset8 = offset & (~0xf);
+    RK_U32 offset8 = offset & (~0x7);
     RK_S32 fd = mpp_buffer_get_fd(buf);
     RK_U32 hdr_rem_msb = 0;
     RK_U32 hdr_rem_lsb = 0;
@@ -278,8 +275,8 @@ static MPP_RET hal_h264e_vepu2_gen_regs_v2(void *hal, HalEncTask *task)
     HalH264eVepuMbRc *hw_mbrc = &ctx->hw_mbrc;
     EncRcTaskInfo *rc_info = &task->rc_task->info;
     EncFrmStatus *frm = &task->rc_task->frm;
-    SynH264eSps *sps = ctx->sps;
-    SynH264ePps *pps = ctx->pps;
+    H264eSps *sps = ctx->sps;
+    H264ePps *pps = ctx->pps;
     H264eSlice *slice = ctx->slice;
     RK_U32 *reg = ctx->regs_set.val;
     RK_U32 mb_w = ctx->sps->pic_width_in_mbs;
@@ -298,10 +295,15 @@ static MPP_RET hal_h264e_vepu2_gen_regs_v2(void *hal, HalEncTask *task)
     hal_h264e_dbg_detail("frame %d generate regs now", frm->seq_idx);
 
     // prepare mb rc config
-    h264e_vepu_mbrc_prepare(ctx->rc_ctx, &ctx->hw_mbrc, task->rc_task, ctx->cfg);
+    h264e_vepu_mbrc_prepare(ctx->rc_ctx, &ctx->hw_mbrc, task->rc_task);
+    h264e_vepu_slice_split_cfg(ctx->slice, &ctx->hw_mbrc, task->rc_task, ctx->cfg);
 
     /* setup output address with offset */
     first_free_bit = setup_output_packet(reg, task->output, offset);
+    /* set extra byte for header */
+    hw_mbrc->hdr_strm_size = offset;
+    hw_mbrc->hdr_free_size = first_free_bit / 8;
+    hw_mbrc->out_strm_size = 0;
 
     /*
      * The hardware needs only the value for luma plane, because
@@ -341,8 +343,10 @@ static MPP_RET hal_h264e_vepu2_gen_regs_v2(void *hal, HalEncTask *task)
     RK_U32 scaler = MPP_MAX(1, 200 / (mb_w + mb_h));
 
     RK_U32 skip_penalty = MPP_MIN(255, h264_skip_sad_penalty[hw_mbrc->qp_init] * scaler);
+
     RK_U32 overfill_r = (hw_prep->src_w & 0x0f) ?
                         ((16 - (hw_prep->src_w & 0x0f)) / 4) : 0;
+
     RK_U32 overfill_b = (hw_prep->src_h & 0x0f) ?
                         (16 - (hw_prep->src_h & 0x0f)) : 0;
 
@@ -355,7 +359,8 @@ static MPP_RET hal_h264e_vepu2_gen_regs_v2(void *hal, HalEncTask *task)
     // When offset is zero row length should be total 16 aligned width
     val = VEPU_REG_IN_IMG_CHROMA_OFFSET(0)
           | VEPU_REG_IN_IMG_LUMA_OFFSET(0)
-          | VEPU_REG_IN_IMG_CTRL_ROW_LEN(mb_w * 16);
+          | VEPU_REG_IN_IMG_CTRL_ROW_LEN(hw_prep->pixel_stride);
+
     H264E_HAL_SET_REG(reg, VEPU_REG_INPUT_LUMA_INFO, val);
 
     val = VEPU_REG_CHECKPOINT_CHECK1(hw_mbrc->cp_target[0])
@@ -482,25 +487,12 @@ static MPP_RET hal_h264e_vepu2_gen_regs_v2(void *hal, HalEncTask *task)
     val = VEPU_REG_ZERO_MV_FAVOR_D2(10);
     H264E_HAL_SET_REG(reg, VEPU_REG_MVC_RELATE, val);
 
-    if (hw_prep->src_fmt < H264E_VPU_CSP_RGB565) {
-        val = VEPU_REG_OUTPUT_SWAP32
-              | VEPU_REG_OUTPUT_SWAP16
-              | VEPU_REG_OUTPUT_SWAP8
-              | VEPU_REG_INPUT_SWAP8
-              | VEPU_REG_INPUT_SWAP16
-              | VEPU_REG_INPUT_SWAP32;
-    } else if (hw_prep->src_fmt == H264E_VPU_CSP_ARGB8888) {
-        val = VEPU_REG_OUTPUT_SWAP32
-              | VEPU_REG_OUTPUT_SWAP16
-              | VEPU_REG_OUTPUT_SWAP8
-              | VEPU_REG_INPUT_SWAP32;
-    } else {
-        val = VEPU_REG_OUTPUT_SWAP32
-              | VEPU_REG_OUTPUT_SWAP16
-              | VEPU_REG_OUTPUT_SWAP8
-              | VEPU_REG_INPUT_SWAP16
-              | VEPU_REG_INPUT_SWAP32;
-    }
+    val = VEPU_REG_OUTPUT_SWAP32
+          | VEPU_REG_OUTPUT_SWAP16
+          | VEPU_REG_OUTPUT_SWAP8
+          | VEPU_REG_INPUT_SWAP8_(hw_prep->swap_8_in)
+          | VEPU_REG_INPUT_SWAP16_(hw_prep->swap_16_in)
+          | VEPU_REG_INPUT_SWAP32_(hw_prep->swap_32_in);
     H264E_HAL_SET_REG(reg, VEPU_REG_DATA_ENDIAN, val);
 
     val = VEPU_REG_PPS_ID(pps->pps_id)
@@ -576,19 +568,40 @@ static MPP_RET hal_h264e_vepu2_start_v2(void *hal, HalEncTask *task)
 
     hal_h264e_dbg_func("enter %p\n", hal);
 
-    if (ctx->dev_ctx) {
-        RK_U32 *regs = ctx->regs_set.val;
+    if (ctx->dev) {
+        MppDevRegWrCfg wr_cfg;
+        MppDevRegRdCfg rd_cfg;
+        RK_U32 reg_size = sizeof(ctx->regs_set);
 
-        hal_h264e_dbg_detail("vpu client is sending %d regs", VEPU2_H264E_NUM_REGS);
-        ret = mpp_device_send_reg(ctx->dev_ctx, regs, VEPU2_H264E_NUM_REGS);
-        if (ret)
-            mpp_err("mpp_device_send_reg failed ret %d", ret);
-        else
-            hal_h264e_dbg_detail("mpp_device_send_reg success!");
-    } else {
-        mpp_err("invalid device ctx: %p", ctx->dev_ctx);
-        ret = MPP_NOK;
-    }
+        do {
+            wr_cfg.reg = &ctx->regs_set;
+            wr_cfg.size = reg_size;
+            wr_cfg.offset = 0;
+
+            ret = mpp_dev_ioctl(ctx->dev, MPP_DEV_REG_WR, &wr_cfg);
+            if (ret) {
+                mpp_err_f("set register write failed %d\n", ret);
+                break;
+            }
+
+            rd_cfg.reg = &ctx->regs_get;
+            rd_cfg.size = reg_size;
+            rd_cfg.offset = 0;
+
+            ret = mpp_dev_ioctl(ctx->dev, MPP_DEV_REG_RD, &rd_cfg);
+            if (ret) {
+                mpp_err_f("set register read failed %d\n", ret);
+                break;
+            }
+
+            ret = mpp_dev_ioctl(ctx->dev, MPP_DEV_CMD_SEND, NULL);
+            if (ret) {
+                mpp_err_f("send cmd failed %d\n", ret);
+                break;
+            }
+        } while (0);
+    } else
+        mpp_err("invalid NULL device ctx\n");
 
     hal_h264e_dbg_func("leave %p\n", hal);
 
@@ -604,12 +617,12 @@ static void h264e_vepu2_get_mbrc(HalH264eVepuMbRc *mb_rc, H264eVpu2RegSet *reg)
     RK_U32 *reg_val = reg->val;
 
     mb_rc->hw_status        = reg_val[VEPU_REG_INTERRUPT / 4];
-    mb_rc->out_strm_size    = reg_val[VEPU_REG_STR_BUF_LIMIT / 4] / 8;
+    mb_rc->out_strm_size    = reg_val[VEPU_REG_STR_BUF_LIMIT / 4] / 8 - mb_rc->hdr_free_size;
     mb_rc->qp_sum           = ((reg_val[VEPU_REG_QP_SUM_DIV2 / 4] >> 11) & 0x001fffff) * 2;
     mb_rc->less_mad_count   = (reg_val[VEPU_REG_MB_CTRL / 4] >> 16) & 0xffff;
     mb_rc->rlc_count        = reg_val[VEPU_REG_RLC_SUM / 4] & 0x3fffff;
 
-    for (i = 0; i < CHECK_POINTS_MAX; i++) {
+    for (i = 0; i < VEPU_CHECK_POINTS_MAX; i++) {
         RK_U32 cpt = VEPU_REG_CHECKPOINT_RESULT(reg_val[cpt_idx]);
 
         if (cpt < cpt_prev)
@@ -625,163 +638,37 @@ static MPP_RET hal_h264e_vepu2_wait_v2(void *hal, HalEncTask *task)
 {
     HalH264eVepu2Ctx *ctx = (HalH264eVepu2Ctx *)hal;
     HalH264eVepuMbRc *hw_mbrc = &ctx->hw_mbrc;
-    RK_U32 *regs_get = ctx->regs_get.val;
+    MPP_RET ret = MPP_NOK;
     (void) task;
 
     hal_h264e_dbg_func("enter %p\n", hal);
 
-    if (ctx->dev_ctx) {
-        RK_S32 hw_ret = mpp_device_wait_reg(ctx->dev_ctx, (RK_U32 *)regs_get,
-                                            VEPU2_H264E_NUM_REGS);
-
-        hal_h264e_dbg_detail("mpp_device_wait_reg: ret %d\n", hw_ret);
-
-        if (hw_ret != MPP_OK) {
-            mpp_err("hardware returns error:%d", hw_ret);
-            return MPP_ERR_VPUHW;
-        }
+    if (ctx->dev) {
+        ret = mpp_dev_ioctl(ctx->dev, MPP_DEV_CMD_POLL, NULL);
+        if (ret)
+            mpp_err_f("poll cmd failed %d\n", ret);
     } else {
-        mpp_err("invalid device ctx: %p", ctx->dev_ctx);
-        return MPP_NOK;
+        mpp_err("invalid NULL device ctx\n");
+        return ret;
     }
 
     h264e_vepu2_get_mbrc(hw_mbrc, &ctx->regs_get);
-
     h264e_vepu_mbrc_update(ctx->rc_ctx, hw_mbrc);
 
-    /* On TSVC case modify AVC stream to TSVC stream */
-    MppEncCfgSet *cfg = ctx->cfg;
-    H264eSlice *slice = ctx->slice;
-    MppEncGopRef *ref = &cfg->gop_ref;
-    MppEncH264Cfg *h264 = &cfg->codec.h264;
-
-    if (h264->svc || ref->gop_cfg_enable) {
-        H264eSlice hw_slice;
-        MppBuffer buf = task->output;
-        RK_U8 *p = mpp_buffer_get_ptr(buf);
-        RK_U32 len = hw_mbrc->out_strm_size;
-        RK_S32 size = mpp_buffer_get_size(buf);
-        RK_S32 hw_len_bit = 0;
-        RK_S32 sw_len_bit = 0;
-        RK_S32 hw_len_byte = 0;
-        RK_S32 sw_len_byte = 0;
-        RK_S32 diff_size = 0;
-        RK_S32 tail_0bit = 0;
-        RK_U8  tail_byte = 0;
-        RK_U8  tail_tmp = 0;
-        RK_U8 *dst_buf = NULL;
-        RK_S32 buf_size;
-        RK_S32 prefix_bit = 0;
-        RK_S32 prefix_byte = 0;
-        RK_S32 more_buf = 0;
-
-        while (len > ctx->buf_size - 16) {
-            ctx->buf_size *= 2;
-            more_buf = 1;
+    {
+        HalH264eVepuStreamAmend *amend = &ctx->amend;
+        if (amend->enable) {
+            amend->old_length = hw_mbrc->out_strm_size;
+            h264e_vepu_stream_amend_proc(amend);
+            ctx->hw_mbrc.out_strm_size = amend->new_length;
+        } else if (amend->prefix) {
+            /* check prefix value */
+            amend->old_length = hw_mbrc->out_strm_size;
+            h264e_vepu_stream_amend_sync_ref_idc(amend);
         }
-
-        if (more_buf) {
-            MPP_FREE(ctx->src_buf);
-            MPP_FREE(ctx->dst_buf);
-            ctx->src_buf = mpp_malloc(RK_U8, ctx->buf_size);
-            ctx->dst_buf = mpp_malloc(RK_U8, ctx->buf_size);
-        }
-
-        memset(ctx->dst_buf, 0, ctx->buf_size);
-        dst_buf = ctx->dst_buf;
-        buf_size = ctx->buf_size;
-
-        // copy hw stream to stream buffer first
-        memcpy(ctx->src_buf, p, len);
-
-        // prepare hw_slice with some current setup
-        memcpy(&hw_slice, slice, sizeof(hw_slice));
-        // set hw_slice to vepu2 default hardware config
-        hw_slice.max_num_ref_frames = 1;
-        hw_slice.pic_order_cnt_type = 2;
-        hw_slice.log2_max_frame_num = 16;
-        hw_slice.log2_max_poc_lsb = 16;
-
-        hw_len_bit = h264e_slice_read(&hw_slice, ctx->src_buf, size);
-
-        if (h264->svc) {
-            H264ePrefixNal prefix;
-
-            prefix.idr_flag = slice->idr_flag;
-            prefix.nal_ref_idc = slice->nal_reference_idc;
-            prefix.priority_id = 0;
-            prefix.no_inter_layer_pred_flag = 1;
-            prefix.dependency_id = 0;
-            prefix.quality_id = 0;
-            prefix.temporal_id = task->temporal_id;
-            prefix.use_ref_base_pic_flag = 0;
-            prefix.discardable_flag = 0;
-            prefix.output_flag = 1;
-
-            prefix_bit = h264e_slice_write_prefix_nal_unit_svc(&prefix, dst_buf, buf_size);
-            prefix_byte = prefix_bit /= 8;
-            h264e_dbg_slice("prefix_len %d\n", prefix_byte);
-            dst_buf += prefix_byte;
-            buf_size -= prefix_byte;
-        }
-
-        // write new header to header buffer
-        sw_len_bit = h264e_slice_write(slice, dst_buf, buf_size);
-
-        h264e_slice_read(slice, dst_buf, size);
-
-        hw_len_byte = (hw_len_bit + 7) / 8;
-        sw_len_byte = (sw_len_bit + 7) / 8;
-
-        tail_byte = ctx->src_buf[len - 1];
-        tail_tmp = tail_byte;
-
-        while (!(tail_tmp & 1) && tail_0bit < 8) {
-            tail_tmp >>= 1;
-            tail_0bit++;
-        }
-        h264e_dbg_slice("tail_byte %02x bit %d\n", tail_byte, tail_0bit);
-
-        mpp_assert(tail_0bit < 8);
-
-        // move the reset slice data from src buffer to dst buffer
-        diff_size = h264e_slice_move(dst_buf, ctx->src_buf,
-                                     sw_len_bit, hw_len_bit, len);
-
-        h264e_dbg_slice("tail 0x%02x %d hw_len_bit %d sw_len_bit %d len %d hw_len_byte %d sw_len_byte %d diff %d\n",
-                        tail_byte, tail_0bit, hw_len_bit, sw_len_bit, len, hw_len_byte, sw_len_byte, diff_size);
-
-        if (slice->entropy_coding_mode) {
-            memcpy(dst_buf + sw_len_byte, ctx->src_buf + hw_len_byte,
-                   len - hw_len_byte);
-
-            len += prefix_byte;
-
-            memcpy(p, ctx->dst_buf, len - hw_len_byte + sw_len_byte);
-
-            // clear the tail data
-            if (sw_len_byte < hw_len_byte)
-                memset(p + len - hw_len_byte + sw_len_byte, 0, hw_len_byte - sw_len_byte);
-
-            len = len - hw_len_byte + sw_len_byte;
-        } else {
-            RK_S32 hdr_diff_bit = sw_len_bit - hw_len_bit;
-            RK_S32 bit_len = len * 8 - tail_0bit + hdr_diff_bit;
-            RK_S32 new_len = (bit_len + diff_size * 8 + 7) / 8;
-
-            dst_buf[new_len] = 0;
-
-            h264e_dbg_slice("frm %d len %d bit hw %d sw %d byte hw %d sw %d diff %d -> %d\n",
-                            ctx->frms->seq_idx, len, hw_len_bit, sw_len_bit,
-                            hw_len_byte, sw_len_byte, diff_size, new_len);
-            new_len += prefix_byte;
-            memcpy(p, ctx->dst_buf, new_len);
-            p[new_len] = 0;
-            len = new_len;
-        }
-
-        hw_mbrc->out_strm_size = len;
     }
+
+    task->hw_length += ctx->hw_mbrc.out_strm_size;
 
     hal_h264e_dbg_func("leave %p\n", hal);
 
@@ -798,9 +685,9 @@ static MPP_RET hal_h264e_vepu2_ret_task_v2(void *hal, HalEncTask *task)
 
     hal_h264e_dbg_func("enter %p\n", hal);
 
-    task->length += ctx->hw_mbrc.out_strm_size;
+    task->length += task->hw_length;
 
-    rc_info->bit_real = task->length * 8;
+    rc_info->bit_real = task->hw_length * 8;
     rc_info->quality_real = ctx->hw_mbrc.qp_sum / mbs;
 
     hal_h264e_dbg_rc("real bit %d quality %d\n", rc_info->bit_real, rc_info->quality_real);

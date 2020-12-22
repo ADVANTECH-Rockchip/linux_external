@@ -12,13 +12,19 @@
 #include <mutex>
 
 #include "v4l2_utils.h"
+#ifdef RKAIQ
+#include "rkaiq_media.h"
+#endif
+
+#define RKISP_SUBDEV_NAME "rkisp-isp-subdev"
+#define RKIISPP_SUBDEV_NAME "rkispp-subdev"
 
 namespace easymedia {
 
 class V4L2Context {
 public:
   V4L2Context(enum v4l2_buf_type cap_type, v4l2_io io_func,
-              const std::string &device);
+              const std::string device);
   ~V4L2Context();
   int GetDeviceFd() { return fd; }
   // val: if true, VIDIOC_STREAMON, else VIDIOC_STREAMOFF
@@ -31,8 +37,18 @@ private:
   v4l2_io vio;
   std::mutex mtx;
   volatile bool started;
-#ifndef NDEBUG
   std::string path;
+};
+
+class V4L2MediaCtl {
+public:
+  V4L2MediaCtl();
+  ~V4L2MediaCtl();
+  int InitHwInfos();
+  int SetupLink(std::string devname, bool enable);
+
+#ifdef RKAIQ
+  RKAiqMedia media_ctl_infos;
 #endif
 };
 
@@ -68,12 +84,15 @@ protected:
 
   bool use_libv4l2;
   v4l2_io vio;
+  std::string devname;
   std::string device;
   std::string sub_device;
+  int camera_id;
   int fd; // just for convenience
   // static sub_device_controller;
   enum v4l2_buf_type capture_type;
   std::shared_ptr<V4L2Context> v4l2_ctx;
+  std::shared_ptr<V4L2MediaCtl> v4l2_medctl;
 };
 
 } // namespace easymedia

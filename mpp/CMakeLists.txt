@@ -61,7 +61,7 @@ set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "CMakeTargets")
 # ----------------------------------------------------------------------------
 # enable test in this project
 # ----------------------------------------------------------------------------
-enable_testing()
+option(BUILD_TEST "enable test binary building)" ON)
 
 # ----------------------------------------------------------------------------
 # System architecture detection
@@ -89,7 +89,7 @@ elseif(${SYSPROC} STREQUAL "armv7-a")
     message(STATUS "Detected ARMv7 system processor")
     set(ARM true)
     set(ARMEABI_V7A true)
-elseif(${SYSPROC} STREQUAL "armv7-a_hardfp")
+elseif(${SYSPROC} STREQUAL "armv7-a_hardfp" OR ${SYSPROC} STREQUAL "armv7l")
     message(STATUS "Detected ARMv7 system processor")
     set(ARM true)
     set(ARMEABI_V7A_HARDFP true)
@@ -168,13 +168,24 @@ if(GCC)
     add_definitions(-fPIC)
     # disable exception for C++
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fno-rtti")
+
+    # for libary linking
+    set(BEGIN_WHOLE_ARCHIVE -Wl,--whole-archive)
+    set(END_WHOLE_ARCHIVE -Wl,--no-whole-archive)
+
+    option(ASAN_CHECK "enable Address Sanitizer (Asan)" OFF)
+    if(ASAN_CHECK)
+        add_definitions(-fsanitize=address -static-libasan -g)
+        set(ASAN_LIB libasan.a dl rt m)
+        set(ASAN_BIN dl rt m)
+    endif(ASAN_CHECK)
 endif(GCC)
 
 # ----------------------------------------------------------------------------
 # Create git version information
 # ----------------------------------------------------------------------------
 set(VERSION_CNT         0)
-set(VERSION_MAX_CNT     10)
+set(VERSION_MAX_CNT     9)
 set(VERSION_INFO        "\"unknown mpp version for missing VCS info\"")
 foreach (CNT RANGE ${VERSION_MAX_CNT})
     set(VERSION_HISTORY_${CNT} "NULL")
@@ -208,33 +219,26 @@ if(EXISTS "${PROJECT_SOURCE_DIR}/.git")
         set(GIT_LOG_FORMAT "%h author: %<|(30)%an %cd %s %d")
 
         # get history version information
-        execute_process(COMMAND ${GIT_EXECUTABLE} log -${VERSION_MAX_CNT} --oneline --date=short --pretty=format:${GIT_LOG_FORMAT}
-            WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-            OUTPUT_VARIABLE EXEC_OUT
-            ERROR_VARIABLE EXEC_ERROR
-            RESULT_VARIABLE EXEC_RET
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_STRIP_TRAILING_WHITESPACE)
+        # setup logs
+        message(STATUS "git version history:")
+        foreach (CNT RANGE ${VERSION_MAX_CNT})
+            execute_process(COMMAND ${GIT_EXECUTABLE} log HEAD~${CNT} -1 --oneline --date=short --pretty=format:${GIT_LOG_FORMAT}
+                WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+                OUTPUT_VARIABLE EXEC_OUT
+                ERROR_VARIABLE EXEC_ERROR
+                RESULT_VARIABLE EXEC_RET
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_STRIP_TRAILING_WHITESPACE)
 
-        if (NOT EXEC_RET)
-            set(VERSION_HISTORY ${EXEC_OUT})
-            string(REPLACE "\n" ";" VERSION_HISTORY ${VERSION_HISTORY})
-
-            list(LENGTH VERSION_HISTORY VERSION_CNT)
-            message(STATUS "${VERSION_CNT} git history:")
-
-            # setup logs
-            set(CNT 0)
-            foreach(VERSION_LOG ${VERSION_HISTORY})
-                message(STATUS ${VERSION_LOG})
+            if (NOT EXEC_RET)
+                set(VERSION_LOG ${EXEC_OUT})
                 string(REPLACE "\"" "\\\"" VERSION_LOG ${VERSION_LOG})
+                message(STATUS ${VERSION_LOG})
                 set(VERSION_HISTORY_${CNT} "\"${VERSION_LOG}\"")
-                math(EXPR CNT "${CNT}+1")
-            endforeach(VERSION_LOG)
-        else()
-            message(STATUS "git ret ${EXEC_RET}")
-            message(STATUS "${EXEC_ERROR}")
-        endif()
+                math(EXPR VERSION_CNT "${VERSION_CNT}+1")
+            endif()
+        endforeach(CNT)
+        message(STATUS "total ${VERSION_CNT} git version recorded")
     endif()
 
     # add git hooks

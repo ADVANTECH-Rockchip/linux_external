@@ -41,6 +41,8 @@
 #define BSA_DM_CONFIG_LINK_POLICY_MASK          0x40000
 #define BSA_DM_CONFIG_MONITOR_RSSI              0x80000
 #define BSA_DM_CONFIG_BLE_CONN_SCAN_PARAM_MASK  0x100000
+#define BSA_DM_CONFIG_UUID128_EIR_MASK          0x200000
+
 
 #define BSA_DM_CONFIG_DEFAULT_MASK         0x001F
 typedef UINT32 tBSA_DM_CONFIG_MASK;
@@ -339,6 +341,12 @@ typedef struct
 
 }tBSA_DM_MONITOR_RSSI_PARAM;
 
+typedef struct
+{
+    BOOLEAN  isAdd;
+    tBT_UUID UUID;
+}tBSA_DM_ADD_REMOVE_EIR_PARAM;
+
 /* tBSA_DM_GET_CONFIG structure */
 typedef struct
 {
@@ -378,6 +386,7 @@ typedef struct
     tBSA_DM_CHIP_ID chip_id; /* bluetooth module chip id */
     tBSA_DM_LINK_POLICY_PARAM policy_param; /* link policy param*/
     tBSA_DM_MONITOR_RSSI_PARAM monitor_rssi_param; /* Monitor RSSI */
+    tBSA_DM_ADD_REMOVE_EIR_PARAM add_remove_eir_param; /* 128bits UUID */
 } tBSA_DM_GET_CONFIG;
 
 typedef tBSA_DM_GET_CONFIG tBSA_DM_SET_CONFIG;

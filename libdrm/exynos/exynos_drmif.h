@@ -31,6 +31,10 @@
 #include <stdint.h>
 #include "exynos_drm.h"
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
 struct exynos_device {
 	int fd;
 };
@@ -42,7 +46,7 @@ struct exynos_device {
  * @handle: a gem handle to gem object created.
  * @flags: indicate memory allocation and cache attribute types.
  * @size: size to the buffer created.
- * @vaddr: user space address to a gem buffer mmaped.
+ * @vaddr: user space address to a gem buffer mmapped.
  * @name: a gem global handle from flink request.
  */
 struct exynos_bo {
@@ -108,5 +112,9 @@ int exynos_vidi_connection(struct exynos_device *dev, uint32_t connect,
 int exynos_handle_event(struct exynos_device *dev,
 				struct exynos_event_context *ctx);
 
+
+#if defined(__cplusplus)
+}
+#endif
 
 #endif /* EXYNOS_DRMIF_H_ */

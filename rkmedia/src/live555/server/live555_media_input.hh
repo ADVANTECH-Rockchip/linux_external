@@ -19,9 +19,9 @@ namespace easymedia {
 
 class MediaBuffer;
 class VideoFramedSource;
-class AudioFramedSource;
+class CommonFramedSource;
 using ListReductionPtr = std::add_pointer<void(
-    std::list<std::shared_ptr<MediaBuffer>> &mb_list)>::type;
+    void *userdata, std::list<std::shared_ptr<MediaBuffer>> &mb_list)>::type;
 
 // using StartStreamCallback = std::add_pointer<void(void)>::type;
 typedef std::function<void()> StartStreamCallback;
@@ -35,13 +35,18 @@ public:
   std::shared_ptr<MediaBuffer> Pop();
   int GetReadFd() { return wakeFds[0]; }
   int GetWriteFd() { return wakeFds[1]; }
+  Boolean GetReadFdStatus() { return m_read_fd_status; }
   void CloseReadFd();
+  unsigned GetCachedBufSize() { return m_cached_buffers_size; }
+  void SetCachedBufSize(size_t one_buf_size);
 
 private:
   std::list<std::shared_ptr<MediaBuffer>> cached_buffers;
   ConditionLockMutex mtx;
   ListReductionPtr reduction;
   int wakeFds[2]; // Live555's EventTrigger is poor for multithread, use fds
+  unsigned m_cached_buffers_size;
+  Boolean m_read_fd_status;
 };
 
 class Live555MediaInput : public Medium {
@@ -49,16 +54,20 @@ public:
   static Live555MediaInput *createNew(UsageEnvironment &env);
   FramedSource *videoSource(CodecType c_type);
   FramedSource *audioSource();
+  FramedSource *muxerSource();
   void Start(UsageEnvironment &env);
   void Stop(UsageEnvironment &env);
 
   void PushNewVideo(std::shared_ptr<MediaBuffer> &buffer);
   void PushNewAudio(std::shared_ptr<MediaBuffer> &buffer);
+  void PushNewMuxer(std::shared_ptr<MediaBuffer> &buffer);
 
   void SetStartVideoStreamCallback(const StartStreamCallback &cb);
   StartStreamCallback GetStartVideoStreamCallback();
   void SetStartAudioStreamCallback(const StartStreamCallback &cb);
   StartStreamCallback GetStartAudioStreamCallback();
+
+  unsigned getMaxIdrSize();
 
 protected:
   virtual ~Live555MediaInput();
@@ -68,9 +77,8 @@ private:
 
   std::list<Source *> video_list;
   std::list<Source *> audio_list;
+  std::list<Source *> muxer_list;
   volatile bool connecting;
-  VideoFramedSource *video_source;
-  AudioFramedSource *audio_source;
 
   StartStreamCallback video_callback;
   StartStreamCallback audio_callback;
@@ -79,7 +87,8 @@ private:
   ConditionLockMutex audio_callback_mtx;
 
   friend class VideoFramedSource;
-  friend class AudioFramedSource;
+  friend class CommonFramedSource;
+  unsigned m_max_idr_size;
 };
 
 class ListSource : public FramedSource {
@@ -111,18 +120,19 @@ public:
   VideoFramedSource(UsageEnvironment &env, Source &source);
   virtual ~VideoFramedSource();
 
-  void SetCodecType(CodecType type) {codec_type = type;}
-  CodecType GetCodecType() {return codec_type;}
+  void SetCodecType(CodecType type) { codec_type = type; }
+  CodecType GetCodecType() { return codec_type; }
+
 protected: // redefined virtual functions:
   virtual bool readFromList(bool flush = false);
   bool got_iframe;
   CodecType codec_type;
 };
 
-class AudioFramedSource : public ListSource {
+class CommonFramedSource : public ListSource {
 public:
-  AudioFramedSource(UsageEnvironment &env, Source &source);
-  virtual ~AudioFramedSource();
+  CommonFramedSource(UsageEnvironment &env, Source &source);
+  virtual ~CommonFramedSource();
 
 protected: // redefined virtual functions:
   virtual bool readFromList(bool flush = false);

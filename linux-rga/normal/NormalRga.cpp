@@ -14,10 +14,12 @@
 //#include "../GraphicBuffer.h"
 //#include "../RgaApi.h"
 #include <sys/ioctl.h> 
+#include <pthread.h>
 //#include <cutils/properties.h>
 
 volatile int32_t refCount = 0;
-struct rgaContext *rgaCtx = NULL;
+pthread_mutex_t gMutex = PTHREAD_MUTEX_INITIALIZER;
+static struct rgaContext *rgaCtx = NULL;
 
 void NormalRgaSetLogOnceFlag(int log)
 {
@@ -38,7 +40,7 @@ void NormalRgaSetAlwaysLogFlag(int log)
 int NormalRgaOpen(void **context)
 {
 	struct rgaContext *ctx = NULL;
-	char buf[30];
+	char buf[30] = {};
 	int fd = -1;
 	int ret = 0;
 
@@ -78,7 +80,6 @@ int NormalRgaOpen(void **context)
 	rgaCtx = ctx;
 
 init:
-	//android_atomic_inc(&refCount);
 	*context = (void *)ctx;
 	return ret;
 
@@ -107,17 +108,7 @@ int NormalRgaClose(void *context)
 		return -ENODEV;
 	}
 
-	if (refCount <= 0) {
-		DEBUG("This can not be happened \n");
-		return 0;
-	}
-
-	if (refCount > 0)
-	//if (refCount > 0 && android_atomic_dec(&refCount) != 1)
-		return 0;
-
 	rgaCtx = NULL;
-
 	close(ctx->rgaFd);
 
 	free(ctx);
@@ -128,14 +119,28 @@ int NormalRgaClose(void *context)
 int RgaInit(void **ctx)
 {
 	int ret = 0;
-	ret = NormalRgaOpen(ctx);
+	pthread_mutex_lock(&gMutex);
+	if (refCount == 0) {
+		ret = NormalRgaOpen(ctx);
+	}
+	refCount++;
+	pthread_mutex_unlock(&gMutex);
 	return ret;
 }
 
 int RgaDeInit(void *ctx)
 {
 	int ret = 0;
-	ret = NormalRgaClose(ctx);
+	pthread_mutex_lock(&gMutex);
+	if (refCount <= 0) {
+		refCount = 0;
+	} else if (refCount == 1) {
+		refCount = 0;
+		ret = NormalRgaClose(ctx);
+	} else {
+		refCount--;
+	}
+	pthread_mutex_unlock(&gMutex);
 	return ret;
 }
 
@@ -148,7 +153,7 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 	int dstVirW,dstVirH,dstActW,dstActH,dstXPos,dstYPos;
 	//int src1VirW,src1VirH,src1ActW,src1ActH,src1XPos,src1YPos;
 	int scaleMode,rotateMode,orientation,ditherEn;
-	int srcType,dstType,src1Type,srcMmuFlag,dstMmuFlag,src1MmuFlag;
+	int srcType,dstType,srcMmuFlag,dstMmuFlag;
 	int planeAlpha;
 	int dstFd = -1;
 	int srcFd = -1;
@@ -158,15 +163,14 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
     float hScale = 1;
     float vScale = 1;
 	int ret = 0;
-	rga_rect_t relSrcRect,tmpSrcRect,relDstRect,tmpDstRect;
-	rga_rect_t relSrc1Rect,tmpSrc1Rect;
-	struct rga_req rgaReg,tmprgaReg;
+	rga_rect_t relSrcRect,relDstRect;
+	rga_rect_t relSrc1Rect;
+	struct rga_req rgaReg;
 	unsigned int blend;
 	unsigned int yuvToRgbMode;
 	bool perpixelAlpha = 0;
 	void *srcBuf = NULL;
 	void *dstBuf = NULL;
-	void *src1Buf = NULL;
 	RECT_t clip;
 
 	if (!ctx) {
@@ -177,7 +181,6 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 	memset(&rgaReg, 0, sizeof(struct rga_req));
 
 	srcType = dstType = srcMmuFlag = dstMmuFlag = 0;
-	src1Type = src1MmuFlag = 0;
 	rotation = 0;
 	blend = 0;
 	yuvToRgbMode = 0;
@@ -360,16 +363,16 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 			hScale = (float)relSrcRect.width / relDstRect.height;
 			vScale = (float)relSrcRect.height / relDstRect.width;
 		}
-		if (hScale < 1/16 || hScale > 16 || vScale < 1/16 || vScale > 16) {
+		if (hScale < 1.0/16 || hScale > 16 || vScale < 1.0/16 || vScale > 16) {
 			DEBUG("Error scale[%f,%f] line %d \n", hScale, vScale, __LINE__);
 			return -EINVAL;
 		}
-		if (ctx->mVersion < 2.0 && (hScale < 1/8 ||
-					hScale > 8 || vScale < 1/8 || vScale > 8)) {
+		if (ctx->mVersion < 2.0 && (hScale < 1.0/8 ||
+					hScale > 8 || vScale < 1.0/8 || vScale > 8)) {
 			DEBUG("Error scale[%f,%f] line %d \n", hScale, vScale, __LINE__);
 			return -EINVAL;
 		}
-		if (ctx->mVersion <= 1.003 && (hScale < 1/2 || vScale < 1/2)) {
+		if (ctx->mVersion <= 1.003 && (hScale < 1.0/2 || vScale < 1.0/2)) {
 			DEBUG("e scale[%f,%f] ver[%f] \n", hScale, vScale, ctx->mVersion);
 			return -EINVAL;
 		}
@@ -671,7 +674,7 @@ int RgaBlit(rga_info *src, rga_info *dst, rga_info *src1)
 
 	if (NormalRgaIsRgbFormat(RkRgaGetRgaFormat(relSrcRect.format)) &&
 			NormalRgaIsYuvFormat(RkRgaGetRgaFormat(relDstRect.format)))
-		yuvToRgbMode |= 0x2 << 4;
+		yuvToRgbMode |= 0x2 << 2;
 
 	/*mode*/
 	NormalRgaSetBitbltMode(&rgaReg, scaleMode, rotateMode, orientation,
@@ -698,12 +701,11 @@ int RgaCollorFill(rga_info *dst)
 	//check buffer_handle_t with rects
 	struct rgaContext *ctx = rgaCtx;
 	int dstVirW,dstVirH,dstActW,dstActH,dstXPos,dstYPos;
-	int scaleMode,ditherEn;
 	int dstType,dstMmuFlag;
 	int dstFd = -1;
 	int ret = 0;
 	unsigned int color = 0x00000000;
-	rga_rect_t relDstRect,tmpDstRect;
+	rga_rect_t relDstRect;
 	struct rga_req rgaReg;
 	COLOR_FILL fillColor ;
 	void *dstBuf = NULL;

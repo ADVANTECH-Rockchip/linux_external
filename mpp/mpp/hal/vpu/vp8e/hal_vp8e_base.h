@@ -17,15 +17,10 @@
 #ifndef __HAL_VP8E_BASE_H__
 #define __HAL_VP8E_BASE_H__
 
-#include "rk_type.h"
-
-#include "mpp_device.h"
-#include "mpp_hal.h"
 #include "mpp_mem.h"
 
-#include "vpu.h"
-
-#include "hal_task.h"
+#include "mpp_hal.h"
+#include "mpp_device.h"
 
 #include "vp8e_syntax.h"
 
@@ -334,16 +329,14 @@ typedef struct {
 } Vp8eHwCfg;
 
 typedef struct hal_vp8e_ctx_s {
-    IOInterruptCB    int_cb;
     Vp8eFeedback     feedback;
-    MppDevCtx        dev_ctx;
+    MppDev           dev;
 
     void             *regs;
     void             *buffers;
     RK_U32           reg_size;
 
     MppEncCfgSet     *cfg;
-    MppEncCfgSet     *set;
 
     MppHalApi        hal_api;
 
@@ -365,7 +358,7 @@ typedef struct hal_vp8e_ctx_s {
 
     RK_U32           buffer_ready;
     RK_U64           frame_cnt;
-    RK_U8            key_frm_next;
+    RK_U8            last_frm_intra;
     Vp8FrmType       frame_type;
 
     RK_U32           mb_per_frame;
@@ -377,8 +370,8 @@ typedef struct hal_vp8e_ctx_s {
 extern "C" {
 #endif
 
-MPP_RET hal_vp8e_update_buffers(void *hal, HalTaskInfo *task);
-MPP_RET hal_vp8e_enc_strm_code(void *hal, HalTaskInfo *info);
+MPP_RET hal_vp8e_update_buffers(void *hal, HalEncTask *task);
+MPP_RET hal_vp8e_enc_strm_code(void *hal, HalEncTask *info);
 MPP_RET hal_vp8e_init_qp_table(void *hal);
 MPP_RET hal_vp8e_setup(void *hal);
 MPP_RET hal_vp8e_buf_free(void *hal);

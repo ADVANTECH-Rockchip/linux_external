@@ -134,7 +134,7 @@ void app_ble_tvselect_menu(void)
             break;
 
         case APP_BLE_TVSELECT_MENU_SEARCH_SERVER:
-            app_disc_start_ble_regular(app_ble_tvselect_client_disc_cback);
+            app_disc_start_ble_regular(app_ble_tvselect_client_disc_cback, 0);
             break;
 
         case APP_BLE_TVSELECT_MENU_OPEN_SERVER:

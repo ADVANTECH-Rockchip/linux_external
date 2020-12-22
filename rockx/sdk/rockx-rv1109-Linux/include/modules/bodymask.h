@@ -38,7 +38,7 @@ typedef struct rockx_bodymask_array_t {
  * @return @ref rockx_ret_t
  */
 rockx_ret_t rockx_body_mask(rockx_handle_t handle, rockx_image_t *in_img, rockx_bodymask_array_t *masks_array,
-		rockx_async_callback callback);
+		rockx_async_callback *callback);
 
 #ifdef __cplusplus
 } //extern "C"

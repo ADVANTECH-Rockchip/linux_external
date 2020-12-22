@@ -24,10 +24,7 @@
 #include <dlfcn.h>
 #include <unistd.h>
 
-#include "rk_type.h"
-#include "mpp_device.h"
 #include "mpp_log.h"
-#include "mpp_err.h"
 #include "mpp_mem.h"
 #include "mpp_env.h"
 #include "mpp_platform.h"
@@ -40,10 +37,11 @@
 #include "hal_h264d_api.h"
 
 #include "hal_h264d_rkv_reg.h"
+#include "hal_h264d_vdpu34x.h"
 #include "hal_h264d_vdpu2.h"
 #include "hal_h264d_vdpu1.h"
 
-RK_U32 rkv_h264d_hal_debug = 0;
+RK_U32 hal_h264d_debug = 0;
 
 static void explain_input_buffer(void *hal, HalDecTask *task)
 {
@@ -84,50 +82,69 @@ MPP_RET hal_h264d_init(void *hal, MppHalCfg *cfg)
     MppHalApi *p_api = NULL;
     MPP_RET ret = MPP_ERR_UNKNOW;
     H264dHalCtx_t *p_hal = (H264dHalCtx_t *)hal;
-    VpuHardMode hard_mode = MODE_NULL;
-    RK_U32 hard_platform = 0;
+    RK_U32 vcodec_type = mpp_get_vcodec_type();
+    MppClientType type = VPU_CLIENT_BUTT;
+    VpuHwMode hw_mode = MODE_NULL;
+    RK_U32 hw_id = 0;
 
     INP_CHECK(ret, NULL == p_hal);
     memset(p_hal, 0, sizeof(H264dHalCtx_t));
+
+    // check codec_type first
+    if (!(vcodec_type & (HAVE_RKVDEC | HAVE_VDPU1 | HAVE_VDPU2))) {
+        mpp_err_f("can not found H.264 decoder hardware on platform %x\n", vcodec_type);
+        return ret;
+    }
 
     p_api = &p_hal->hal_api;
 
     p_hal->frame_slots  = cfg->frame_slots;
     p_hal->packet_slots = cfg->packet_slots;
-    p_hal->fast_mode = cfg->fast_mode;
+    p_hal->cfg = cfg->cfg;
+    p_hal->fast_mode = cfg->cfg->base.fast_parse;
+
     //!< choose hard mode
     {
         RK_U32 mode = 0;
-        RK_U32 vcodec_type = 0;
         mpp_env_get_u32("use_mpp_mode", &mode, 0);
-        vcodec_type = mpp_get_vcodec_type();
-        mpp_assert(vcodec_type & (HAVE_RKVDEC | HAVE_VDPU1 | HAVE_VDPU2));
+
         if ((mode <= RKVDEC_MODE) && (vcodec_type & HAVE_RKVDEC)) {
-            hard_mode = RKVDEC_MODE;
-            hard_platform = HAVE_RKVDEC;
+            hw_mode = RKVDEC_MODE;
+            type = VPU_CLIENT_RKVDEC;
         } else if (vcodec_type & HAVE_VDPU1) {
-            hard_mode = VDPU1_MODE;
-            hard_platform = HAVE_VDPU1;
+            hw_mode = VDPU1_MODE;
+            type = VPU_CLIENT_VDPU1;
         } else if (vcodec_type & HAVE_VDPU2) {
-            hard_mode = VDPU2_MODE;
-            hard_platform = HAVE_VDPU2;
+            hw_mode = VDPU2_MODE;
+            type = VPU_CLIENT_VDPU2;
         }
-        H264D_DBG(H264D_DBG_HARD_MODE, "set_mode=%d, hw_spt=%08x, use_mode=%d\n",
-                  mode, vcodec_type, hard_mode);
+        hw_id = mpp_get_client_hw_id(type);
+        H264D_DBG(H264D_DBG_HARD_MODE, "hw_plat %08x mode %d hw_id %08x\n",
+                  vcodec_type, mode, hw_id);
     }
-    switch (hard_mode) {
-    case RKVDEC_MODE:
-        p_api->init    = rkv_h264d_init;
-        p_api->deinit  = rkv_h264d_deinit;
-        p_api->reg_gen = rkv_h264d_gen_regs;
-        p_api->start   = rkv_h264d_start;
-        p_api->wait    = rkv_h264d_wait;
-        p_api->reset   = rkv_h264d_reset;
-        p_api->flush   = rkv_h264d_flush;
-        p_api->control = rkv_h264d_control;
-        cfg->device_id = DEV_RKVDEC;
+    switch (hw_mode) {
+    case RKVDEC_MODE :
+        if (hw_id == HWID_VDPU34X) {
+            p_api->init    = vdpu34x_h264d_init;
+            p_api->deinit  = vdpu34x_h264d_deinit;
+            p_api->reg_gen = vdpu34x_h264d_gen_regs;
+            p_api->start   = vdpu34x_h264d_start;
+            p_api->wait    = vdpu34x_h264d_wait;
+            p_api->reset   = vdpu34x_h264d_reset;
+            p_api->flush   = vdpu34x_h264d_flush;
+            p_api->control = vdpu34x_h264d_control;
+        } else {
+            p_api->init    = rkv_h264d_init;
+            p_api->deinit  = rkv_h264d_deinit;
+            p_api->reg_gen = rkv_h264d_gen_regs;
+            p_api->start   = rkv_h264d_start;
+            p_api->wait    = rkv_h264d_wait;
+            p_api->reset   = rkv_h264d_reset;
+            p_api->flush   = rkv_h264d_flush;
+            p_api->control = rkv_h264d_control;
+        }
         break;
-    case VDPU1_MODE:
+    case VDPU1_MODE : {
         p_api->init    = vdpu1_h264d_init;
         p_api->deinit  = vdpu1_h264d_deinit;
         p_api->reg_gen = vdpu1_h264d_gen_regs;
@@ -136,9 +153,8 @@ MPP_RET hal_h264d_init(void *hal, MppHalCfg *cfg)
         p_api->reset   = vdpu1_h264d_reset;
         p_api->flush   = vdpu1_h264d_flush;
         p_api->control = vdpu1_h264d_control;
-        cfg->device_id = DEV_VDPU;
-        break;
-    case VDPU2_MODE:
+    } break;
+    case VDPU2_MODE : {
         p_api->init    = vdpu2_h264d_init;
         p_api->deinit  = vdpu2_h264d_deinit;
         p_api->reg_gen = vdpu2_h264d_gen_regs;
@@ -147,29 +163,20 @@ MPP_RET hal_h264d_init(void *hal, MppHalCfg *cfg)
         p_api->reset   = vdpu2_h264d_reset;
         p_api->flush   = vdpu2_h264d_flush;
         p_api->control = vdpu2_h264d_control;
-        cfg->device_id = DEV_VDPU;
-        break;
-    default:
-        mpp_err_f("hard mode error, value=%d\n", hard_mode);
+    } break;
+    default : {
+        mpp_err_f("hard mode error, value=%d\n", hw_mode);
         mpp_assert(0);
-        break;
+    } break;
     }
     //!< callback function to parser module
-    p_hal->init_cb = cfg->hal_int_cb;
+    p_hal->dec_cb = cfg->dec_cb;
 
-    mpp_env_get_u32("rkv_h264d_debug", &rkv_h264d_hal_debug, 0);
+    mpp_env_get_u32("hal_h264d_debug", &hal_h264d_debug, 0);
 
-    //!< mpp_device_init
-    MppDevCfg dev_cfg = {
-        .type = MPP_CTX_DEC,            /* type */
-        .coding = MPP_VIDEO_CodingAVC,  /* coding */
-        .platform = hard_platform,      /* platform */
-        .pp_enable = 0,                 /* pp_enable */
-    };
-
-    ret = mpp_device_init(&p_hal->dev_ctx, &dev_cfg);
+    ret = mpp_dev_init(&p_hal->dev, type);
     if (ret) {
-        mpp_err("mpp_device_init failed ret: %d\n", ret);
+        mpp_err("mpp_dev_init failed ret: %d\n", ret);
         goto __FAILED;
     }
 
@@ -201,11 +208,9 @@ MPP_RET hal_h264d_deinit(void *hal)
 
     FUN_CHECK(ret = p_hal->hal_api.deinit(hal));
 
-    //!< mpp_device_init
-    if (p_hal->dev_ctx) {
-        ret = mpp_device_deinit(p_hal->dev_ctx);
-        if (ret)
-            mpp_err("mpp_device_deinit failed. ret: %d\n", ret);
+    if (p_hal->dev) {
+        mpp_dev_deinit(p_hal->dev);
+        p_hal->dev = NULL;
     }
 
     if (p_hal->buf_group) {

@@ -22,13 +22,38 @@ enum AVPixelFormat PixFmtToAVPixFmt(PixelFormat fmt) {
       {PIX_FMT_RGB332, AV_PIX_FMT_RGB8},
       {PIX_FMT_RGB565, AV_PIX_FMT_RGB565LE},
       {PIX_FMT_BGR565, AV_PIX_FMT_BGR565LE},
-      {PIX_FMT_RGB888, AV_PIX_FMT_RGB24},
-      {PIX_FMT_BGR888, AV_PIX_FMT_BGR24},
-      {PIX_FMT_ARGB8888, AV_PIX_FMT_ARGB},
-      {PIX_FMT_ABGR8888, AV_PIX_FMT_ABGR},
+      {PIX_FMT_RGB888, AV_PIX_FMT_BGR24},
+      {PIX_FMT_BGR888, AV_PIX_FMT_RGB24},
+      {PIX_FMT_ARGB8888, AV_PIX_FMT_BGRA},
+      {PIX_FMT_ABGR8888, AV_PIX_FMT_RGBA},
   };
   FIND_ENTRY_TARGET(fmt, pix_fmt_av_pixfmt_map, fmt, av_fmt)
   return AV_PIX_FMT_NONE;
+}
+
+PixelFormat AVPixFmtToPixFmt(enum AVPixelFormat av_fmt) {
+  static const struct AVPFPixFmtEntry {
+    enum AVPixelFormat av_fmt;
+    PixelFormat fmt;
+  } av_pixfmt_pix_fmt_map[] = {
+      {AV_PIX_FMT_YUV420P, PIX_FMT_YUV420P},
+      {AV_PIX_FMT_NV12, PIX_FMT_NV12},
+      {AV_PIX_FMT_NV21, PIX_FMT_NV21},
+      {AV_PIX_FMT_YUV422P16LE, PIX_FMT_YUV422P},
+      {AV_PIX_FMT_NV16, PIX_FMT_NV16},
+      {AV_PIX_FMT_NONE, PIX_FMT_NV61},
+      {AV_PIX_FMT_YUYV422, PIX_FMT_YUYV422},
+      {AV_PIX_FMT_UYVY422, PIX_FMT_UYVY422},
+      {AV_PIX_FMT_RGB8, PIX_FMT_RGB332},
+      {AV_PIX_FMT_RGB565LE, PIX_FMT_RGB565},
+      {AV_PIX_FMT_BGR565LE, PIX_FMT_BGR565},
+      {AV_PIX_FMT_BGR24, PIX_FMT_RGB888},
+      {AV_PIX_FMT_RGB24, PIX_FMT_BGR888},
+      {AV_PIX_FMT_BGRA, PIX_FMT_ARGB8888},
+      {AV_PIX_FMT_RGBA, PIX_FMT_ABGR8888},
+  };
+  FIND_ENTRY_TARGET(av_fmt, av_pixfmt_pix_fmt_map, av_fmt, fmt)
+  return PIX_FMT_NB;
 }
 
 enum AVCodecID SampleFmtToAVCodecID(SampleFormat fmt) {
@@ -57,6 +82,7 @@ enum AVCodecID CodecTypeToAVCodecID(CodecType type) {
       {CODEC_TYPE_G726, AV_CODEC_ID_ADPCM_G726},
       {CODEC_TYPE_H264, AV_CODEC_ID_H264},
       {CODEC_TYPE_H265, AV_CODEC_ID_H265},
+      {CODEC_TYPE_JPEG, AV_CODEC_ID_MJPEG},
   };
   FIND_ENTRY_TARGET(type, codec_type_av_codecid_map, type, av_codecid)
   return AV_CODEC_ID_NONE;
@@ -84,9 +110,66 @@ void PrintAVError(int err, const char *log, const char *mark) {
   char str[AV_ERROR_MAX_STRING_SIZE] = {0};
   av_strerror(err, str, sizeof(str));
   if (mark)
-    LOG("%s '%s': %s\n", log, mark, str);
+    RKMEDIA_LOGI("%s '%s': %s\n", log, mark, str);
   else
-    LOG("%s: %s\n", log, str);
+    RKMEDIA_LOGI("%s: %s\n", log, str);
+}
+
+#define CONV_FUNC_NAME(dst_fmt, src_fmt) conv_##src_fmt##_to_##dst_fmt
+
+// FIXME rounding ?
+#define CONV_FUNC(ofmt, otype, ifmt, expr)                                     \
+  void CONV_FUNC_NAME(ofmt, ifmt)(uint8_t * po, const uint8_t *pi, int is,     \
+                                  int os, uint8_t *end) {                      \
+    uint8_t *end2 = end - 3 * os;                                              \
+    while (po < end2) {                                                        \
+      *(otype *)po = expr;                                                     \
+      pi += is;                                                                \
+      po += os;                                                                \
+      *(otype *)po = expr;                                                     \
+      pi += is;                                                                \
+      po += os;                                                                \
+      *(otype *)po = expr;                                                     \
+      pi += is;                                                                \
+      po += os;                                                                \
+      *(otype *)po = expr;                                                     \
+      pi += is;                                                                \
+      po += os;                                                                \
+    }                                                                          \
+    while (po < end) {                                                         \
+      *(otype *)po = expr;                                                     \
+      pi += is;                                                                \
+      po += os;                                                                \
+    }                                                                          \
+  }
+
+CONV_FUNC(AV_SAMPLE_FMT_S16, int16_t, AV_SAMPLE_FMT_FLT,
+          av_clip_int16(lrintf(*(const float *)pi *(1 << 15))))
+CONV_FUNC(AV_SAMPLE_FMT_FLT, float, AV_SAMPLE_FMT_S16,
+          *(const int16_t *)pi *(1.0f / (1 << 15)))
+
+void conv_planar_to_package(uint8_t *po, uint8_t *pi, SampleInfo sampleInfo) {
+  int sample_size =
+      av_get_bytes_per_sample(SampleFmtToAVSamFmt(sampleInfo.fmt));
+  for (int i = 0; i < sampleInfo.nb_samples; i++) {
+    for (int j = 0; j < sampleInfo.channels; j++) {
+      memcpy(po, pi + (i + sampleInfo.nb_samples * j) * sample_size,
+             sample_size);
+      po += sample_size;
+    }
+  }
+}
+
+void conv_package_to_planar(uint8_t *po, uint8_t *pi, SampleInfo sampleInfo) {
+  int sample_size =
+      av_get_bytes_per_sample(SampleFmtToAVSamFmt(sampleInfo.fmt));
+  for (int i = 0; i < sampleInfo.nb_samples; i++) {
+    for (int j = 0; j < sampleInfo.channels; j++) {
+      memcpy(po + (i + sampleInfo.nb_samples * j) * sample_size, pi,
+             sample_size);
+      pi += sample_size;
+    }
+  }
 }
 
 } // namespace easymedia

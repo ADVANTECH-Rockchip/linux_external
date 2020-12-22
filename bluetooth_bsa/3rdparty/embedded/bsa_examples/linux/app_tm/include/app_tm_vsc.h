@@ -4,8 +4,8 @@
 **
 **  Description:    Bluetooth Test Module VSC functions
 **
-**  Copyright (c) 2011-2014, Broadcom Corp., All Rights Reserved.
-**  Broadcom Bluetooth Core. Proprietary and confidential.
+**  Copyright (c) 2019, Cypress Semiconductor Corp., All Rights Reserved.
+**  Cypress Bluetooth Core. Proprietary and confidential.
 **
 *****************************************************************************/
 
@@ -17,11 +17,13 @@
  */
 #define HCI_VSC_OPCODE_SET_BD_ADDR                  0x01
 #define HCI_VSC_OPCODE_SET_TX_CARRIER_FREQUENCY     0x14
+#define HCI_VSC_OPCODE_SET_ENCRYPTION_KEY_SIZE      0x16
 #define HCI_VSC_OPCODE_GPIO_CONFIG_AND_WRITE        0x19
 #define HCI_VSC_OPCODE_WRITE_SCO_PCM_INT_PARAM      0x1C
 #define HCI_VSC_OPCODE_WRITE_PCM_CONFIG_PARAM       0x1E
 #define HCI_VSC_OPCODE_SET_TX_POWER                 0x26
 #define HCI_VSC_OPCODE_WRITE_RCV_ONLY               0x2B
+#define HCI_VSC_OPCODE_SET_AFH_BEHAVIOR             0x32
 #define HCI_VSC_OPCODE_ENABLE_UHE                   0x3B
 #define HCI_VSC_OPCODE_READ_COLLABORATION_MODE      0x40
 #define HCI_VSC_OPCODE_WRITE_COLLABORATION_MODE     0x41
@@ -351,5 +353,34 @@ int app_tm_vsc_configure_sco();
  **
  *******************************************************************************/
 int app_tm_vsc_set_connection_priority();
+
+/*******************************************************************************
+ **
+ ** Function        app_tm_vsc_set_encryption_key_size
+ **
+ ** Description     This function sends a VSC to set encryption key size
+ **
+ ** Parameters      value
+ **                 0x0001 - Accept 8-bit key
+ **                 0x0002 - Accept 16-bit key
+ **                 0x0004 - Accept 24-bit key
+ **                 0x0008 - Accept 32-bit key
+ **                 0x0010 - Accept 40-bit key
+ **                 0x0020 - Accept 48-bit key
+ **                 0x0040 - Accept 56-bit key
+ **                 0x0080 - Accept 64-bit key
+ **                 0x0100 - Accept 72-bit key
+ **                 0x0200 - Accept 80-bit key
+ **                 0x0400 - Accept 88-bit key
+ **                 0x0800 - Accept 96-bit key
+ **                 0x1000 - Accept 104-bit key
+ **                 0x2000 - Accept 112-bit key
+ **                 0x4000 - Accept 120-bit key
+ **                 0x8000 - Accept 128-bit key
+ **
+ ** Returns         status: 0 if success / -1 otherwise
+ **
+ *******************************************************************************/
+int app_tm_vsc_set_encryption_key_size(UINT16 value);
 
 #endif /* APP_TM_VSC_H_ */

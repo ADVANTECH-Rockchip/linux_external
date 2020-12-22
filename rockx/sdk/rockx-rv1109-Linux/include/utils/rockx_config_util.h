@@ -35,6 +35,16 @@ extern "C" {
 #define ROCKX_CONFIG_TARGET_DEVICE_ID "ROCKX_TARGET_DEVICE_ID"
 
 /**
+ * @brief Config Key of librknn_runtime.so path
+ */
+#define ROCKX_CONFIG_RKNN_RUNTIME_PATH "ROCKX_LIBRKNN_RUNTIME_PATH"
+
+/**
+ * @brief Config Key of licence key path
+ */
+#define ROCKX_CONFIG_LICENCE_KEY_PATH "ROCKX_LICENCE_KEY"
+
+/**
  * @brief Max number of config item
  */
 #define ROCKX_CONFIG_MAX_ITEM 8
@@ -80,14 +90,14 @@ rockx_ret_t rockx_release_config(rockx_config_t *config);
 /// \param key [in] config key
 /// \param value [in] config value
 /// \return @ref rockx_ret_t
-rockx_ret_t rockx_add_config(rockx_config_t *config, char *key, char *value);
+rockx_ret_t rockx_add_config(rockx_config_t *config, const char *key, const char *value);
 
 /// Get a config item value of rockx_config_t
 /// \param config [in] pointer of @ref rockx_config_t
 /// \param key [in] config key
 /// \param value [in] config value
 /// \return @ref rockx_ret_t
-rockx_ret_t rockx_get_config(rockx_config_t *config, char *key, char *value);
+rockx_ret_t rockx_get_config(rockx_config_t *config, const char *key, char *value);
 
 #ifdef __cplusplus
 } //extern "C"

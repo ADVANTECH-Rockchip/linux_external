@@ -6,6 +6,8 @@
 
 namespace easymedia {
 
+#define VIDEO_ENC_CHANGE_MAX 50
+
 DEFINE_REFLECTOR(Encoder)
 
 // request should equal codec_name
@@ -19,8 +21,20 @@ bool Encoder::InitConfig(const MediaConfig &cfg) {
 void VideoEncoder::RequestChange(uint32_t change,
                                  std::shared_ptr<ParameterBuffer> value) {
   change_mtx.lock();
+  if (change_list.size() > VIDEO_ENC_CHANGE_MAX) {
+    RKMEDIA_LOGW("Video Encoder: change list reached max cnt:%d. Drop front!\n",
+                 VIDEO_ENC_CHANGE_MAX);
+    change_list.pop_front();
+  }
   change_list.emplace_back(change, std::move(value));
   change_mtx.unlock();
+}
+
+void VideoEncoder::QueryChange(uint32_t change, void *value, int32_t size) {
+  RKMEDIA_LOGW("Video Encoder: %s should be reloaded first!\n", __func__);
+  UNUSED(change);
+  UNUSED(value);
+  UNUSED(size);
 }
 
 std::pair<uint32_t, std::shared_ptr<ParameterBuffer>>

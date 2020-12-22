@@ -4,8 +4,8 @@
 **
 **  Description:    Bluetooth Test Module VSC functions
 **
-**  Copyright (c) 2011-2014, Broadcom Corp., All Rights Reserved.
-**  Broadcom Bluetooth Core. Proprietary and confidential.
+**  Copyright (c) 2019, Cypress Semiconductor Corp., All Rights Reserved.
+**  Cypress Bluetooth Core. Proprietary and confidential.
 **
 *****************************************************************************/
 
@@ -1017,3 +1017,191 @@ int app_tm_vsc_set_connection_priority()
 
     return (0);
 }
+
+
+struct first_2bytes_afh_behavior_vsc
+{
+    UINT16 afhcc_log        :2; // (0, "No log")
+    UINT16 site_survey      :1; // (0, "Normal operation (scan with links)")
+    UINT16 hdrFecTuple      :5; // (0)
+    UINT16 scan_coex        :1; // (1, "Take coex maps into consideration")
+    UINT16 considerSlaveMap :1; // (1, "Take slave maps into consideration")
+    UINT16 bypassCC         :1; // (0, "Run channel classification")
+    UINT16 enforceRules     :1; // (1, "Enforce association rules")
+    UINT16 avoidLeAdChs     :1; // (1, "Do")
+    UINT16 enAbsReclaimTh   :1; // (0, "Relative RSSI thresholding for reclaim")
+    UINT16 filterRxRssi     :1; // (0, "No filtering")
+    UINT16 bypassScan       :1; // (0, "Run RSSI scan")
+};
+
+/*******************************************************************************
+ **
+ ** Function        app_tm_vsc_set_afh_behavior
+ **
+ ** Description     This function sends a VSC to set afh behavior
+ **
+ ** Parameters      None
+ **
+ ** Returns         status: 0 if success / -1 otherwise
+ **
+ *******************************************************************************/
+int app_tm_vsc_set_afh_behavior()
+{
+    tBSA_TM_VSC bsa_vsc;
+    tBSA_STATUS bsa_status;
+    struct first_2bytes_afh_behavior_vsc f_short;
+    UINT8 log;
+
+    UINT8 *p_data;
+
+    f_short.bypassScan = 0x0; // (0, "Run RSSI scan")
+    f_short.filterRxRssi = 0x0; // (0, "No filtering")
+    f_short.enAbsReclaimTh = 0x0; // (0, "Relative RSSI thresholding for reclaim")
+    f_short.avoidLeAdChs = 0x1; // (1, "Do")
+    f_short.enforceRules = 0x1; // (1, "Enforce association rules")
+    f_short.bypassCC = 0x0; // (0, "Run channel classification")
+    f_short.considerSlaveMap = 0x1; // (1, "Take slave maps into consideration")
+    f_short.scan_coex = 0x1; // (1, "Take coex maps into consideration")
+    f_short.hdrFecTuple = 0x0; // (0)
+    f_short.site_survey = 0x0; // (0, "Normal operation (scan with links)")
+    f_short.afhcc_log = 0x0; // (0, "No log")
+
+    UINT8 PLL_Settling_Time = 0x78; // (120, us)
+    UINT8 Extra_Settling_Time = 0x1E; // (30, us)
+    UINT32 afhccAsscRuleEn = 0x3FFFFF; // (4194303)
+    UINT8 PER_Shift = 0x5; // (5)
+    UINT8 minPackets = 0x3; // (3)
+    UINT8 lazyResetTh = 0x1F; // (31)
+    UINT8 bci_modem_clk = 0xC; // (12)
+    UINT16 bci_swp_duration = 0x1C2; // (450)
+    UINT8 bci_pause_1 = 0x50; // (80)
+    UINT8 bci_pause_2 = 0x50; // (80)
+    INT8 rxSensitivity = -82;
+    UINT8 rxMaxGain = 0x38; // (56)
+    INT8 rxrssi_th = -70;
+    UINT8 condemnCnt = 0xA; // (10)
+    INT8 condemnSnrGoodSig = 5;
+    INT8 condemnSnrWeakSig = 0;
+    UINT16 regroupTh = 0xFFFF; // (65535)
+    UINT8 syncToTh = 0x7; // (7)
+    INT8 swp_th_high = -29;
+    UINT8 calDelay = 0x32; // (50)
+    UINT8 bciChOffset = 0x0; // (0)
+    INT8 absCondemnTh = 127;
+    INT8 absReclaimTh = -88;
+    INT16 bleRssiTh = -58;
+    UINT16 first_short;
+
+    APP_INFO0("app_tm_vsc_set_afh_behavior");
+
+    log = app_get_choice("log 0:No log, 1:RSSI log, 2:CC log, 3:RSSI and CC log");
+    if(log > 3)
+    {
+        APP_ERROR1("wrong value :%d", log);
+        return(-1);
+    }
+    f_short.afhcc_log = log;
+
+    memcpy(&first_short, &f_short, 2);
+    APP_INFO1("f_short : 0x%x, 0x%x", f_short, first_short);
+
+    /* Prepare VSC Parameters */
+    bsa_status = BSA_TmVscInit(&bsa_vsc);
+
+    bsa_vsc.opcode = HCI_VSC_OPCODE_SET_AFH_BEHAVIOR;
+    p_data = bsa_vsc.data;
+
+    UINT16_TO_STREAM(p_data, first_short);
+    UINT8_TO_STREAM(p_data, PLL_Settling_Time);
+    UINT8_TO_STREAM(p_data, Extra_Settling_Time);
+    UINT32_TO_STREAM(p_data, afhccAsscRuleEn);
+    UINT8_TO_STREAM(p_data, PER_Shift);
+    UINT8_TO_STREAM(p_data, minPackets);
+    UINT8_TO_STREAM(p_data, lazyResetTh);
+    UINT8_TO_STREAM(p_data, bci_modem_clk);
+    UINT16_TO_STREAM(p_data, bci_swp_duration);
+    UINT8_TO_STREAM(p_data, bci_pause_1);
+    UINT8_TO_STREAM(p_data, bci_pause_2);
+    INT8_TO_STREAM(p_data, rxSensitivity);
+    UINT8_TO_STREAM(p_data, rxMaxGain);
+    INT8_TO_STREAM(p_data, rxrssi_th);
+    UINT8_TO_STREAM(p_data, condemnCnt);
+    INT8_TO_STREAM(p_data, condemnSnrGoodSig);
+    INT8_TO_STREAM(p_data, condemnSnrWeakSig);
+    UINT16_TO_STREAM(p_data, regroupTh);
+    UINT8_TO_STREAM(p_data, syncToTh);
+    INT8_TO_STREAM(p_data, swp_th_high);
+    UINT8_TO_STREAM(p_data, calDelay);
+    UINT8_TO_STREAM(p_data, bciChOffset);
+    INT8_TO_STREAM(p_data, absCondemnTh);
+    INT8_TO_STREAM(p_data, absReclaimTh);
+    UINT16_TO_STREAM(p_data, bleRssiTh);
+    bsa_vsc.length = 0x20;
+
+    /* Send the VSC */
+    bsa_status = BSA_TmVsc(&bsa_vsc);
+    if (bsa_status != BSA_SUCCESS)
+    {
+        APP_ERROR1("BSA_TmVsc failed:%d", bsa_status);
+        return(-1);
+    }
+
+    return (0);
+}
+
+
+/*******************************************************************************
+ **
+ ** Function        app_tm_vsc_set_encryption_key_size
+ **
+ ** Description     This function sends a VSC to set encryption key size
+ **
+ ** Parameters      value
+ **                 0x0001 - Accept 8-bit key
+ **                 0x0002 - Accept 16-bit key
+ **                 0x0004 - Accept 24-bit key
+ **                 0x0008 - Accept 32-bit key
+ **                 0x0010 - Accept 40-bit key
+ **                 0x0020 - Accept 48-bit key
+ **                 0x0040 - Accept 56-bit key
+ **                 0x0080 - Accept 64-bit key
+ **                 0x0100 - Accept 72-bit key
+ **                 0x0200 - Accept 80-bit key
+ **                 0x0400 - Accept 88-bit key
+ **                 0x0800 - Accept 96-bit key
+ **                 0x1000 - Accept 104-bit key
+ **                 0x2000 - Accept 112-bit key
+ **                 0x4000 - Accept 120-bit key
+ **                 0x8000 - Accept 128-bit key
+ **
+ ** Returns         status: 0 if success / -1 otherwise
+ **
+ *******************************************************************************/
+int app_tm_vsc_set_encryption_key_size(UINT16 value)
+{
+    tBSA_TM_VSC bsa_vsc;
+    tBSA_STATUS bsa_status;
+    UINT8 *p_data;
+
+    APP_INFO1("app_tm_vsc_set_encryption_key_size 0x%x", value);
+
+    /* Prepare VSC Parameters */
+    bsa_status = BSA_TmVscInit(&bsa_vsc);
+
+    bsa_vsc.opcode = HCI_VSC_OPCODE_SET_ENCRYPTION_KEY_SIZE;
+    p_data = bsa_vsc.data;
+
+    UINT16_TO_STREAM(p_data, value);
+    bsa_vsc.length = 0x2;
+
+    /* Send the VSC */
+    bsa_status = BSA_TmVsc(&bsa_vsc);
+    if (bsa_status != BSA_SUCCESS)
+    {
+        APP_ERROR1("BSA_TmVsc failed:%d", bsa_status);
+        return(-1);
+    }
+
+    return (0);
+}
+

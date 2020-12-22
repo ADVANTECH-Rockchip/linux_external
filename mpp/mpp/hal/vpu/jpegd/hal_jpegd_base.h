@@ -37,7 +37,7 @@ typedef struct PPInfo_t {
 typedef struct JpegdHalCtx {
     MppBufSlots            packet_slots;
     MppBufSlots            frame_slots;
-    MppDevCtx              dev_ctx;
+    MppDev                 dev;
     void                   *regs;
     MppBufferGroup         group;
     MppBuffer              frame_buf;

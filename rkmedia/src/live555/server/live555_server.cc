@@ -40,6 +40,7 @@
 
 #include <assert.h>
 #include <fcntl.h>
+#include <sys/prctl.h>
 #include <unistd.h>
 
 namespace easymedia {
@@ -69,14 +70,14 @@ RtspConnection::RtspConnection(int port, std::string username,
     goto err;
   }
 
-  rtspServer = RTSPServer::createNew(*env, port, authDB, 1000);
+  rtspServer = RTSPServer::createNew(*env, port, authDB, 10);
 
   if (!rtspServer) {
     goto err;
   }
 
   if (pipe2(msg_fd, O_CLOEXEC)) {
-    LOG("create msg_fd error.\n");
+    RKMEDIA_LOGI("create msg_fd error.\n");
     goto err;
   }
 
@@ -89,13 +90,14 @@ RtspConnection::RtspConnection(int port, std::string username,
   init_ok = true;
   return;
 err:
-  LOG("=============== RtspConnection error. =================\n");
+  RKMEDIA_LOGI("=============== RtspConnection error. =================\n");
   init_ok = false;
 }
 
 void RtspConnection::service_session_run() {
   AutoPrintLine apl(__func__);
-  LOG("================ service_session_run =================\n");
+  RKMEDIA_LOGI("================ service_session_run =================\n");
+  prctl(PR_SET_NAME, "live555_server");
   env->taskScheduler().turnOnBackgroundReadHandling(
       msg_fd[0], (TaskScheduler::BackgroundHandlerProc *)&incomingMsgHandler,
       this);
@@ -135,7 +137,11 @@ void RtspConnection::incomingMsgHandler(RtspConnection *rtsp, int) {
 
 void RtspConnection::incomingMsgHandler1() {
   struct message msg;
-  read(msg_fd[0], &msg, sizeof(msg));
+  ssize_t count = read(msg_fd[0], &msg, sizeof(msg));
+  if (count < 0) {
+    RKMEDIA_LOGI("incomingMsgHandler1 read failed\n");
+    return;
+  }
   switch (msg.cmd_type) {
   case CMD_TYPE::NewSession:
     addSession(msg);
@@ -145,16 +151,16 @@ void RtspConnection::incomingMsgHandler1() {
     break;
   default:
     LOG_FILE_FUNC_LINE();
-    LOG("===== message error type====.\n");
+    RKMEDIA_LOGI("===== message error type====.\n");
     break;
   }
 
-  LOG("%s: before mtx.notify\n", __func__);
+  RKMEDIA_LOGI("%s: before mtx.notify\n", __func__);
   mtx.lock();
   flag = false;
   mtx.notify();
   mtx.unlock();
-  LOG("%s: after mtx.notify\n", __func__);
+  RKMEDIA_LOGI("%s: after mtx.notify\n", __func__);
 }
 
 void RtspConnection::addSession(struct message msg) {
@@ -162,7 +168,8 @@ void RtspConnection::addSession(struct message msg) {
   Live555MediaInput *server_input = Live555MediaInput::createNew(*env);
   auto search = input_map.find(msg.channel_name);
   if (search != input_map.end()) {
-    LOG("%s:%s:: input_map, %s already exists, so we have to delete it.\n",
+    RKMEDIA_LOGI(
+        "%s:%s:: input_map, %s already exists, so we have to delete it.\n",
         __FILE__, __func__, msg.channel_name);
     input_map.erase(msg.channel_name);
   }
@@ -194,12 +201,12 @@ void RtspConnection::addSession(struct message msg) {
   } else if (strcmp(msg.videoType, IMAGE_JPEG) == 0) {
     subsession = MJPEGServerMediaSubsession::createNew(*env, *server_input);
   } else {
-    LOG(" %s : no video. videoType = %s \n", __func__, msg.videoType);
+    RKMEDIA_LOGI(" %s : no video. videoType = %s \n", __func__, msg.videoType);
   }
   if (subsession)
     sms->addSubsession(subsession);
 
-  // audio
+  // audio or muxer MUXER_MPEG_TS
   if (strcmp(msg.audioType, AUDIO_AAC) == 0) {
     subsession = AACServerMediaSubsession::createNew(
         *env, *server_input, msg.sample_rate, msg.channels, msg.profile);
@@ -207,12 +214,14 @@ void RtspConnection::addSession(struct message msg) {
     subsession = MP2ServerMediaSubsession::createNew(*env, *server_input);
   } else if (strcmp(msg.audioType, AUDIO_G711A) == 0 ||
              strcmp(msg.audioType, AUDIO_G711U) == 0 ||
-             strcmp(msg.audioType, AUDIO_G726) == 0) {
+             strcmp(msg.audioType, AUDIO_G726) == 0 ||
+             strcmp(msg.audioType, MUXER_MPEG_TS) == 0 ||
+             strcmp(msg.audioType, MUXER_MPEG_PS) == 0) {
     subsession = SIMPLEServerMediaSubsession::createNew(
         *env, *server_input, msg.sample_rate, msg.channels, msg.audioType,
         msg.bitrate);
   } else {
-    LOG(" %s : no audio. audioType = %s \n", __func__, msg.audioType);
+    RKMEDIA_LOGI(" %s : no audio. audioType = %s \n", __func__, msg.audioType);
   }
   if (subsession)
     sms->addSubsession(subsession);
@@ -222,21 +231,24 @@ void RtspConnection::removeSession(struct message msg) {
   if (rtspServer != nullptr) {
     rtspServer->deleteServerMediaSession(msg.channel_name);
     input_map.erase(msg.channel_name);
-    LOG("RtspConnection delete %s.\n", msg.channel_name);
+    RKMEDIA_LOGI("RtspConnection delete %s.\n", msg.channel_name);
   }
 }
 void RtspConnection::sendMessage(struct message msg) {
   lock_msg.lock();
   mtx.lock();
   flag = true;
-  write(msg_fd[1], (void *)&msg, sizeof(msg));
-  LOG("%s: before mtx.wait.\n", __func__);
+  ssize_t count = write(msg_fd[1], (void *)&msg, sizeof(msg));
+  if (count < 0) {
+    RKMEDIA_LOGI("%s: write filed %s\n", __func__, strerror(errno));
+  }
+  RKMEDIA_LOGI("%s: before mtx.wait.\n", __func__);
   while (flag) {
     mtx.wait();
   }
   mtx.unlock();
   lock_msg.unlock();
-  LOG("%s: after mtx.wait.\n", __func__);
+  RKMEDIA_LOGI("%s: after mtx.wait.\n", __func__);
 }
 
 RtspConnection::~RtspConnection() {

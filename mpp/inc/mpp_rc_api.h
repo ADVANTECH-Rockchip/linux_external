@@ -18,6 +18,7 @@
 #define __MPP_RC_API_H__
 
 #include "mpp_err.h"
+#include "rk_venc_rc.h"
 #include "mpp_rc_defs.h"
 
 /*
@@ -55,6 +56,11 @@ typedef enum RcMode_e {
     RC_MODE_BUTT,
 } RcMode;
 
+typedef enum GopMode_e {
+    NORMAL_P,
+    SMART_P,
+} GopMode;
+
 /*
  * frame rate parameters have great effect on rate control
  *
@@ -87,6 +93,13 @@ typedef struct RcFpsCfg_t {
     RK_S32      fps_out_denorm;
 } RcFpsCfg;
 
+typedef struct RcSuperframeCfg_t {
+    MppEncRcSuperFrameMode  super_mode;
+    RK_U32                  super_i_thd;
+    RK_U32                  super_p_thd;
+    MppEncRcPriority        rc_priority;
+} RcSuperframeCfg;
+
 /*
  * Control parameter from external config
  *
@@ -102,6 +115,7 @@ typedef struct RcCfg_s {
 
     RcFpsCfg    fps;
 
+    GopMode     gop_mode;
     /* I frame gop len */
     RK_S32      igop;
     /* visual gop len */
@@ -116,6 +130,7 @@ typedef struct RcCfg_s {
     /* max I frame bit ratio to P frame bit */
     RK_S32      max_i_bit_prop;
     RK_S32      min_i_bit_prop;
+    RK_S32      init_ip_ratio;
     /* layer bitrate proportion */
     RK_S32      layer_bit_prop[4];
 
@@ -126,6 +141,7 @@ typedef struct RcCfg_s {
     RK_S32      max_i_quality;
     RK_S32      min_i_quality;
     RK_S32      i_quality_delta;
+    RK_S32      vi_quality_delta;
     /* layer quality proportion */
     RK_S32      layer_quality_delta[4];
 
@@ -144,6 +160,12 @@ typedef struct RcCfg_s {
      */
     RK_S32      vbr_hi_prop;
     RK_S32      vbr_lo_prop;
+
+    MppEncRcDropFrmMode drop_mode;
+    RK_U32      drop_thd;
+    RK_U32      drop_gap;
+
+    RcSuperframeCfg super_cfg;
 } RcCfg;
 
 /*
@@ -158,6 +180,7 @@ typedef struct RcImplApi_t {
     MPP_RET         (*deinit)(void *ctx);
 
     MPP_RET         (*check_drop)(void *ctx, EncRcTask *task);
+    MPP_RET         (*check_reenc)(void *ctx, EncRcTask *task);
 
     /*
      * frm_start -  frame level rate control frm_start.

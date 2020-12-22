@@ -75,11 +75,11 @@ bool SendMediaToServer(Flow *f, MediaBufferVector &input_vector) {
       if (rtsp_flow->video_type == VIDEO_H264) {
         spspps = split_h264_separate((const uint8_t *)buffer->GetPtr(),
                                      buffer->GetValidSize(),
-                                     easymedia::gettimeofday());
+                                     buffer->GetUSTimeStamp());
       } else if (rtsp_flow->video_type == VIDEO_H265) {
         spspps = split_h265_separate((const uint8_t *)buffer->GetPtr(),
                                      buffer->GetValidSize(),
-                                     easymedia::gettimeofday());
+                                     buffer->GetUSTimeStamp());
       }
       // Independently send vps, sps, pps packets to live555.
       for (auto &buf : spspps)
@@ -91,8 +91,10 @@ bool SendMediaToServer(Flow *f, MediaBufferVector &input_vector) {
       rtsp_flow->server_input->PushNewAudio(buffer);
     else if (buffer->GetType() == Type::Video)
       rtsp_flow->server_input->PushNewVideo(buffer);
-    else
-      LOG("#ERROR: Unknown buffer type(%d)\n", (int)buffer->GetType());
+    else {
+      // muxer buffer
+      rtsp_flow->server_input->PushNewMuxer(buffer);
+    }
   }
 
   return true;
@@ -143,7 +145,8 @@ RtspServerFlow::RtspServerFlow(const char *param) {
         video_type = type;
       } else if (type == AUDIO_AAC || type == AUDIO_G711A ||
                  type == AUDIO_G711U || type == AUDIO_G726 ||
-                 type == AUDIO_MP2) {
+                 type == AUDIO_MP2 || type == MUXER_MPEG_TS ||
+                 type == MUXER_MPEG_PS) {
         audio_type = type;
       }
       sm.input_slots.push_back(in_idx);
@@ -160,9 +163,11 @@ RtspServerFlow::RtspServerFlow(const char *param) {
     sm.thread_model = Model::ASYNCCOMMON;
     sm.mode_when_full = InputMode::BLOCKING;
     sm.input_maxcachenum.push_back(0); // no limit
+    if (sm.input_slots.size() > 1)
+      sm.input_maxcachenum.push_back(0);
     markname = "rtsp " + channel_name + std::to_string(in_idx);
     if (!InstallSlotMap(sm, markname, 0)) {
-      LOG("Fail to InstallSlotMap, %s\n", markname.c_str());
+      RKMEDIA_LOGI("Fail to InstallSlotMap, %s\n", markname.c_str());
       goto err;
     }
   } else {

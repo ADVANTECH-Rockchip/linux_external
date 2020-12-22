@@ -15,6 +15,7 @@ if(ALSA_PLAYBACK OR ALSA_CAPTURE)
   set(EASY_MEDIA_STREAM_ALSA_LIBS asound)
   set(EASY_MEDIA_STREAM_ALSA_SOURCE_FILES
 	  stream/audio/alsa/alsa_utils.cc
+	  stream/audio/rk_audio.cc
 	  stream/audio/alsa/alsa_volume.cc)
 
   if(ALSA_PLAYBACK)
@@ -29,13 +30,17 @@ if(ALSA_PLAYBACK OR ALSA_CAPTURE)
         stream/audio/alsa/alsa_capture_stream.cc)
   endif()
 
+  if(AUDIO_ALGORITHM)
+    set(EASY_MEDIA_STREAM_AUDIO_ALGO_LIBS RKAP_AEC RKAP_ANR RKAP_Common)
+  endif()
 endif()
 
 set(EASY_MEDIA_STREAM_SOURCE_FILES
     ${EASY_MEDIA_STREAM_SOURCE_FILES} ${EASY_MEDIA_STREAM_ALSA_SOURCE_FILES}
     PARENT_SCOPE)
 set(EASY_MEDIA_STREAM_LIBS ${EASY_MEDIA_STREAM_LIBS}
-                           ${EASY_MEDIA_STREAM_ALSA_LIBS} PARENT_SCOPE)
+                           ${EASY_MEDIA_STREAM_ALSA_LIBS}
+                           ${EASY_MEDIA_STREAM_AUDIO_ALGO_LIBS} PARENT_SCOPE)
 
 # playback test ref to ogg/test/ogg_decode_test.cc
 

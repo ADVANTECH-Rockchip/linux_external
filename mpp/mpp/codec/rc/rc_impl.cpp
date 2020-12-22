@@ -25,11 +25,19 @@
 #include "rc_debug.h"
 #include "rc_impl.h"
 
-#include "rc_model_v2.h"
+#include "h264e_rc.h"
+#include "h265e_rc.h"
+#include "jpege_rc.h"
+#include "vp8e_rc.h"
+#include "rc_model_v2_smt.h"
 
 const RcImplApi *rc_apis[] = {
     &default_h264e,
     &default_h265e,
+    &default_jpege,
+    &default_vp8e,
+    &smt_h264e,
+    &smt_h265e,
 };
 
 // use class to register RcImplApi

@@ -35,9 +35,10 @@ const char * const ROCKX_POSE_BODY_KEYPOINTS_NAME[] = {
  * @brief KeyPoints for One Body or Finger
  */
 typedef struct rockx_keypoints_t {
+    int id;			///< key points track id
     int count;                  ///< key points count
     rockx_point_t points[32];   ///< key points
-    float score[32];			///< Key points score
+    float score[32];		///< Key points score
 } rockx_keypoints_t;
 
 /**
@@ -46,6 +47,7 @@ typedef struct rockx_keypoints_t {
 typedef struct rockx_keypoints_array_t {
 	int count;							///< Array size
 	rockx_keypoints_t keypoints[32];	///< Array of rockx_keypoints_t
+	rockx_rect_t face_boxs[32];			///< Array of face box for ROCKX_MODULE_POSE_BODY_V2
 } rockx_keypoints_array_t;
 
 /**
@@ -57,7 +59,7 @@ typedef struct rockx_keypoints_array_t {
  * @return @ref rockx_ret_t
  */
 rockx_ret_t rockx_pose_body(rockx_handle_t handle, rockx_image_t *in_img, rockx_keypoints_array_t *keypoints_array,
-		rockx_async_callback callback);
+		rockx_async_callback *callback);
 
 /**
  * Get KeyPoint of A Human Hand

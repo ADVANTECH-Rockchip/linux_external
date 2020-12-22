@@ -16,6 +16,7 @@
 
 #define MODULE_TAG "utils"
 
+#include <ctype.h>
 #include <string.h>
 
 #include "mpp_mem.h"
@@ -262,6 +263,33 @@ void read_frm_crc(FILE *fp, FrmCrc *crc)
     }
 }
 
+static MPP_RET read_with_pixel_width(RK_U8 *buf, RK_S32 width, RK_S32 height,
+                                     RK_S32 hor_stride, RK_S32 pix_w, FILE *fp)
+{
+    RK_S32 row;
+    MPP_RET ret = MPP_OK;
+
+    if (hor_stride < width * pix_w) {
+        mpp_err_f("invalid %dbit color config: hor_stride %d is smaller then width %d multiply by 4\n",
+                  8 * pix_w, hor_stride, width, pix_w);
+        mpp_err_f("width  should be defined by pixel count\n");
+        mpp_err_f("stride should be defined by byte count\n");
+
+        hor_stride = width * pix_w;
+    }
+
+    for (row = 0; row < height; row++) {
+        RK_S32 read_size = fread(buf + row * hor_stride, 1, width * pix_w, fp);
+        if (read_size != width * pix_w) {
+            mpp_err_f("read file failed expect %d vs %d\n",
+                      width * pix_w, read_size);
+            ret = MPP_NOK;
+        }
+    }
+
+    return ret;
+}
+
 MPP_RET read_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
                    RK_U32 hor_stride, RK_U32 ver_stride, MppFrameFormat fmt)
 {
@@ -314,12 +342,11 @@ MPP_RET read_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
         return MPP_OK;
     }
 
-    switch (fmt) {
+    switch (fmt & MPP_FRAME_FMT_MASK) {
     case MPP_FMT_YUV420SP : {
         for (row = 0; row < height; row++) {
             read_size = fread(buf_y + row * hor_stride, 1, width, fp);
             if (read_size != width) {
-                mpp_err_f("read ori yuv file luma failed");
                 ret  = MPP_NOK;
                 goto err;
             }
@@ -328,7 +355,6 @@ MPP_RET read_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
         for (row = 0; row < height / 2; row++) {
             read_size = fread(buf_u + row * hor_stride, 1, width, fp);
             if (read_size != width) {
-                mpp_err_f("read ori yuv file cb failed");
                 ret  = MPP_NOK;
                 goto err;
             }
@@ -338,7 +364,6 @@ MPP_RET read_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
         for (row = 0; row < height; row++) {
             read_size = fread(buf_y + row * hor_stride, 1, width, fp);
             if (read_size != width) {
-                mpp_err_f("read ori yuv file luma failed");
                 ret  = MPP_NOK;
                 goto err;
             }
@@ -347,7 +372,6 @@ MPP_RET read_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
         for (row = 0; row < height / 2; row++) {
             read_size = fread(buf_u + row * hor_stride / 2, 1, width / 2, fp);
             if (read_size != width / 2) {
-                mpp_err_f("read ori yuv file cb failed");
                 ret  = MPP_NOK;
                 goto err;
             }
@@ -356,37 +380,36 @@ MPP_RET read_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
         for (row = 0; row < height / 2; row++) {
             read_size = fread(buf_v + row * hor_stride / 2, 1, width / 2, fp);
             if (read_size != width / 2) {
-                mpp_err_f("read ori yuv file cr failed");
                 ret  = MPP_NOK;
                 goto err;
             }
         }
     } break;
     case MPP_FMT_ARGB8888 :
-    case MPP_FMT_ABGR8888:
-    case MPP_FMT_BGRA8888:
-    case MPP_FMT_RGBA8888: {
-        for (row = 0; row < height; row++) {
-            read_size = fread(buf_y + row * hor_stride * 4, 1, width * 4, fp);
-        }
+    case MPP_FMT_ABGR8888 :
+    case MPP_FMT_BGRA8888 :
+    case MPP_FMT_RGBA8888 :
+    case MPP_FMT_RGB101010 :
+    case MPP_FMT_BGR101010 : {
+        ret = read_with_pixel_width(buf_y, width, height, hor_stride, 4, fp);
     } break;
-    case MPP_FMT_YUV422P:
-    case MPP_FMT_YUV422SP:
-    case MPP_FMT_RGB565:
-    case MPP_FMT_BGR565:
+    case MPP_FMT_YUV422P :
+    case MPP_FMT_YUV422SP :
+    case MPP_FMT_BGR444 :
+    case MPP_FMT_RGB444 :
+    case MPP_FMT_RGB555 :
+    case MPP_FMT_BGR555 :
+    case MPP_FMT_RGB565 :
+    case MPP_FMT_BGR565 :
     case MPP_FMT_YUV422_YUYV :
     case MPP_FMT_YUV422_YVYU :
     case MPP_FMT_YUV422_UYVY :
     case MPP_FMT_YUV422_VYUY : {
-        for (row = 0; row < height; row++) {
-            read_size = fread(buf_y + row * hor_stride * 2, 1, width * 2, fp);
-        }
+        ret = read_with_pixel_width(buf_y, width, height, hor_stride, 2, fp);
     } break;
     case MPP_FMT_RGB888 :
-    case MPP_FMT_BGR888: {
-        for (row = 0; row < height; row++) {
-            read_size = fread(buf_y + row * hor_stride * 3, 1, width * 3, fp);
-        }
+    case MPP_FMT_BGR888 : {
+        ret = read_with_pixel_width(buf_y, width, height, hor_stride, 3, fp);
     } break;
     default : {
         mpp_err_f("read image do not support fmt %d\n", fmt);
@@ -399,6 +422,334 @@ err:
     return ret;
 }
 
+static void get_rgb_color(RK_U32 *R, RK_U32 *G, RK_U32 *B, RK_S32 x, RK_S32 y, RK_S32 frm_cnt)
+{
+    // frame 0 -> red
+    if (frm_cnt == 0) {
+        R[0] = 0xff;
+        G[0] = 0;
+        B[0] = 0;
+        return ;
+    }
+
+    // frame 1 -> green
+    if (frm_cnt == 1) {
+        R[0] = 0;
+        G[0] = 0xff;
+        B[0] = 0;
+        return ;
+    }
+
+    // frame 2 -> blue
+    if (frm_cnt == 2) {
+        R[0] = 0;
+        G[0] = 0;
+        B[0] = 0xff;
+        return ;
+    }
+
+    // moving color bar
+    RK_U8 Y = (0   +  x + y  + frm_cnt * 3);
+    RK_U8 U = (128 + (y / 2) + frm_cnt * 2);
+    RK_U8 V = (64  + (x / 2) + frm_cnt * 5);
+
+    RK_S32 _R = Y + ((360 * (V - 128)) >> 8);
+    RK_S32 _G = Y - (((88 * (U - 128) + 184 * (V - 128))) >> 8);
+    RK_S32 _B = Y + ((455 * (U - 128)) >> 8);
+
+    R[0] = MPP_CLIP3(0, 255, _R);
+    G[0] = MPP_CLIP3(0, 255, _G);
+    B[0] = MPP_CLIP3(0, 255, _B);
+}
+
+static void fill_MPP_FMT_RGB565(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_RGB565 = ffmpeg: rgb565be
+    // 16 bit pixel     MSB  -------->  LSB
+    //                 (rrrr,rggg,gggb,bbbb)
+    // big    endian   |  byte 0 |  byte 1 |
+    // little endian   |  byte 1 |  byte 0 |
+    RK_U16 val = (((R >> 3) & 0x1f) << 11) |
+                 (((G >> 2) & 0x3f) <<  5) |
+                 (((B >> 3) & 0x1f) <<  0);
+    if (be) {
+        p[0] = (val >> 8) & 0xff;
+        p[1] = (val >> 0) & 0xff;
+    } else {
+        p[0] = (val >> 0) & 0xff;
+        p[1] = (val >> 8) & 0xff;
+    }
+}
+
+static void fill_MPP_FMT_BGR565(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_BGR565 = ffmpeg: bgr565be
+    // 16 bit pixel     MSB  -------->  LSB
+    //                 (bbbb,bggg,gggr,rrrr)
+    // big    endian   |  byte 0 |  byte 1 |
+    // little endian   |  byte 1 |  byte 0 |
+    RK_U16 val = (((R >> 3) & 0x1f) <<  0) |
+                 (((G >> 2) & 0x3f) <<  5) |
+                 (((B >> 3) & 0x1f) << 11);
+    if (be) {
+        p[0] = (val >> 8) & 0xff;
+        p[1] = (val >> 0) & 0xff;
+    } else {
+        p[0] = (val >> 0) & 0xff;
+        p[1] = (val >> 8) & 0xff;
+    }
+}
+
+static void fill_MPP_FMT_RGB555(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_RGB555 = ffmpeg: rgb555be
+    // 16 bit pixel     MSB  -------->  LSB
+    //                 (0rrr,rrgg,gggb,bbbb)
+    // big    endian   |  byte 0 |  byte 1 |
+    // little endian   |  byte 1 |  byte 0 |
+    RK_U16 val = (((R >> 3) & 0x1f) << 10) |
+                 (((G >> 3) & 0x1f) <<  5) |
+                 (((B >> 3) & 0x1f) <<  0);
+    if (be) {
+        p[0] = (val >> 8) & 0xff;
+        p[1] = (val >> 0) & 0xff;
+    } else {
+        p[0] = (val >> 0) & 0xff;
+        p[1] = (val >> 8) & 0xff;
+    }
+}
+
+static void fill_MPP_FMT_BGR555(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_BGR555 = ffmpeg: bgr555be
+    // 16 bit pixel     MSB  -------->  LSB
+    //                 (0bbb,bbgg,gggr,rrrr)
+    // big    endian   |  byte 0 |  byte 1 |
+    // little endian   |  byte 1 |  byte 0 |
+    RK_U16 val = (((R >> 3) & 0x1f) <<  0) |
+                 (((G >> 3) & 0x1f) <<  5) |
+                 (((B >> 3) & 0x1f) << 10);
+    if (be) {
+        p[0] = (val >> 8) & 0xff;
+        p[1] = (val >> 0) & 0xff;
+    } else {
+        p[0] = (val >> 0) & 0xff;
+        p[1] = (val >> 8) & 0xff;
+    }
+}
+
+static void fill_MPP_FMT_RGB444(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_RGB444 = ffmpeg: rgb444be
+    // 16 bit pixel     MSB  -------->  LSB
+    //                 (0000,rrrr,gggg,bbbb)
+    // big    endian   |  byte 0 |  byte 1 |
+    // little endian   |  byte 1 |  byte 0 |
+    RK_U16 val = (((R >> 4) & 0xf) << 8) |
+                 (((G >> 4) & 0xf) << 4) |
+                 (((B >> 4) & 0xf) << 0);
+    if (be) {
+        p[0] = (val >> 8) & 0xff;
+        p[1] = (val >> 0) & 0xff;
+    } else {
+        p[0] = (val >> 0) & 0xff;
+        p[1] = (val >> 8) & 0xff;
+    }
+}
+
+static void fill_MPP_FMT_BGR444(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_BGR444 = ffmpeg: bgr444be
+    // 16 bit pixel     MSB  -------->  LSB
+    //                 (0000,bbbb,gggg,rrrr)
+    // big    endian   |  byte 0 |  byte 1 |
+    // little endian   |  byte 1 |  byte 0 |
+    RK_U16 val = (((R >> 4) & 0xf) << 0) |
+                 (((G >> 4) & 0xf) << 4) |
+                 (((B >> 4) & 0xf) << 8);
+    if (be) {
+        p[0] = (val >> 8) & 0xff;
+        p[1] = (val >> 0) & 0xff;
+    } else {
+        p[0] = (val >> 0) & 0xff;
+        p[1] = (val >> 8) & 0xff;
+    }
+}
+
+static void fill_MPP_FMT_RGB101010(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_RGB101010
+    // 32 bit pixel     MSB  -------->  LSB
+    //                 (00rr,rrrr,rrrr,gggg,gggg,ggbb,bbbb,bbbb)
+    // big    endian   |  byte 0 |  byte 1 |  byte 2 |  byte 3 |
+    // little endian   |  byte 3 |  byte 2 |  byte 1 |  byte 0 |
+    RK_U32 val = (((R * 4) & 0x3ff) << 20) |
+                 (((G * 4) & 0x3ff) << 10) |
+                 (((B * 4) & 0x3ff) <<  0);
+    if (be) {
+        p[0] = (val >> 24) & 0xff;
+        p[1] = (val >> 16) & 0xff;
+        p[2] = (val >>  8) & 0xff;
+        p[3] = (val >>  0) & 0xff;
+    } else {
+        p[0] = (val >>  0) & 0xff;
+        p[1] = (val >>  8) & 0xff;
+        p[2] = (val >> 16) & 0xff;
+        p[3] = (val >> 24) & 0xff;
+    }
+}
+
+static void fill_MPP_FMT_BGR101010(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_BGR101010
+    // 32 bit pixel     MSB  -------->  LSB
+    //                 (00bb,bbbb,bbbb,gggg,gggg,ggrr,rrrr,rrrr)
+    // big    endian   |  byte 0 |  byte 1 |  byte 2 |  byte 3 |
+    // little endian   |  byte 3 |  byte 2 |  byte 1 |  byte 0 |
+    RK_U32 val = (((R * 4) & 0x3ff) <<  0) |
+                 (((G * 4) & 0x3ff) << 10) |
+                 (((B * 4) & 0x3ff) << 20);
+    if (be) {
+        p[0] = (val >> 24) & 0xff;
+        p[1] = (val >> 16) & 0xff;
+        p[2] = (val >>  8) & 0xff;
+        p[3] = (val >>  0) & 0xff;
+    } else {
+        p[0] = (val >>  0) & 0xff;
+        p[1] = (val >>  8) & 0xff;
+        p[2] = (val >> 16) & 0xff;
+        p[3] = (val >> 24) & 0xff;
+    }
+}
+
+static void fill_MPP_FMT_ARGB8888(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_ARGB8888
+    // 32 bit pixel     MSB  -------->  LSB
+    //                 (XXXX,XXXX,rrrr,rrrr,gggg,gggg,bbbb,bbbb)
+    // big    endian   |  byte 0 |  byte 1 |  byte 2 |  byte 3 |
+    // little endian   |  byte 3 |  byte 2 |  byte 1 |  byte 0 |
+    if (be) {
+        p[0] = 0xff;
+        p[1] = R;
+        p[2] = G;
+        p[3] = B;
+    } else {
+        p[0] = B;
+        p[1] = G;
+        p[2] = R;
+        p[3] = 0xff;
+    }
+}
+
+static void fill_MPP_FMT_ABGR8888(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_ABGR8888
+    // 32 bit pixel     MSB  -------->  LSB
+    //                 (XXXX,XXXX,bbbb,bbbb,gggg,gggg,rrrr,rrrr)
+    // big    endian   |  byte 0 |  byte 1 |  byte 2 |  byte 3 |
+    // little endian   |  byte 3 |  byte 2 |  byte 1 |  byte 0 |
+    if (be) {
+        p[0] = 0xff;
+        p[1] = B;
+        p[2] = G;
+        p[3] = R;
+    } else {
+        p[0] = R;
+        p[1] = G;
+        p[2] = B;
+        p[3] = 0xff;
+    }
+}
+
+static void fill_MPP_FMT_BGRA8888(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_BGRA8888
+    // 32 bit pixel     MSB  -------->  LSB
+    //                 (bbbb,bbbb,gggg,gggg,rrrr,rrrr,XXXX,XXXX)
+    // big    endian   |  byte 0 |  byte 1 |  byte 2 |  byte 3 |
+    // little endian   |  byte 3 |  byte 2 |  byte 1 |  byte 0 |
+    if (be) {
+        p[0] = B;
+        p[1] = G;
+        p[2] = R;
+        p[3] = 0xff;
+    } else {
+        p[0] = 0xff;
+        p[1] = R;
+        p[2] = G;
+        p[3] = B;
+    }
+}
+
+static void fill_MPP_FMT_RGBA8888(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be)
+{
+    // MPP_FMT_RGBA8888
+    // 32 bit pixel     MSB  -------->  LSB
+    //                 (rrrr,rrrr,gggg,gggg,bbbb,bbbb,XXXX,XXXX)
+    // big    endian   |  byte 0 |  byte 1 |  byte 2 |  byte 3 |
+    // little endian   |  byte 3 |  byte 2 |  byte 1 |  byte 0 |
+    if (be) {
+        p[0] = R;
+        p[1] = G;
+        p[2] = B;
+        p[3] = 0xff;
+    } else {
+        p[0] = 0xff;
+        p[1] = B;
+        p[2] = G;
+        p[3] = R;
+    }
+}
+
+typedef void (*FillRgbFunc)(RK_U8 *p, RK_U32 R, RK_U32 G, RK_U32 B, RK_U32 be);
+
+FillRgbFunc fill_rgb_funcs[] = {
+    fill_MPP_FMT_RGB565,
+    fill_MPP_FMT_BGR565,
+    fill_MPP_FMT_RGB555,
+    fill_MPP_FMT_BGR555,
+    fill_MPP_FMT_RGB444,
+    fill_MPP_FMT_BGR444,
+    NULL,
+    NULL,
+    fill_MPP_FMT_RGB101010,
+    fill_MPP_FMT_BGR101010,
+    fill_MPP_FMT_ARGB8888,
+    fill_MPP_FMT_ABGR8888,
+    fill_MPP_FMT_BGRA8888,
+    fill_MPP_FMT_RGBA8888,
+};
+
+static RK_S32 util_check_stride_by_pixel(RK_S32 workaround, RK_S32 width,
+                                         RK_S32 hor_stride, RK_S32 pixel_size)
+{
+    if (!workaround && hor_stride < width * pixel_size) {
+        mpp_log("warning: stride by bytes %d is smarller than width %d mutiple by pixel size %d\n",
+                hor_stride, width, pixel_size);
+        mpp_log("multiple stride %d by pixel size %d and set new byte stride to %d\n",
+                hor_stride, pixel_size, hor_stride * pixel_size);
+        workaround = 1;
+    }
+
+    return workaround;
+}
+
+static RK_S32 util_check_8_pixel_aligned(RK_S32 workaround, RK_S32 hor_stride,
+                                         RK_S32 pixel_aign, RK_S32 pixel_size,
+                                         const char *fmt_name)
+{
+    if (!workaround && hor_stride != MPP_ALIGN(hor_stride, pixel_aign * pixel_size)) {
+        mpp_log("warning: vepu only support 8 aligned horizontal stride in pixel for %s with pixel size %d\n",
+                fmt_name, pixel_size);
+        mpp_log("set byte stride to %d to match the requirement\n",
+                MPP_ALIGN(hor_stride, pixel_aign * pixel_size));
+        workaround = 1;
+    }
+
+    return workaround;
+}
+
 MPP_RET fill_image(RK_U8 *buf, RK_U32 width, RK_U32 height,
                    RK_U32 hor_stride, RK_U32 ver_stride, MppFrameFormat fmt,
                    RK_U32 frame_count)
@@ -406,9 +757,11 @@ MPP_RET fill_image(RK_U8 *buf, RK_U32 width, RK_U32 height,
     MPP_RET ret = MPP_OK;
     RK_U8 *buf_y = buf;
     RK_U8 *buf_c = buf + hor_stride * ver_stride;
-    RK_U32 x, y;
+    RK_U32 x, y, i;
+    static RK_S32 is_pixel_stride = 0;
+    static RK_S32 not_8_pixel = 0;
 
-    switch (fmt) {
+    switch (fmt & MPP_FRAME_FMT_MASK) {
     case MPP_FMT_YUV420SP : {
         RK_U8 *p = buf_y;
 
@@ -461,18 +814,63 @@ MPP_RET fill_image(RK_U8 *buf, RK_U32 width, RK_U32 height,
             }
         }
     } break;
-    case MPP_FMT_RGB888 :
-    case MPP_FMT_BGR888 :
-    case MPP_FMT_ARGB8888 : {
+    case MPP_FMT_RGB565 :
+    case MPP_FMT_BGR565 :
+    case MPP_FMT_RGB555 :
+    case MPP_FMT_BGR555 :
+    case MPP_FMT_RGB444 :
+    case MPP_FMT_BGR444 : {
         RK_U8 *p = buf_y;
-        RK_U32 pix_w = (fmt == MPP_FMT_ARGB8888 || fmt == MPP_FMT_ABGR8888) ? 4 : 4;
+        RK_U32 pix_w = 2;
+        FillRgbFunc fill = fill_rgb_funcs[fmt - MPP_FRAME_FMT_RGB];
 
-        for (y = 0; y < height; y++, p += hor_stride * pix_w) {
-            for (x = 0; x < width; x++) {
-                p[x * 4 + 0] = x * 3 + 0 + y + frame_count * 3;
-                p[x * 4 + 1] = x * 3 + 1 + y + frame_count * 3;
-                p[x * 4 + 2] = x * 3 + 2 + y + frame_count * 3;
-                p[x * 4 + 3] = 0;
+        if (util_check_stride_by_pixel(is_pixel_stride, width, hor_stride, pix_w)) {
+            hor_stride *= pix_w;
+            is_pixel_stride = 1;
+        }
+
+        if (util_check_8_pixel_aligned(not_8_pixel, hor_stride,
+                                       8, 2, "16bit RGB")) {
+            hor_stride = MPP_ALIGN(hor_stride, 16);
+            not_8_pixel = 1;
+        }
+
+        for (y = 0; y < height; y++, p += hor_stride) {
+            for (x = 0, i = 0; x < width; x++, i += pix_w) {
+                RK_U32 R, G, B;
+
+                get_rgb_color(&R, &G, &B, x, y, frame_count);
+                fill(p + i, R, G, B, MPP_FRAME_FMT_IS_BE(fmt));
+            }
+        }
+    } break;
+    case MPP_FMT_RGB101010 :
+    case MPP_FMT_BGR101010 :
+    case MPP_FMT_ARGB8888 :
+    case MPP_FMT_ABGR8888 :
+    case MPP_FMT_BGRA8888 :
+    case MPP_FMT_RGBA8888 : {
+        RK_U8 *p = buf_y;
+        RK_U32 pix_w = 4;
+        FillRgbFunc fill = fill_rgb_funcs[fmt - MPP_FRAME_FMT_RGB];
+
+        if (util_check_stride_by_pixel(is_pixel_stride, width, hor_stride, pix_w)) {
+            hor_stride *= pix_w;
+            is_pixel_stride = 1;
+        }
+
+        if (util_check_8_pixel_aligned(not_8_pixel, hor_stride,
+                                       8, 4, "32bit RGB")) {
+            hor_stride = MPP_ALIGN(hor_stride, 32);
+            not_8_pixel = 1;
+        }
+
+        for (y = 0; y < height; y++, p += hor_stride) {
+            for (x = 0, i = 0; x < width; x++, i += pix_w) {
+                RK_U32 R, G, B;
+
+                get_rgb_color(&R, &G, &B, x, y, frame_count);
+                fill(p + i, R, G, B, MPP_FRAME_FMT_IS_BE(fmt));
             }
         }
     } break;
@@ -496,99 +894,106 @@ RK_S32 parse_config_line(const char *str, OpsLine *info)
 static void get_extension(const char *file_name, char *extension)
 {
     size_t length = strlen(file_name);
-    size_t i = length - 1;
+    size_t ext_len = 0;
+    size_t i = 0;
+    const char *p = file_name + length - 1;
 
-    while (i) {
-        if (file_name[i] == '.') {
-            strcpy(extension, file_name + i + 1);
+    while (p >= file_name) {
+        if (p[0] == '.') {
+            for (i = 0; i < ext_len; i++)
+                extension[i] = tolower(p[i + 1]);
+
+            extension[i] = '\0';
             return ;
         }
-        i--;
+        ext_len++;
+        p--;
     }
 
     extension[0] = '\0';
 }
 
+typedef struct Ext2FrmFmt_t {
+    const char      *ext_name;
+    MppFrameFormat  format;
+} Ext2FrmFmt;
+
+Ext2FrmFmt map_ext_to_frm_fmt[] = {
+    {   "yuv420p",              MPP_FMT_YUV420P,                            },
+    {   "yuv420sp",             MPP_FMT_YUV420SP,                           },
+    {   "yuv422p",              MPP_FMT_YUV422P,                            },
+    {   "yuv422sp",             MPP_FMT_YUV422SP,                           },
+    {   "yuv422uyvy",           MPP_FMT_YUV422_UYVY,                        },
+    {   "yuv422vyuy",           MPP_FMT_YUV422_VYUY,                        },
+    {   "yuv422yuyv",           MPP_FMT_YUV422_YUYV,                        },
+    {   "yuv422yvyu",           MPP_FMT_YUV422_YVYU,                        },
+
+    {   "abgr8888",             MPP_FMT_ABGR8888,                           },
+    {   "argb8888",             MPP_FMT_ARGB8888,                           },
+    {   "bgr565",               MPP_FMT_BGR565,                             },
+    {   "bgr888",               MPP_FMT_BGR888,                             },
+    {   "bgra8888",             MPP_FMT_BGRA8888,                           },
+    {   "rgb565",               MPP_FMT_RGB565,                             },
+    {   "rgb888",               MPP_FMT_RGB888,                             },
+    {   "rgba8888",             MPP_FMT_RGBA8888,                           },
+
+    {   "fbc",                  MPP_FMT_YUV420SP | MPP_FRAME_FBC_AFBC_V1,   },
+};
+
 MPP_RET name_to_frame_format(const char *name, MppFrameFormat *fmt)
 {
-    MPP_RET ret = MPP_OK;
+    RK_U32 i;
+    MPP_RET ret = MPP_NOK;
     char ext[50];
 
     get_extension(name, ext);
 
-    if (!strcmp(ext, "YUV420p")) {
-        mpp_log("found YUV420p");
-        *fmt = MPP_FMT_YUV420P;
-    } else if (!strcmp(ext, "YUV420sp")) {
-        mpp_log("found YUV420sp");
-        *fmt = MPP_FMT_YUV420SP;
-    } else if (!strcmp(ext, "YUV422p")) {
-        mpp_log("found YUV422p");
-        *fmt = MPP_FMT_YUV422P;
-    } else if (!strcmp(ext, "YUV422sp")) {
-        mpp_log("found YUV422sp");
-        *fmt = MPP_FMT_YUV422SP;
-    } else if (!strcmp(ext, "YUV422uyvy")) {
-        mpp_log("found YUV422uyvy");
-        *fmt = MPP_FMT_YUV422_UYVY;
-    } else if (!strcmp(ext, "YUV422vyuy")) {
-        mpp_log("found YUV422vyuy");
-        *fmt = MPP_FMT_YUV422_VYUY;
-    } else if (!strcmp(ext, "YUV422yuyv")) {
-        mpp_log("found YUV422yuyv");
-        *fmt = MPP_FMT_YUV422_YUYV;
-    } else if (!strcmp(ext, "YUV422yvyu")) {
-        mpp_log("found YUV422yvyu");
-        *fmt = MPP_FMT_YUV422_YVYU;
-    } else if (!strcmp(ext, "ABGR8888")) {
-        mpp_log("found ABGR8888");
-        *fmt = MPP_FMT_ABGR8888;
-    } else if (!strcmp(ext, "ARGB8888")) {
-        mpp_log("found ARGB8888");
-        *fmt = MPP_FMT_ARGB8888;
-    } else if (!strcmp(ext, "BGR565")) {
-        mpp_log("found BGR565");
-        *fmt = MPP_FMT_BGR565;
-    } else if (!strcmp(ext, "BGR888")) {
-        mpp_log("found BGR888");
-        *fmt = MPP_FMT_BGR888;
-    } else if (!strcmp(ext, "BGRA8888")) {
-        mpp_log("found BGRA8888");
-        *fmt = MPP_FMT_BGRA8888;
-    } else if (!strcmp(ext, "RGB565")) {
-        mpp_log("found RGB565");
-        *fmt = MPP_FMT_RGB565;
-    } else if (!strcmp(ext, "RGB888")) {
-        mpp_log("found RGB888");
-        *fmt = MPP_FMT_RGB888;
-    } else if (!strcmp(ext, "RGBA8888")) {
-        mpp_log("found RGBA8888");
-        *fmt = MPP_FMT_RGBA8888;
-    } else if (!strcmp(ext, "fbc")) {
-        mpp_log("found fbc");
-        *fmt = MPP_FMT_YUV420SP | MPP_FRAME_FBC_AFBC_V1;
-    } else {
-        ret = MPP_NOK;
+    for (i = 0; i < MPP_ARRAY_ELEMS(map_ext_to_frm_fmt); i++) {
+        Ext2FrmFmt *info = &map_ext_to_frm_fmt[i];
+
+        if (!strcmp(ext, info->ext_name)) {
+            *fmt = info->format;
+            ret = MPP_OK;
+        }
     }
 
     return ret;
 }
 
+typedef struct Ext2Coding_t {
+    const char      *ext_name;
+    MppCodingType   coding;
+} Ext2Coding;
+
+Ext2Coding map_ext_to_coding[] = {
+    {   "h264",             MPP_VIDEO_CodingAVC,    },
+    {   "264",              MPP_VIDEO_CodingAVC,    },
+    {   "avc",              MPP_VIDEO_CodingAVC,    },
+
+    {   "h265",             MPP_VIDEO_CodingHEVC,   },
+    {   "265",              MPP_VIDEO_CodingHEVC,   },
+    {   "hevc",             MPP_VIDEO_CodingHEVC,   },
+
+    {   "jpg",              MPP_VIDEO_CodingMJPEG,  },
+    {   "jpeg",             MPP_VIDEO_CodingMJPEG,  },
+    {   "mjpeg",            MPP_VIDEO_CodingMJPEG,  },
+};
+
 MPP_RET name_to_coding_type(const char *name, MppCodingType *coding)
 {
-    MPP_RET ret = MPP_OK;
+    RK_U32 i;
+    MPP_RET ret = MPP_NOK;
     char ext[50];
 
     get_extension(name, ext);
 
-    if (!strcmp(ext, "264") || !strcmp(ext, "h264")) {
-        *coding = MPP_VIDEO_CodingAVC;
-    } else if (!strcmp(ext, "265") || !strcmp(ext, "h265")) {
-        *coding = MPP_VIDEO_CodingHEVC;
-    } else if (!strcmp(ext, "jpeg") || !strcmp(ext, "mjpeg") || !strcmp(ext, "jpg")) {
-        *coding = MPP_VIDEO_CodingMJPEG;
-    } else {
-        ret = MPP_NOK;
+    for (i = 0; i < MPP_ARRAY_ELEMS(map_ext_to_coding); i++) {
+        Ext2Coding *info = &map_ext_to_coding[i];
+
+        if (!strcmp(ext, info->ext_name)) {
+            *coding = info->coding;
+            ret = MPP_OK;
+        }
     }
 
     return ret;

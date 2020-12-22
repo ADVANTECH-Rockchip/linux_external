@@ -62,7 +62,6 @@ struct _GstMppVideoEnc
   MppBuffer input_buffer[MPP_MAX_BUFFERS];
   MppBuffer output_buffer[MPP_MAX_BUFFERS];
   MppFrame mpp_frame;
-  MppPacket sps_packet;
 
   /* the currently format */
   GstVideoInfo info;
@@ -77,6 +76,20 @@ struct _GstMppVideoEnc
   gboolean processing;
   gboolean active;
   GstFlowReturn output_flow;
+
+  MppEncHeaderMode header_mode;
+  MppEncRcMode rc_mode;
+  MppEncRotationCfg rotation;
+  MppEncSeiMode sei_mode;
+
+  gint gop;
+  guint max_reenc;
+
+  guint bps;
+  guint bps_min;
+  guint bps_max;
+
+  gboolean prop_dirty;
 };
 
 struct _GstMppVideoEncClass

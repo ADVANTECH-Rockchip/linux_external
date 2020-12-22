@@ -34,6 +34,22 @@ extern "C" {
 rockx_ret_t rockx_object_track(rockx_handle_t handle, int width, int height, int max_track_time,
         rockx_object_array_t* in_track_objects, rockx_object_array_t* out_track_objects);
 
+/**
+ * Track Object (Can use for Face, Head, CarPlate, Object, etc...)
+ * @param handle [in] Handle of a created ROCKX_MODULE_OBJECT_TRACK module(created by @ref rockx_create)
+ * @param width [in] Input image width
+ * @param height [in] Input image height
+ * @param max_track_time [in] Max track time (frame count for tracked object disappear)
+ * @param in_track_objects [in] Object array need to track
+ * @param out_track_objects [out] tracked object array
+ * @param in_img [in] source image
+ * @param enable_autotrack [in] enable autotrack
+ * @return @ref rockx_ret_t
+ */
+rockx_ret_t rockx_object_autotrack(rockx_handle_t handle, int width, int height, int max_track_time,
+    rockx_object_array_t* in_track_objects, rockx_object_array_t* out_track_objects, 
+    rockx_image_t *in_img, bool enable_autotrack);
+
 #ifdef __cplusplus
 } //extern "C"
 #endif

@@ -37,6 +37,9 @@
 #define BTA_AVK_FAIL_CAC_BAD_PARAM      7       /* Cover Art bad parameter */
 #define BTA_AVK_FAIL_CAC_BAD_REQUEST    8       /* Cover Art bad request */
 #define BTA_AVK_FAIL_CAC_INTERNAL       9       /* Cover Art internal error */
+#if defined(CAC_OPEN_EVENT_STATUS_CHANGE) && (CAC_OPEN_EVENT_STATUS_CHANGE == TRUE)
+#define BTA_AVK_FAIL_CAC_UNAVAILABLE    10       /* Cover Art service unavailable */
+#endif
 #endif
 
 typedef UINT8 tBTA_AVK_STATUS;

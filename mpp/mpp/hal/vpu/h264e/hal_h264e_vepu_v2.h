@@ -18,8 +18,15 @@
 #define __HAL_H264E_VEPU_V2_H__
 
 #include "mpp_enc_cfg.h"
-#include "h264e_syntax_new.h"
 #include "mpp_rc.h"
+#include "vepu_common.h"
+
+#define H264E_HAL_SET_REG(reg, addr, val)                                    \
+    do {                                                                     \
+        reg[(addr)>>2] = (RK_U32)(val);                                      \
+        if (hal_h264e_debug & 0/*H264E_HAL_LOG_INFO*/)                              \
+            mpp_log("line(%d) set reg[%03d/%03x]: %08x", __LINE__, (addr)>>2, addr, val); \
+    } while (0)
 
 typedef enum H264eVpuFrameType_t {
     H264E_VPU_FRAME_P = 0,
@@ -34,15 +41,22 @@ typedef struct HalH264eVepuInput_t {
     RK_S32          src_fmt;
     RK_S32          src_w;
     RK_S32          src_h;
+
+    VepuStrideCfg   stride_cfg;
+    RK_S32          pixel_stride;
+
     size_t          size_y;
     size_t          size_c;
 
     RK_U32          offset_cb;
     RK_U32          offset_cr;
 
-    RK_S32          r_mask_msb;
-    RK_S32          g_mask_msb;
-    RK_S32          b_mask_msb;
+    RK_U8           r_mask_msb;
+    RK_U8           g_mask_msb;
+    RK_U8           b_mask_msb;
+    RK_U8           swap_8_in;
+    RK_U8           swap_16_in;
+    RK_U8           swap_32_in;
 
     RK_U32          color_conversion_coeff_a;
     RK_U32          color_conversion_coeff_b;
@@ -133,6 +147,8 @@ typedef struct HalH264eVepuMbRc_t {
      * qp_sum           QP Sum div2 output
      * rlc_count        RLC codeword count div4 output max 255*255*384/4
      */
+    RK_U32          hdr_strm_size;
+    RK_U32          hdr_free_size;
     RK_U32          out_strm_size;
     RK_S32          qp_sum;
     RK_S32          rlc_count;
@@ -149,9 +165,27 @@ typedef struct HalH264eVepuMbRc_t {
 
 typedef void *HalH264eVepuMbRcCtx;
 
+typedef struct HalH264eVepuStreamAmend_t {
+    RK_S32          enable;
+    H264eSlice      *slice;
+    H264ePrefixNal  *prefix;
+    RK_S32          slice_enabled;
+
+    RK_U8           *src_buf;
+    RK_U8           *dst_buf;
+    RK_S32          buf_size;
+
+    MppPacket       packet;
+    RK_S32          buf_base;
+    RK_S32          old_length;
+    RK_S32          new_length;
+} HalH264eVepuStreamAmend;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+RK_S32 exp_golomb_signed(RK_S32 val);
 
 /* buffer management function */
 MPP_RET h264e_vepu_buf_init(HalH264eVepuBufs *bufs);
@@ -173,6 +207,9 @@ MPP_RET h264e_vepu_mbrc_init(HalH264eVepuMbRcCtx *ctx, HalH264eVepuMbRc *mbrc);
 MPP_RET h264e_vepu_mbrc_deinit(HalH264eVepuMbRcCtx ctx);
 
 MPP_RET h264e_vepu_mbrc_setup(HalH264eVepuMbRcCtx ctx, MppEncCfgSet *cfg);
+MPP_RET h264e_vepu_slice_split_cfg(H264eSlice *slice, HalH264eVepuMbRc *mbrc,
+                                   EncRcTask *rc_task, MppEncCfgSet *set_cfg);
+
 /*
  * generate hardware MB rc config by:
  * 1 - HalH264eVepuMbRcCtx ctx
@@ -185,8 +222,16 @@ MPP_RET h264e_vepu_mbrc_setup(HalH264eVepuMbRcCtx ctx, MppEncCfgSet *cfg);
  * Then output the HalH264eVepuMbRc for register generation
  */
 MPP_RET h264e_vepu_mbrc_prepare(HalH264eVepuMbRcCtx ctx, HalH264eVepuMbRc *mbrc,
-                                EncRcTask *rc_task, MppEncCfgSet *cfg);
+                                EncRcTask *rc_task);
 MPP_RET h264e_vepu_mbrc_update(HalH264eVepuMbRcCtx ctx, HalH264eVepuMbRc *mbrc);
+
+MPP_RET h264e_vepu_stream_amend_init(HalH264eVepuStreamAmend *ctx);
+MPP_RET h264e_vepu_stream_amend_deinit(HalH264eVepuStreamAmend *ctx);
+MPP_RET h264e_vepu_stream_amend_config(HalH264eVepuStreamAmend *ctx,
+                                       MppPacket packet, MppEncCfgSet *cfg,
+                                       H264eSlice *slice, H264ePrefixNal *prefix);
+MPP_RET h264e_vepu_stream_amend_proc(HalH264eVepuStreamAmend *ctx);
+MPP_RET h264e_vepu_stream_amend_sync_ref_idc(HalH264eVepuStreamAmend *ctx);
 
 #ifdef __cplusplus
 }

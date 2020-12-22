@@ -1,5 +1,5 @@
-#ifndef __BLUETOOTH_BLE__CLIENT_H__
-#define __BLUETOOTH_BLE__CLIENT_H__
+#ifndef __BLUETOOTH_BLE_CLIENT_H__
+#define __BLUETOOTH_BLE_CLIENT_H__
 
 #include <DeviceIo/RkBtBase.h>
 
@@ -64,6 +64,8 @@ typedef enum {
 	RK_BLE_CLIENT_STATE_IDLE = 0,
 	RK_BLE_CLIENT_STATE_CONNECT,
 	RK_BLE_CLIENT_STATE_DISCONNECT,
+	RK_BLE_CLIENT_WRITE_SUCCESS,
+	RK_BLE_CLIENT_WRITE_ERROR,
 } RK_BLE_CLIENT_STATE;
 
 typedef struct {
@@ -97,25 +99,33 @@ typedef struct {
 	RK_BLE_CLIENT_SERVICE service[SERVICE_COUNT_MAX];
 } RK_BLE_CLIENT_SERVICE_INFO;
 
-typedef void (*RK_BLE_CLIENT_STATE_CALLBACK)(RK_BLE_CLIENT_STATE state);
+typedef void (*RK_BLE_CLIENT_STATE_CALLBACK)(const char *bd_addr, const char *name, RK_BLE_CLIENT_STATE state);
 typedef void (*RK_BLE_CLIENT_RECV_CALLBACK)(const char *uuid, char *data, int len);
 
 void rk_ble_client_register_state_callback(RK_BLE_CLIENT_STATE_CALLBACK cb);
-void rk_ble_client_register_dev_found_callback(RK_BT_DEV_FOUND_CALLBACK cb);
-int rk_ble_client_register_recv_callback(RK_BLE_CLIENT_RECV_CALLBACK cb);
-int rk_ble_client_open(void);
+void rk_ble_client_register_recv_callback(RK_BLE_CLIENT_RECV_CALLBACK cb);
+void rk_ble_client_register_mtu_callback(RK_BT_MTU_CALLBACK cb);
+int rk_ble_client_open(bool mtu_change);
 void rk_ble_client_close(void);
 RK_BLE_CLIENT_STATE rk_ble_client_get_state();
 int rk_ble_client_get_service_info(char *address, RK_BLE_CLIENT_SERVICE_INFO *info);
-int rk_ble_client_write(const char *uuid, char *data);
+int rk_ble_client_write(const char *uuid, char *data, int data_len);
 int rk_ble_client_read(const char *uuid);
 int rk_ble_client_connect(char *address);
 int rk_ble_client_disconnect(char *address);
 bool rk_ble_client_is_notifying(const char *uuid);
-int rk_ble_client_notify(const char *uuid, bool enable);
+
+//is_indicate: only for bsa
+int rk_ble_client_notify(const char *uuid, bool is_indicate, bool enable);
+
+//get broadcast of the remote device
+int rk_ble_client_get_eir_data(char *address, char *eir_data, int len);
+
+//only for bsa, hci le write suggested default data length(27 byte)
+int rk_ble_client_default_data_length();
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __BLUETOOTH_BLE_H__ */
+#endif /* __BLUETOOTH_BLE_CLIENT_H__ */

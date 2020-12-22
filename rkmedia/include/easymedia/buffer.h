@@ -12,13 +12,26 @@
 #include <memory>
 
 #include "image.h"
+#include "lock.h"
 #include "media_type.h"
-#include "sound.h"
 #include "rknn_user.h"
+#include "sound.h"
 
 typedef int (*DeleteFun)(void *arg);
 
 namespace easymedia {
+
+/* memory type definitions. */
+enum drm_rockchip_gem_mem_type {
+  /* Physically Continuous memory. */
+  ROCKCHIP_BO_CONTIG = 1 << 0,
+  /* cachable mapping. */
+  ROCKCHIP_BO_CACHABLE = 1 << 1,
+  /* write-combine mapping. */
+  ROCKCHIP_BO_WC = 1 << 2,
+  ROCKCHIP_BO_SECURE = 1 << 3,
+  ROCKCHIP_BO_MASK = ROCKCHIP_BO_CONTIG | ROCKCHIP_BO_CACHABLE | ROCKCHIP_BO_WC
+};
 
 // wrapping existing buffer
 class _API MediaBuffer {
@@ -36,12 +49,13 @@ public:
 
   MediaBuffer()
       : ptr(nullptr), size(0), fd(-1), valid_size(0), type(Type::None),
-        user_flag(0), ustimestamp(0), eof(false) {}
+        user_flag(0), ustimestamp(0), eof(false), tsvc_level(-1) {}
   // Set userdata and delete function if you want free resource when destrut.
   MediaBuffer(void *buffer_ptr, size_t buffer_size, int buffer_fd = -1,
               void *user_data = nullptr, DeleteFun df = nullptr)
       : ptr(buffer_ptr), size(buffer_size), fd(buffer_fd), valid_size(0),
-        type(Type::None), user_flag(0), ustimestamp(0), eof(false) {
+        type(Type::None), user_flag(0), ustimestamp(0), eof(false),
+        tsvc_level(-1) {
     SetUserData(user_data, df);
   }
   virtual ~MediaBuffer() = default;
@@ -77,6 +91,8 @@ public:
   }
   bool IsEOF() const { return eof; }
   void SetEOF(bool val) { eof = val; }
+  int GetTsvcLevel() { return tsvc_level; }
+  void SetTsvcLevel(int _level) { tsvc_level = _level; }
 
   void SetUserData(void *user_data, DeleteFun df) {
     if (user_data) {
@@ -123,9 +139,11 @@ public:
     MEM_COMMON,
     MEM_HARD_WARE,
   };
-  static std::shared_ptr<MediaBuffer> Alloc(size_t size,
-                                            MemType type = MemType::MEM_COMMON);
-  static MediaBuffer Alloc2(size_t size, MemType type = MemType::MEM_COMMON);
+  static std::shared_ptr<MediaBuffer>
+  Alloc(size_t size, MemType type = MemType::MEM_COMMON,
+        unsigned int flag = ROCKCHIP_BO_CACHABLE);
+  static MediaBuffer Alloc2(size_t size, MemType type = MemType::MEM_COMMON,
+                            unsigned int flag = ROCKCHIP_BO_CACHABLE);
   static std::shared_ptr<MediaBuffer>
   Clone(MediaBuffer &src, MemType dst_type = MemType::MEM_COMMON);
 
@@ -142,7 +160,7 @@ private:
   int64_t ustimestamp;
   int64_t atomic_clock;
   bool eof;
-
+  int tsvc_level; // for avc/hevc encoder
   std::shared_ptr<void> userdata;
   std::vector<std::shared_ptr<void>> related_sptrs;
 };
@@ -174,6 +192,8 @@ public:
     SetValidSize(num * GetSampleSize());
   }
   int GetSamples() const { return sample_info.nb_samples; }
+  void SetChannels(int num) { sample_info.channels = num; }
+  int GetChannels() { return sample_info.channels; }
 
 private:
   void ResetValues() {
@@ -208,7 +228,7 @@ public:
   int GetVirWidth() const { return image_info.vir_width; }
   int GetVirHeight() const { return image_info.vir_height; }
   ImageInfo &GetImageInfo() { return image_info; }
-  std::list<FaceInfo> &GetFaceInfo() { return face_info; };
+  std::list<RknnResult> &GetRknnResult() { return nn_result; };
 
 private:
   void ResetValues() {
@@ -217,7 +237,68 @@ private:
     image_info.pix_fmt = PIX_FMT_NONE;
   }
   ImageInfo image_info;
-  std::list<FaceInfo> face_info;
+  std::list<RknnResult> nn_result;
+};
+
+class MediaGroupBuffer {
+public:
+  MediaGroupBuffer() : pool(nullptr), ptr(nullptr), size(0), fd(-1) {}
+  // Set userdata and delete function if you want free resource when destrut.
+  MediaGroupBuffer(void *buffer_ptr, size_t buffer_size, int buffer_fd = -1,
+                   void *user_data = nullptr, DeleteFun df = nullptr)
+      : pool(nullptr), ptr(buffer_ptr), size(buffer_size), fd(buffer_fd) {
+    SetUserData(user_data, df);
+  }
+  virtual ~MediaGroupBuffer() = default;
+
+  void SetUserData(void *user_data, DeleteFun df) {
+    if (user_data) {
+      if (df)
+        userdata.reset(user_data, df);
+      else
+        userdata.reset(user_data, [](void *) {}); // do nothing when delete
+    } else {
+      userdata.reset();
+    }
+  }
+
+  void SetBufferPool(void *bp) { pool = bp; }
+
+  int GetFD() const { return fd; }
+  void *GetPtr() const { return ptr; }
+  size_t GetSize() const { return size; }
+
+  static MediaGroupBuffer *
+  Alloc(size_t size,
+        MediaBuffer::MemType type = MediaBuffer::MemType::MEM_COMMON);
+
+public:
+  void *pool;
+
+private:
+  void *ptr; // buffer virtual address
+  size_t size;
+  int fd; // buffer fd
+
+  std::shared_ptr<void> userdata;
+};
+
+class _API BufferPool {
+public:
+  BufferPool(int cnt, int size, MediaBuffer::MemType type);
+  ~BufferPool();
+
+  std::shared_ptr<MediaBuffer> GetBuffer(bool block = true);
+  int PutBuffer(MediaGroupBuffer *mgb);
+
+  void DumpInfo();
+
+private:
+  std::list<MediaGroupBuffer *> ready_buffers;
+  std::list<MediaGroupBuffer *> busy_buffers;
+  ConditionLockMutex mtx;
+  int buf_cnt;
+  int buf_size;
 };
 
 } // namespace easymedia

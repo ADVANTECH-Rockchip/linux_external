@@ -239,6 +239,9 @@ gst_mpp_dec_buffer_pool_acquire_buffer (GstBufferPool * bpool,
   gint buf_index, ret, mode;
 
   ret = dec->mpi->decode_get_frame (dec->mpp_ctx, &mframe);
+  if (ret == MPP_ERR_TIMEOUT)
+    goto mpp_timeout;
+
   if (ret || NULL == mframe)
     goto mpp_error;
 
@@ -251,12 +254,15 @@ gst_mpp_dec_buffer_pool_acquire_buffer (GstBufferPool * bpool,
   /* get from the pool the GstBuffer associated with the index */
   mpp_buf = mpp_frame_get_buffer (mframe);
   if (NULL == mpp_buf)
-    goto mpp_error;
+    goto drop_frame;
 
   buf_index = mpp_buffer_get_index (mpp_buf);
   outbuf = pool->buffers[buf_index];
-  if (outbuf == NULL)
-    goto no_buffer;
+  if (outbuf == NULL) {
+    GST_ERROR_OBJECT (pool, "No free buffer found in the pool at index %d",
+        buf_index);
+    goto drop_frame;
+  }
 
   GST_BUFFER_DTS (outbuf) = mpp_frame_get_dts (mframe);
   GST_BUFFER_PTS (outbuf) = mpp_frame_get_pts (mframe);
@@ -332,16 +338,8 @@ mpp_error:
     GST_ERROR_OBJECT (pool, "mpp error %d", ret);
 
     if (mframe)
-      mpp_frame_deinit (&mframe);
-    return GST_FLOW_ERROR;
-  }
-no_buffer:
-  {
-    *buffer = NULL;
-    GST_ERROR_OBJECT (pool, "No free buffer found in the pool at index %d",
-        buf_index);
+      goto drop_frame;
 
-    mpp_frame_deinit (&mframe);
     return GST_FLOW_ERROR;
   }
 drop_frame:
@@ -351,7 +349,13 @@ drop_frame:
     GST_BUFFER_PTS (*buffer) = mpp_frame_get_pts (mframe);
 
     mpp_frame_deinit (&mframe);
-    return GST_FLOW_CUSTOM_ERROR_1;
+    return GST_FLOW_CUSTOM_DROP;
+  }
+mpp_timeout:
+  {
+    *buffer = NULL;
+    GST_INFO_OBJECT (pool, "mpp timeout %d", ret);
+    return GST_FLOW_CUSTOM_TIMEOUT;
   }
 }
 
@@ -419,10 +423,6 @@ static void
 gst_mpp_dec_buffer_pool_finalize (GObject * object)
 {
   GstMppDecBufferPool *pool = GST_MPP_DEC_BUFFER_POOL (object);
-
-  if (GST_MPP_DEC_BUFFER_POOL (pool->dec->pool) == pool)
-    pool->dec->mpi->control (pool->dec->mpp_ctx, MPP_DEC_SET_EXT_BUF_GROUP,
-        NULL);
 
   gst_object_unref (pool->dec);
 

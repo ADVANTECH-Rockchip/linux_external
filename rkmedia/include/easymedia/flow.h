@@ -8,6 +8,7 @@
 #include "lock.h"
 #include "message.h"
 #include "reflector.h"
+#include "utils.h"
 
 #include <stdarg.h>
 
@@ -45,18 +46,21 @@ template <int in_index, int out_index>
 bool void_transaction(Flow *f, MediaBufferVector &input_vector);
 using LinkVideoHandler =
     std::add_pointer<void(unsigned char *buffer, unsigned int buffer_size,
-                          unsigned int present_time, int nat_type)>::type;
+                          int64_t present_time, int nat_type)>::type;
 using LinkAudioHandler =
     std::add_pointer<void(unsigned char *buffer, unsigned int buffer_size,
-                          unsigned int present_time)>::type;
+                          int64_t present_time)>::type;
 using LinkCaptureHandler =
     std::add_pointer<void(unsigned char *buffer, unsigned int buffer_size,
                           int type, const char *id)>::type;
 using PlayVideoHandler = std::add_pointer<void(Flow *f)>::type;
 using PlayAudioHandler = std::add_pointer<void(Flow *f)>::type;
-using UserHandler = std::add_pointer<void *>::type;
-using UserCallBack = std::add_pointer<void(void* handler,
-    int type, void *ptr, int size)>::type;
+using CallBackHandler = std::add_pointer<void>::type;
+using UserCallBack =
+    std::add_pointer<void(void *handler, int type, void *ptr, int size)>::type;
+using OutputCallBack = std::add_pointer<void(
+    void *handler, std::shared_ptr<MediaBuffer> mb)>::type;
+using EventCallBack = std::add_pointer<void(void *handler, void *data)>::type;
 
 class _API SlotMap {
 public:
@@ -84,6 +88,10 @@ public:
   Flow();
   virtual ~Flow();
   static const char *GetFlowName() { return nullptr; }
+  // The GetFlowName interface is occupied by the reflector,
+  // so GetFlowTag is used to distinguish Flow.
+  const char *GetFlowTag() { return flow_tag.c_str(); }
+  void SetFlowTag(std::string tag) { flow_tag = tag; }
 
   // TODO: Right now out_slot_index and in_slot_index is decided by exact
   //       subclass, automatically get these value or ignore them in future.
@@ -96,8 +104,8 @@ public:
 
   // The Control must be called in the same thread to that create flow
   virtual int Control(unsigned long int request _UNUSED, ...) { return -1; }
-  virtual int SubControl(unsigned long int request, void *arg) {
-    SubRequest subreq = {request, arg};
+  virtual int SubControl(unsigned long int request, void *arg, int size = 0) {
+    SubRequest subreq = {request, size, arg};
     return Control(S_SUB_REQUEST, &subreq);
   }
 
@@ -139,14 +147,33 @@ public:
   PlayAudioHandler GetPlayAudioHandler() { return play_audio_handler_; }
 
   // Add common hander for user
-  void SetUserCallBack(UserHandler handler, UserCallBack callback) {
+  void SetUserCallBack(CallBackHandler handler, UserCallBack callback) {
     user_handler_ = handler;
     user_callback_ = callback;
   }
-  UserHandler GetUserHandler() { return user_handler_; }
+  void SetOutputCallBack(CallBackHandler handler, OutputCallBack callback) {
+    out_handler_ = handler;
+    out_callback_ = callback;
+  }
+  void SetEventCallBack(CallBackHandler handler, EventCallBack callback) {
+    event_handler2_ = handler;
+    event_callback_ = callback;
+  }
+  CallBackHandler GetUserHandler() { return user_handler_; }
   UserCallBack GetUserCallBack() { return user_callback_; }
 
+  // Control the number of executions of threads inside Flow
+  // _run_times: -1, Endless loop; 0, skip process; > 0, do process cnt.
+  int SetRunTimes(int _run_times);
+  int GetRunTimesRemaining();
+
   bool IsAllBuffEmpty();
+  void DumpBase(std::string &dump_info);
+  virtual void Dump(std::string &dump_info) { DumpBase(dump_info); }
+
+  void StartStream();
+  int GetCachedBufferNum(unsigned int &total, unsigned int &used);
+  void ClearCachedBuffers();
 
 protected:
   class FlowInputMap {
@@ -220,6 +247,7 @@ protected:
   std::shared_ptr<ConditionLockMutex> source_start_cond_mtx;
 
   int down_flow_num;
+  bool waite_down_flow;
 
   // source flow
   bool SetAsSource(const std::vector<int> &output_slots, FunctionProcess f,
@@ -242,6 +270,9 @@ protected:
   }
   static const FunctionProcess void_transaction00;
 
+  CallBackHandler event_handler2_;
+  EventCallBack event_callback_;
+
 private:
   volatile bool enable;
   volatile bool quit;
@@ -259,8 +290,18 @@ private:
   PlayVideoHandler play_video_handler_;
   PlayAudioHandler play_audio_handler_;
 
-  UserHandler user_handler_;
+  CallBackHandler user_handler_;
   UserCallBack user_callback_;
+
+  CallBackHandler out_handler_;
+  OutputCallBack out_callback_;
+
+  // FlowTag is used to distinguish Flow.
+  std::string flow_tag;
+
+  // Control the number of executions of threads inside Flow
+  int run_times;
+
   DEFINE_ERR_GETSET()
   DECLARE_PART_FINAL_EXPOSE_PRODUCT(Flow)
 };

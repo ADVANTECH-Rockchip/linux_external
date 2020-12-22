@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <errno.h>
 
+#include "../rk_audio.h"
 #include "alsa_utils.h"
 #include "alsa_volume.h"
 #include "buffer.h"
@@ -48,6 +49,13 @@ private:
   snd_pcm_t *alsa_handle;
   size_t frame_size;
   int interleaved;
+  AI_LAYOUT_E layout;
+
+#ifdef AUDIO_ALGORITHM_ENABLE
+  bool bVqeEnable;
+  VQE_CONFIG_S stVqeConfig;
+  AUDIO_VQE_S *pstVqeHandle;
+#endif
 };
 
 const int AlsaPlayBackStream::kStartDelays = 2; // number delays of periods
@@ -56,19 +64,29 @@ const int AlsaPlayBackStream::kPresetSampleRate =
     48000; // the same to asound.conf
 const int AlsaPlayBackStream::kPresetMinBufferSize = 8192;
 AlsaPlayBackStream::AlsaPlayBackStream(const char *param)
-    : alsa_handle(NULL), frame_size(0) {
+    : alsa_handle(NULL), frame_size(0)
+#ifdef AUDIO_ALGORITHM_ENABLE
+      ,
+      bVqeEnable(false), pstVqeHandle(NULL)
+#endif
+{
   memset(&sample_info, 0, sizeof(sample_info));
   sample_info.fmt = SAMPLE_FMT_NONE;
   std::map<std::string, std::string> params;
-  int ret = ParseAlsaParams(param, params, device, sample_info);
+  int ret = ParseAlsaParams(param, params, device, sample_info, layout);
   UNUSED(ret);
   if (device.empty())
     device = "default";
   if (SampleInfoIsValid(sample_info))
     SetWriteable(true);
   else
-    LOG("missing some necessary param\n");
+    RKMEDIA_LOGI("missing some necessary param\n");
   interleaved = SampleFormatToInterleaved(sample_info.fmt);
+
+#ifdef AUDIO_ALGORITHM_ENABLE
+  memset(&stVqeConfig, 0, sizeof(stVqeConfig));
+  stVqeConfig.u32VQEMode = VQE_MODE_BUTT;
+#endif
 }
 
 AlsaPlayBackStream::~AlsaPlayBackStream() {
@@ -96,13 +114,14 @@ size_t AlsaPlayBackStream::Writei(const void *ptr, size_t size, size_t nmemb) {
          * assume snd_pcm_wait() above? */
         std::this_thread::sleep_for(std::chrono::microseconds(100));
         errno = EAGAIN;
-        LOG("ALSA write failed : %s\n", snd_strerror(status));
+        RKMEDIA_LOGI("ALSA write failed : %s\n", snd_strerror(status));
         return 0;
       }
       status = snd_pcm_recover(alsa_handle, status, 0);
       if (status < 0) {
         /* Hmm, not much we can do - abort */
-        LOG("ALSA write failed (unrecoverable): %s\n", snd_strerror(status));
+        RKMEDIA_LOGI("ALSA write failed (unrecoverable): %s\n",
+                     snd_strerror(status));
         errno = EIO;
         goto out;
       }
@@ -141,7 +160,8 @@ size_t AlsaPlayBackStream::Writen(const void *ptr, size_t size, size_t nmemb) {
       status = snd_pcm_recover(alsa_handle, status, 0);
       if (status < 0) {
         /* Hmm, not much we can do - abort */
-        LOG("ALSA write failed (unrecoverable): %s\n", snd_strerror(status));
+        RKMEDIA_LOGI("ALSA write failed (unrecoverable): %s\n",
+                     snd_strerror(status));
         errno = EIO;
         goto out;
       }
@@ -159,10 +179,28 @@ out:
 
 bool AlsaPlayBackStream::Write(std::shared_ptr<MediaBuffer> mb) {
   if (mb->IsValid()) {
+#ifdef AUDIO_ALGORITHM_ENABLE
+    if (pstVqeHandle && !bVqeEnable) {
+      RK_AUDIO_VQE_Deinit(pstVqeHandle);
+      pstVqeHandle = NULL;
+    }
+    if (pstVqeHandle) {
+      int ret =
+          RK_AUDIO_VQE_Handle(pstVqeHandle, mb->GetPtr(), mb->GetValidSize());
+      if (ret < 0)
+        return 0;
+    }
+#endif
+    Write(mb->GetPtr(), 1, mb->GetValidSize());
+    return 0;
+  }
+  return -1;
+  /*
+  if (mb->IsValid()) {
     auto in = std::static_pointer_cast<SampleBuffer>(mb);
     Write(in->GetPtr(), in->GetSampleSize(), in->GetSamples());
     return 0;
-  }
+  }*/
   return -1;
 }
 
@@ -176,7 +214,7 @@ static int ALSA_finalize_hardware(snd_pcm_t *pcm_handle, uint32_t samples,
 
   status = snd_pcm_hw_params(pcm_handle, hwparams);
   if (status < 0) {
-    LOG("Couldn't set pcm_hw_params: %s\n", snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't set pcm_hw_params: %s\n", snd_strerror(status));
     ret = -1;
     goto err;
   }
@@ -184,15 +222,15 @@ static int ALSA_finalize_hardware(snd_pcm_t *pcm_handle, uint32_t samples,
   /* Get samples for the actual buffer size */
   status = snd_pcm_hw_params_get_buffer_size(hwparams, &bufsize);
   if (status < 0) {
-    LOG("Couldn't get buffer size: %s\n", snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't get buffer size: %s\n", snd_strerror(status));
     ret = -1;
     goto err;
   }
 
 #ifndef NDEBUG
   if (bufsize != samples * sample_size) {
-    LOG("warning: bufsize != samples * %d; %lu != %u * %d\n", sample_size,
-        bufsize, samples, sample_size);
+    RKMEDIA_LOGW("bufsize != samples * %d; %lu != %u * %d\n", sample_size,
+                 bufsize, samples, sample_size);
   }
 #else
   UNUSED(samples);
@@ -206,8 +244,8 @@ err:
   do {
     unsigned int periods = 0;
     snd_pcm_hw_params_get_periods(hwparams, &periods, NULL);
-    LOG("ALSA: period size = %ld, periods = %u, buffer size = %lu\n",
-        *period_size, periods, bufsize);
+    RKMEDIA_LOGI("ALSA: period size = %ld, periods = %u, buffer size = %lu\n",
+                 *period_size, periods, bufsize);
   } while (0);
 #endif
   return ret;
@@ -229,8 +267,8 @@ static int ALSA_set_period_size(snd_pcm_t *pcm_handle, uint32_t samples,
   status = snd_pcm_hw_params_set_period_size_near(pcm_handle, hwparams, &frames,
                                                   NULL);
   if (status < 0) {
-    LOG("Couldn't set period size<%d> : %s\n", (int)frames,
-        snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't set period size<%d> : %s\n", (int)frames,
+                 snd_strerror(status));
     return -1;
   }
 
@@ -243,7 +281,8 @@ static int ALSA_set_period_size(snd_pcm_t *pcm_handle, uint32_t samples,
   status =
       snd_pcm_hw_params_set_periods_near(pcm_handle, hwparams, &periods, NULL);
   if (status < 0) {
-    LOG("Couldn't set periods<%d> : %s\n", periods, snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't set periods<%d> : %s\n", periods,
+                 snd_strerror(status));
     return -1;
   }
 
@@ -267,8 +306,8 @@ static int ALSA_set_buffer_size(snd_pcm_t *pcm_handle, uint32_t samples,
   status =
       snd_pcm_hw_params_set_buffer_size_near(pcm_handle, hwparams, &frames);
   if (status < 0) {
-    LOG("Couldn't set buffer size<%d> : %s\n", (int)frames,
-        snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't set buffer size<%d> : %s\n", (int)frames,
+                 snd_strerror(status));
     return -1;
   }
 
@@ -288,12 +327,12 @@ int AlsaPlayBackStream::Open() {
     return -1;
   int status = snd_pcm_hw_params_malloc(&hwparams);
   if (status < 0) {
-    LOG("snd_pcm_hw_params_malloc failed\n");
+    RKMEDIA_LOGI("snd_pcm_hw_params_malloc failed\n");
     return -1;
   }
   status = snd_pcm_sw_params_malloc(&swparams);
   if (status < 0) {
-    LOG("snd_pcm_sw_params_malloc failed\n");
+    RKMEDIA_LOGI("snd_pcm_sw_params_malloc failed\n");
     goto err;
   }
   pcm_handle = AlsaCommonOpenSetHwParams(
@@ -317,25 +356,27 @@ int AlsaPlayBackStream::Open() {
   }
   status = snd_pcm_sw_params_current(pcm_handle, swparams);
   if (status < 0) {
-    LOG("Couldn't get alsa software config: %s\n", snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't get alsa software config: %s\n",
+                 snd_strerror(status));
     goto err;
   }
   status = snd_pcm_sw_params_set_avail_min(pcm_handle, swparams, period_size);
   if (status < 0) {
-    LOG("Couldn't set minimum available period_size <%d>: %s\n",
-        (int)period_size, snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't set minimum available period_size <%d>: %s\n",
+                 (int)period_size, snd_strerror(status));
     goto err;
   }
   status = snd_pcm_sw_params_set_start_threshold(pcm_handle, swparams,
                                                  period_size * kStartDelays);
   if (status < 0) {
-    LOG("Unable to set start threshold mode for playback: %s\n",
-        snd_strerror(status));
+    RKMEDIA_LOGI("Unable to set start threshold mode for playback: %s\n",
+                 snd_strerror(status));
     goto err;
   }
   status = snd_pcm_sw_params(pcm_handle, swparams);
   if (status < 0) {
-    LOG("Couldn't set software audio parameters: %s\n", snd_strerror(status));
+    RKMEDIA_LOGI("Couldn't set software audio parameters: %s\n",
+                 snd_strerror(status));
     goto err;
   }
   /* Switch to blocking mode for playback */
@@ -363,7 +404,7 @@ int AlsaPlayBackStream::Close() {
     snd_pcm_drop(alsa_handle);
     snd_pcm_close(alsa_handle);
     alsa_handle = NULL;
-    LOG("audio playback close done\n");
+    RKMEDIA_LOGI("audio playback close done\n");
     return 0;
   }
   return -1;
@@ -386,6 +427,35 @@ int AlsaPlayBackStream::IoCtrl(unsigned long int request, ...) {
     ret = GetPlaybackVolume(device, volume);
     *((int *)arg) = volume;
     break;
+#ifdef AUDIO_ALGORITHM_ENABLE
+  case S_VQE_ENABLE:
+    bVqeEnable = *((int *)arg);
+    if (bVqeEnable) {
+      if (pstVqeHandle) {
+        RKMEDIA_LOGI("already enabled\n");
+        return -1;
+      }
+      if (stVqeConfig.u32VQEMode != VQE_MODE_AO) {
+        RKMEDIA_LOGI("wrong u32VQEMode\n");
+        return -1;
+      }
+      pstVqeHandle = RK_AUDIO_VQE_Init(sample_info, layout, &stVqeConfig);
+      if (!pstVqeHandle)
+        return -1;
+    }
+    break;
+  case S_VQE_ATTR:
+    if (bVqeEnable) {
+      RKMEDIA_LOGI(
+          "bVqeEnable already enable, please disable it before set attr");
+      return -1;
+    }
+    stVqeConfig = *((VQE_CONFIG_S *)arg);
+    break;
+  case G_VQE_ATTR:
+    *((VQE_CONFIG_S *)arg) = stVqeConfig;
+    break;
+#endif
   default:
     ret = -1;
     break;

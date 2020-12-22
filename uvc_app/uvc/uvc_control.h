@@ -38,6 +38,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef USE_RK_MODULE
 #define ISP_SEQ 1
@@ -54,9 +55,14 @@ extern "C" {
 #define UVC_CONTROL_LOOP_ONCE		(1 << 0)
 #define UVC_CONTROL_CHECK_STRAIGHT	(1 << 1)
 
+typedef int (*uvc_open_camera_callback)(int width, int height);
+void register_uvc_open_camera(uvc_open_camera_callback cb);
+typedef void (*uvc_close_camera_callback)(void);
+void register_uvc_close_camera(uvc_close_camera_callback cb);
+
 void add_uvc_video();
 int check_uvc_video_id(void);
-void uvc_control_init(int width, int height);
+void uvc_control_init(int width, int height, int fcc);
 void uvc_control_exit();
 void uvc_read_camera_buffer(void *cam_buf, int cam_fd, size_t cam_size,
                             void* extra_data, size_t extra_size);

@@ -29,55 +29,31 @@
 #include "mpp_common.h"
 #include "mpp_platform.h"
 
+#include "mpp_service.h"
+#include "vcodec_service.h"
+
 #define VPU_EXTRA_INFO_SIZE                 12
 #define VPU_EXTRA_INFO_MAGIC                (0x4C4A46)
 #define VPU_MPP_FLAGS_MULTI_MSG             (0x00000001)
 #define VPU_MPP_FLAGS_LAST_MSG              (0x00000002)
 
-#define VPU_IOC_MAGIC                       'l'
+#define MPX_PATCH_NUM       16
 
-#define VPU_IOC_SET_CLIENT_TYPE             _IOW(VPU_IOC_MAGIC, 1, unsigned long)
-#define VPU_IOC_GET_HW_FUSE_STATUS          _IOW(VPU_IOC_MAGIC, 2, unsigned long)
-#define VPU_IOC_SET_REG                     _IOW(VPU_IOC_MAGIC, 3, unsigned long)
-#define VPU_IOC_GET_REG                     _IOW(VPU_IOC_MAGIC, 4, unsigned long)
+typedef struct VpuPatchInfo_t {
+    RK_U32          reg_idx;
+    RK_U32          offset;
+} VpuPatchInfo;
 
-#define VPU_IOC_SET_CLIENT_TYPE_U32         _IOW(VPU_IOC_MAGIC, 1, unsigned int)
-
-#define VPU_IOC_WRITE(nr, size)             _IOC(_IOC_WRITE, VPU_IOC_MAGIC, (nr), (size))
-
-/* Use 'v' as magic number */
-#define MPP_IOC_MAGIC                       'v'
-#define MPP_IOC_CFG_V1                      _IOW(MPP_IOC_MAGIC, 1, unsigned int)
-
-#if __SIZEOF_POINTER__ == 4
-#define REQ_DATA_PTR(ptr) ((RK_U32)ptr)
-#elif __SIZEOF_POINTER__ == 8
-#define REQ_DATA_PTR(ptr) ((RK_U64)ptr)
-#endif
+typedef struct VpuExtraInfo_t {
+    RK_U32          magic;      // Fix magic value 0x4C4A46
+    RK_U32          count;      // valid patch info count
+    VpuPatchInfo    patchs[MPX_PATCH_NUM];
+} VpuExtraInfo;
 
 typedef struct VPUReq {
     RK_U32 *req;
     RK_U32  size;
 } VPUReq_t;
-
-typedef struct mppReqV1_t {
-    RK_U32 cmd;
-    RK_U32 flag;
-    RK_U32 size;
-    RK_U32 offset;
-    RK_U64 data_ptr;
-} MppReqV1;
-
-typedef struct RegPatchSlotInfo_t {
-    RK_U32          reg_idx;
-    RK_U32          offset;
-} RegPatchInfo;
-
-typedef struct RegExtraInfo_t {
-    RK_U32          magic;      // Fix magic value 0x4C4A46
-    RK_U32          count;      // valid patch info count
-    RegPatchInfo    patchs[5];
-} RegExtraInfo;
 
 static RK_U32 vpu_debug = 0;
 
@@ -107,7 +83,7 @@ static RK_S32 vpu_api_set_client_type(int dev, RK_S32 client_type)
             break;
         }
 
-        mpp_req.cmd = MPP_DEV_CMD_INIT_CLIENT_TYPE;
+        mpp_req.cmd = MPP_CMD_INIT_CLIENT_TYPE;
         mpp_req.flag = 0;
         mpp_req.size = sizeof(client_data);
         mpp_req.offset = 0;
@@ -165,6 +141,8 @@ int VPUClientInit(VPU_CLIENT_TYPE type)
         break;
     case VPU_DEC_RKV:
         type = VPU_DEC;
+        ctx_type  = MPP_CTX_DEC;
+        break;
     case VPU_DEC:
     case VPU_DEC_PP:
     case VPU_PP:
@@ -218,25 +196,24 @@ RK_S32 VPUClientSendReg(int socket, RK_U32 *regs, RK_U32 nregs)
     if (vpu_debug) {
         RK_U32 i;
 
-        for (i = 0; i < nregs; i++) {
+        for (i = 0; i < nregs; i++)
             mpp_log("set reg[%03d]: %08x\n", i, regs[i]);
-        }
     }
 
     if (ioctl_version > 0) {
         MppReqV1 reqs[3];
         RK_U32 reg_size = nregs;
 
-        RegExtraInfo *extra_info = (RegExtraInfo*)(regs + (nregs - 12));
+        VpuExtraInfo *extra_info = (VpuExtraInfo*)(regs + (nregs - VPU_EXTRA_INFO_SIZE));
 
-        reqs[0].cmd = MPP_DEV_CMD_SET_REG_WRITE;
+        reqs[0].cmd = MPP_CMD_SET_REG_WRITE;
         reqs[0].flag = 0;
         reqs[0].offset = 0;
         reqs[0].size =  reg_size * sizeof(RK_U32);
         reqs[0].data_ptr = REQ_DATA_PTR((void*)regs);
         reqs[0].flag |= VPU_MPP_FLAGS_MULTI_MSG;
 
-        reqs[1].cmd = MPP_DEV_CMD_SET_REG_READ;
+        reqs[1].cmd = MPP_CMD_SET_REG_READ;
         reqs[1].flag = 0;
         reqs[1].offset = 0;
         reqs[1].size =  reg_size * sizeof(RK_U32);
@@ -244,7 +221,7 @@ RK_S32 VPUClientSendReg(int socket, RK_U32 *regs, RK_U32 nregs)
 
         if (extra_info && extra_info->magic == VPU_EXTRA_INFO_MAGIC) {
             reg_size = nregs - VPU_EXTRA_INFO_SIZE;
-            reqs[2].cmd = MPP_DEV_CMD_SET_REG_ADDR_OFFSET;
+            reqs[2].cmd = MPP_CMD_SET_REG_ADDR_OFFSET;
             reqs[2].flag = 0;
             reqs[2].offset = 0;
             reqs[2].size = extra_info->count * sizeof(extra_info->patchs[0]);
@@ -301,7 +278,7 @@ RK_S32 VPUClientWaitResult(int socket, RK_U32 *regs, RK_U32 nregs, VPU_CMD_TYPE 
     if (ioctl_version > 0) {
         MppReqV1 mpp_req;
         RK_U32 reg_size = nregs;
-        RegExtraInfo *extra_info = (RegExtraInfo*)(regs + (nregs - 12));
+        VpuExtraInfo *extra_info = (VpuExtraInfo*)(regs + (nregs - VPU_EXTRA_INFO_SIZE));
 
         if (extra_info && extra_info->magic == VPU_EXTRA_INFO_MAGIC) {
             reg_size -= 2;
@@ -309,7 +286,7 @@ RK_S32 VPUClientWaitResult(int socket, RK_U32 *regs, RK_U32 nregs, VPU_CMD_TYPE 
             reg_size -= VPU_EXTRA_INFO_SIZE;
         }
 
-        mpp_req.cmd = MPP_DEV_CMD_POLL_HW_FINISH;
+        mpp_req.cmd = MPP_CMD_POLL_HW_FINISH;
         mpp_req.flag = 0;
         mpp_req.offset = 0;
         mpp_req.size =  reg_size * sizeof(RK_U32);

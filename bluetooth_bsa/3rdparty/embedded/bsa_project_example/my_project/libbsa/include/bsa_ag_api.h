@@ -35,6 +35,7 @@
 #define BSA_AG_FEAT_EXTERR  BTA_AG_FEAT_EXTERR   /* Extended error codes */
 #define BSA_AG_FEAT_CODEC   BTA_AG_FEAT_CODEC    /* Codec Negotiation */
 #define BSA_AG_FEAT_VOIP    BTA_AG_FEAT_VOIP     /* VoIP call */
+#define BSA_AG_FEAT_HF_IND  BTA_AG_FEAT_HF_IND  /* HF Indicators */
 
 /* Proprietary features: using 31 ~ 16 bits */
 #define BSA_AG_FEAT_UNAT    BTA_AG_FEAT_UNAT   /* Pass unknown AT commands to application */
@@ -111,7 +112,9 @@ typedef enum
     BSA_AG_AT_UNAT_EVT       , /* Unknown AT command */
     BSA_AG_AT_CBC_EVT        , /* Battery Level report from HF */
     BSA_AG_AT_BAC_EVT        , /* Codec select */
-    BSA_AG_AT_BCS_EVT          /* Codec select */
+    BSA_AG_AT_BCS_EVT        , /* Codec select */
+    BSA_AG_AT_BIND_EVT       , /* HF indicator */
+    BSA_AG_AT_BIEV_EVT         /* HF indicator updates from peer */
 } tBSA_AG_EVT;
 
 /* callback event data */

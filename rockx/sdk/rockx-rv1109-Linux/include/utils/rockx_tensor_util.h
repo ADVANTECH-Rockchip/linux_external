@@ -54,11 +54,21 @@ void rockx_tensor_dump(rockx_tensor_t *tensor);
 void write_tensor(const char *path, rockx_tensor_t *tensor);
 
 /**
+ * Initial a Tensor Attribute From Image without malloc memory
+ * @param img [in] Input image
+ * @param tensor [out] Initialed Tensor
+ * @return @ref rockx_ret_t
+ */
+
+rockx_ret_t rockx_set_tensor_attr_from_image(rockx_image_t *img,rockx_tensor_t *tensor);
+
+/**
  * Initial a Tensor From Image
  * @param img [in] Input image
  * @param tensor [out] Initialed Tensor
  * @return @ref rockx_ret_t
  */
+
 rockx_ret_t rockx_tensor_init_from_image(rockx_image_t *img, rockx_tensor_t *tensor);
 
 /**
@@ -101,6 +111,15 @@ rockx_ret_t write_tensor_to_txt(const char *path, rockx_tensor_t *tensor);
  * @return @ref rockx_ret_t
  */
 rockx_ret_t write_raw_float32_to_txt(const char *path, float *data, unsigned int n_elements);
+
+/**
+ * Save Raw uint8 buffer as string format
+ * @param path [in] File path to write
+ * @param data [in] uint8 buffer
+ * @param n_elements [in] Number of elements
+ * @return @ref rockx_ret_t
+ */
+rockx_ret_t write_raw_uint8_to_txt(const char *path, uint8_t *data, unsigned int n_elements);
 
 /**
  * Read tensor from a data file

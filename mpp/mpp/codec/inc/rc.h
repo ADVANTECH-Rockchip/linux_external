@@ -62,7 +62,7 @@ typedef void* RcCtx;
 extern "C" {
 #endif
 
-MPP_RET rc_init(RcCtx *ctx, MppCodingType type, const char *name);
+MPP_RET rc_init(RcCtx *ctx, MppCodingType type, const char **request_name);
 MPP_RET rc_deinit(RcCtx ctx);
 
 /* update rc control  */
@@ -70,6 +70,8 @@ MPP_RET rc_update_usr_cfg(RcCtx ctx, RcCfg *cfg);
 
 /* Frame rate convertion */
 MPP_RET rc_frm_check_drop(RcCtx ctx, EncRcTask *task);
+/* Frame reenc check */
+MPP_RET rc_frm_check_reenc(RcCtx ctx, EncRcTask *task);
 
 /* Frame level rate and quality control */
 MPP_RET rc_frm_start(RcCtx ctx, EncRcTask *task);

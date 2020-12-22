@@ -23,7 +23,9 @@
 #include "config.h"
 #endif
 
+#include <stdlib.h>
 #include <gst/gst.h>
+#include <gst/gst-compat-private.h>
 
 #include "gstmppdecbufferpool.h"
 #include "gstmppvideodec.h"
@@ -35,6 +37,7 @@ GST_DEBUG_CATEGORY (mpp_video_dec_debug);
 G_DEFINE_TYPE (GstMppVideoDec, gst_mpp_video_dec, GST_TYPE_VIDEO_DECODER);
 
 #define NB_OUTPUT_BUFS 22       /* nb frames necessary for display pipeline */
+#define OUTPUT_TIMEOUT_MS 200   /* Block timeout for MPP output queue */
 
 /* GstVideoDecoder base class method */
 static GstStaticPadTemplate gst_mpp_video_dec_sink_template =
@@ -42,12 +45,12 @@ static GstStaticPadTemplate gst_mpp_video_dec_sink_template =
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS ("video/x-h264,"
-        "stream-format = (string) { byte-stream },"
+        "stream-format = (string) { avc, avc3, byte-stream },"
         "alignment = (string) { au },"
         "parsed = (boolean) true"
         ";"
         "video/x-h265,"
-        "stream-format = (string) { byte-stream },"
+        "stream-format = (string) { hvc1, hev1, byte-stream },"
         "alignment = (string) { au },"
         "parsed = (boolean) true"
         ";"
@@ -163,40 +166,20 @@ gst_mpp_video_dec_unlock_stop (GstMppVideoDec * self)
 }
 
 static gboolean
-gst_mpp_video_dec_close (GstVideoDecoder * decoder)
-{
-  GstMppVideoDec *self = GST_MPP_VIDEO_DEC (decoder);
-  if (self->mpp_ctx != NULL) {
-    mpp_destroy (self->mpp_ctx);
-    self->mpp_ctx = NULL;
-  }
-
-  GST_DEBUG_OBJECT (self, "Rockchip MPP context closed");
-
-  return TRUE;
-}
-
-/* Open the device */
-static gboolean
-gst_mpp_video_dec_open (GstVideoDecoder * decoder)
+gst_mpp_video_dec_start (GstVideoDecoder * decoder)
 {
   GstMppVideoDec *self = GST_MPP_VIDEO_DEC (decoder);
   if (mpp_create (&self->mpp_ctx, &self->mpi))
     return FALSE;
 
   GST_DEBUG_OBJECT (self, "created mpp context %p", self->mpp_ctx);
-  return TRUE;
-}
-
-static gboolean
-gst_mpp_video_dec_start (GstVideoDecoder * decoder)
-{
-  GstMppVideoDec *self = GST_MPP_VIDEO_DEC (decoder);
 
   GST_DEBUG_OBJECT (self, "Starting");
   gst_mpp_video_dec_unlock (self);
   g_atomic_int_set (&self->active, TRUE);
   self->output_flow = GST_FLOW_OK;
+
+  self->seen_valid_pts = FALSE;
 
   return TRUE;
 }
@@ -206,6 +189,9 @@ gst_mpp_video_dec_sendeos (GstVideoDecoder * decoder)
 {
   GstMppVideoDec *self = GST_MPP_VIDEO_DEC (decoder);
   MppPacket mpkt;
+
+  if (!self->pool || !gst_buffer_pool_is_active (self->pool))
+    return FALSE;
 
   mpp_packet_init (&mpkt, NULL, 0);
   mpp_packet_set_eos (mpkt);
@@ -336,9 +322,17 @@ gst_mpp_video_dec_stop (GstVideoDecoder * decoder)
 
   /* Release all the internal references of the buffer */
   if (self->pool) {
+    self->mpi->control (self->mpp_ctx, MPP_DEC_SET_EXT_BUF_GROUP, NULL);
     gst_object_unref (self->pool);
     self->pool = NULL;
   }
+
+  if (self->mpp_ctx != NULL) {
+    mpp_destroy (self->mpp_ctx);
+    self->mpp_ctx = NULL;
+  }
+
+  GST_DEBUG_OBJECT (self, "Rockchip MPP context closed");
 
   if (self->input_state) {
     gst_video_codec_state_unref (self->input_state);
@@ -411,6 +405,7 @@ gst_mpp_video_dec_set_format (GstVideoDecoder * decoder,
     gst_pad_stop_task (decoder->srcpad);
 
     if (self->pool) {
+      self->mpi->control (self->mpp_ctx, MPP_DEC_SET_EXT_BUF_GROUP, NULL);
       self->mpi->reset (self->mpp_ctx);
       gst_object_unref (self->pool);
       self->pool = NULL;
@@ -449,49 +444,73 @@ device_error:
 static GstVideoCodecFrame *
 gst_mpp_video_dec_get_frame (GstVideoDecoder * decoder, GstBuffer * buffer)
 {
+  GstMppVideoDec *self = GST_MPP_VIDEO_DEC (decoder);
   GstVideoCodecFrame *frame = NULL;
+  GstClockTime pts;
   GList *frames, *l;
 
-  /* Use oldest frame for invalid PTS */
-  if (!GST_BUFFER_PTS (buffer))
-    return gst_video_decoder_get_oldest_frame (decoder);
+  /**
+   * Somehow, the MPP might provide different kinds of PTS:
+   * 1. Original frame PTS
+   * 2. Zero PTS
+   * 3. Generated PTS(in millisecond)
+   */
+  pts = GST_BUFFER_PTS (buffer);
+  if (!pts)
+    pts = GST_CLOCK_TIME_NONE;
+  else if (!self->seen_valid_pts && GST_CLOCK_TIME_IS_VALID (pts))
+    pts *= 1000000;
 
-  /* MPP outputs frames in display order, so let's guessing a best frame for
-   * target PTS, and discard all out-dated ones */
   frames = gst_video_decoder_get_frames (decoder);
+  if (!frames)
+    return NULL;
+
+  /* Use oldest frame for invalid PTS */
+  if (!self->seen_valid_pts) {
+    frame = frames->data;
+    goto out;
+  }
+
+  /* Prefer frame with close PTS(within 3ms) */
   for (l = frames; l != NULL; l = l->next) {
     GstVideoCodecFrame *f = l->data;
-
-    /* Filter out future frames */
-    if (GST_CLOCK_TIME_IS_VALID (f->pts) && f->pts > GST_BUFFER_PTS (buffer))
-      continue;
-
-    if (!frame) {
+    if (abs (f->pts - pts) < 3000000) {
       frame = f;
-      continue;
-    }
-
-    if (GST_CLOCK_TIME_IS_VALID (f->pts)) {
-      GstVideoCodecFrame *to_rm;
-
-      /* Get the earliest one and discard the rest */
-      if (f->pts >= frame->pts) {
-        to_rm = f;
-      } else {
-        to_rm = frame;
-        frame = f;
-      }
-
-      GST_WARNING_OBJECT (decoder, "Discarding out-dated frame (#%d)",
-          to_rm->system_frame_number);
-
-      gst_video_codec_frame_ref (to_rm);
-      gst_video_decoder_release_frame (decoder, to_rm);
+      goto out;
     }
   }
 
-  if (frame)
+  /* MPP outputs frames in display order, so let's find the earliest one */
+  for (l = frames; l != NULL; l = l->next) {
+    GstVideoCodecFrame *f = l->data;
+
+    /* Consider frames with invalid PTS are decode-only */
+    if (!GST_CLOCK_TIME_IS_VALID (f->pts)) {
+      GST_WARNING_OBJECT (decoder, "Discarding decode-only frame (#%d)",
+          f->system_frame_number);
+
+      gst_video_codec_frame_ref (f);
+      gst_video_decoder_release_frame (decoder, f);
+      continue;
+    }
+
+    /* Filter out future frames */
+    if (GST_CLOCK_TIME_IS_VALID (pts) && f->pts > pts)
+      continue;
+
+    /* Find the earliest frame */
+    if (!frame || frame->pts > f->pts)
+      frame = f;
+  }
+
+out:
+  if (frame) {
     gst_video_codec_frame_ref (frame);
+
+    /* Prefer MPP PTS */
+    if (GST_CLOCK_TIME_IS_VALID (pts))
+      frame->pts = pts;
+  }
 
   g_list_free_full (frames, (GDestroyNotify) gst_video_codec_frame_unref);
   return frame;
@@ -506,7 +525,10 @@ gst_mpp_video_dec_loop (GstVideoDecoder * decoder)
   GstFlowReturn ret = GST_FLOW_OK;
 
   ret = gst_buffer_pool_acquire_buffer (self->pool, &buffer, NULL);
-  if (ret != GST_FLOW_OK && ret != GST_FLOW_CUSTOM_ERROR_1)
+  if (ret == GST_FLOW_CUSTOM_TIMEOUT)
+    return;
+
+  if (ret != GST_FLOW_OK && ret != GST_FLOW_CUSTOM_DROP)
     goto beach;
 
   frame = gst_mpp_video_dec_get_frame (decoder, buffer);
@@ -514,7 +536,7 @@ gst_mpp_video_dec_loop (GstVideoDecoder * decoder)
     frame->output_buffer = buffer;
     buffer = NULL;
 
-    if (ret == GST_FLOW_CUSTOM_ERROR_1) {
+    if (ret == GST_FLOW_CUSTOM_DROP) {
       GST_WARNING_OBJECT (self, "Discarding error frame (#%d)",
           frame->system_frame_number);
       gst_video_decoder_release_frame (decoder, frame);
@@ -573,7 +595,11 @@ gst_mpp_video_dec_handle_frame (GstVideoDecoder * decoder,
   if (!gst_buffer_pool_is_active (pool)) {
     GstBuffer *codec_data;
     MppFrame mframe = NULL;
-    gint block_flag;
+    gint timeout;
+
+    timeout = OUTPUT_TIMEOUT_MS;
+    self->mpi->control (self->mpp_ctx, MPP_SET_OUTPUT_BLOCK_TIMEOUT,
+        (gpointer) & timeout);
 
     codec_data = self->input_state->codec_data;
     if (codec_data) {
@@ -615,11 +641,6 @@ gst_mpp_video_dec_handle_frame (GstVideoDecoder * decoder,
     gst_buffer_unmap (codec_data, &mapinfo);
     gst_buffer_unref (codec_data);
 
-    GST_DEBUG_OBJECT (self, "Set MppDecode TiemOut");
-    block_flag = 200;
-    self->mpi->control (self->mpp_ctx, MPP_SET_OUTPUT_BLOCK_TIMEOUT,
-        (gpointer) & block_flag);
-
     GST_VIDEO_DECODER_STREAM_UNLOCK (decoder);
     /* Aquire format frame frome mpp decode */
     mret = self->mpi->decode_get_frame (self->mpp_ctx, &mframe);
@@ -655,10 +676,6 @@ gst_mpp_video_dec_handle_frame (GstVideoDecoder * decoder,
         goto error_activate_pool;
 
       self->mpi->control (self->mpp_ctx, MPP_DEC_SET_INFO_CHANGE_READY, NULL);
-      GST_DEBUG_OBJECT (self, "Set MppDecode Block");
-      block_flag = MPP_POLL_BLOCK;
-      self->mpi->control (self->mpp_ctx, MPP_SET_OUTPUT_BLOCK,
-          (gpointer) & block_flag);
     } else {
       /* free unexpected frame */
       mpp_frame_deinit (&mframe);
@@ -688,6 +705,12 @@ gst_mpp_video_dec_handle_frame (GstVideoDecoder * decoder,
   if (!processed) {
     gst_buffer_map (frame->input_buffer, &mapinfo, GST_MAP_READ);
     mpp_packet_init (&mpkt, mapinfo.data, mapinfo.size);
+
+    if (!frame->pts)
+      frame->pts = GST_CLOCK_TIME_NONE;
+
+    if (GST_CLOCK_TIME_IS_VALID (frame->pts))
+      self->seen_valid_pts = TRUE;
 
     mpp_packet_set_pts (mpkt, frame->pts);
     mpp_packet_set_dts (mpkt, frame->dts);
@@ -821,8 +844,6 @@ gst_mpp_video_dec_class_init (GstMppVideoDecClass * klass)
   gst_element_class_add_pad_template (element_class,
       gst_static_pad_template_get (&gst_mpp_video_dec_sink_template));
 
-  video_decoder_class->open = GST_DEBUG_FUNCPTR (gst_mpp_video_dec_open);
-  video_decoder_class->close = GST_DEBUG_FUNCPTR (gst_mpp_video_dec_close);
   video_decoder_class->start = GST_DEBUG_FUNCPTR (gst_mpp_video_dec_start);
   video_decoder_class->stop = GST_DEBUG_FUNCPTR (gst_mpp_video_dec_stop);
   video_decoder_class->finish = GST_DEBUG_FUNCPTR (gst_mpp_video_dec_finish);

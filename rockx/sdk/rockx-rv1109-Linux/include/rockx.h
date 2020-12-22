@@ -94,7 +94,7 @@
  * @ref rockx_face_pose              |                                                                        | Face Angle                  | face.h             |
  * @ref rockx_face_align             | @ref ROCKX_MODULE_FACE_LANDMARK_5                                      | Face Align                  | face.h             |
  * @ref rockx_face_recognize         | @ref ROCKX_MODULE_FACE_RECOGNIZE                                       | Face Recognition            | face.h             |
- * @ref rockx_face_feature_similarity|                                                                        | Compare Two Face Feature    | face.h             |
+ * @ref rockx_face_feature_similarity |                                                                       | Compare Two Face Feature    | face.h             |
  * @ref rockx_face_attribute         | @ref ROCKX_MODULE_FACE_ANALYZE                                         | Face Attribute Analyze      | face.h             |
  * @ref rockx_carplate_detect        | @ref ROCKX_MODULE_CARPLATE_DETECTION                                   | CarPlate Detection          | carplate.h         |
  * @ref rockx_carplate_recognize     | @ref ROCKX_MODULE_CARPLATE_RECOG                                       | CarPlate Recognition        | carplate.h         |
@@ -115,7 +115,7 @@ extern "C" {
  * @details This is using for create a RockX module(See @ref rockx_create)
  */
 typedef enum {
-    ROCKX_MODULE_FACE_DETECTION      = 1,    ///< Face Detection
+    ROCKX_MODULE_FACE_DETECTION      = 1,    ///< Face Detection with 320x320 input: retinaface, pure u8-quant,with same mean value(117)
     ROCKX_MODULE_FACE_LANDMARK_68    = 2,    ///< Face Landmark (68 KeyPoints)
     ROCKX_MODULE_FACE_RECOGNIZE      = 3,    ///< Face Recognition
     ROCKX_MODULE_FACE_ANALYZE        = 4,    ///< Face Attribute(Gender and Age) Analyze
@@ -129,13 +129,19 @@ typedef enum {
     ROCKX_MODULE_CARPLATE_RECOG      = 12,   ///< Car Plate Recognition
     ROCKX_MODULE_OBJECT_TRACK        = 13,   ///< Object Track
     ROCKX_MODULE_POSE_FINGER_3       = 14,   ///< Finger Landmark(3 KeyPoint)
-    ROCKX_MODULE_FACE_LIVENESS       = 15,   ///< 2D Liveness
-    ROCKX_MODULE_FACE_MASKS_DETECTION = 16,    ///< Face Mask Detection
-    ROCKX_MODULE_FACE_LANDMARK_98    = 17,    ///< LAB 98 Facial Landmarks
-    ROCKX_MODULE_FACE_DETECTION_V2 = 18,    /// Face Detection V2
-    ROCKX_MODULE_BODY_MASK = 25,                 /// Body mask
-    ROCKX_MODULE_POSE_BODY_V2        = 26,    ///< Body Pose(17 KeyPoints)
-    ROCKX_MODULE_POSE_BODY_V2_LARGE  = 27    ///< Body Pose large(17 KeyPoints)
+    ROCKX_MODULE_FACE_MASKS_DETECTION = 16,  ///< Face Mask Detection
+    ROCKX_MODULE_FACE_DETECTION_V2   = 18,   ///< Face Detection V2
+    ROCKX_MODULE_BODY_MASK           = 19,   ///< Body mask
+    ROCKX_MODULE_POSE_BODY_V2        = 20,   ///< Body Pose(17 KeyPoints)
+    ROCKX_MODULE_FACE_DETECTION_V3   = 22,   ///< Face Detection with 320x320 input: retinaface, input/output node is uint8,others is int16
+    ROCKX_MODULE_FACE_DETECTION_V3_LARGE    = 23,   ///< Face Detection with 640x640 input
+    ROCKX_MODULE_PERSON_DETECTION           = 24,   ///< Person Detection with 320x320 input
+    ROCKX_MODULE_FACE_LANDMARK_106          = 25,   ///< Face Landmark(106 KeyPoints)
+    ROCKX_MODULE_FACE_BEAUTY                = 26,   ///< Face beauty score
+    ROCKX_MODULE_FACE_SMILE_DETECT          = 27,   ///< Face Smile Detect
+    ROCKX_MODULE_FACE_MASK_CLASSIFIER       = 28,   ///< FACE Mask Classifier
+    ROCKX_MODULE_PERSON_DETECTION_V2        = 29,   ///< Person Detection with input: 532X320
+    ROCKX_MODULE_PERSON_DETECTION_V3        = 30,   ///< Person Detection
 } rockx_module_t;
 
 /// Create A Rockx Module

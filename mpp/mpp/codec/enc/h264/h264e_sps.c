@@ -20,6 +20,7 @@
 
 #include "mpp_common.h"
 
+#include "mpp_enc_ref.h"
 #include "mpp_bitwrite.h"
 #include "h264e_debug.h"
 #include "h264e_sps.h"
@@ -57,13 +58,14 @@ H264eLevelInfo level_infos[] = {
     {   H264_LEVEL_6_2, 16711680,   139264,     696320,  800000, "6.2" },
 };
 
-MPP_RET h264e_sps_update(SynH264eSps *sps, MppEncCfgSet *cfg, MppDeviceId dev)
+MPP_RET h264e_sps_update(H264eSps *sps, MppEncCfgSet *cfg)
 {
-    SynH264eVui *vui = &sps->vui;
+    H264eVui *vui = &sps->vui;
     MppEncPrepCfg *prep = &cfg->prep;
     MppEncRcCfg *rc = &cfg->rc;
     MppEncH264Cfg *h264 = &cfg->codec.h264;
-    MppEncGopRef *ref = &cfg->gop_ref;
+    MppEncRefCfg ref = cfg->ref_cfg;
+    MppEncCpbInfo *info = mpp_enc_ref_cfg_get_cpb_info(ref);
     RK_S32 gop = rc->gop;
     RK_S32 width = prep->width;
     RK_S32 height = prep->height;
@@ -72,27 +74,36 @@ MPP_RET h264e_sps_update(SynH264eSps *sps, MppEncCfgSet *cfg, MppDeviceId dev)
     RK_S32 crop_right = MPP_ALIGN(width, 16) - width;
     RK_S32 crop_bottom = MPP_ALIGN(height, 16) - height;
     /* default 720p */
-    H264Level level_idc = H264_LEVEL_3_1;
+    H264Level level_idc = h264->level;
 
     // default sps
     // profile baseline
     sps->profile_idc = h264->profile;
-    sps->constraint_set0 = 0;
-    sps->constraint_set1 = 0;
+    sps->constraint_set0 = 1;
+    sps->constraint_set1 = 1;
     sps->constraint_set2 = 0;
     sps->constraint_set3 = 0;
     sps->constraint_set4 = 0;
     sps->constraint_set5 = 0;
 
     // level_idc is connected with frame size
-    RK_S32 mbs = (aligned_w * aligned_h) >> 8;
-    RK_S32 i;
+    {
+        RK_S32 mbs = (aligned_w * aligned_h) >> 8;
+        RK_S32 i;
+        RK_S32 min_level = 10;
 
-    for (i = 0; i < (RK_S32)MPP_ARRAY_ELEMS(level_infos); i++) {
-        if (level_infos[i].max_MBs >= mbs) {
-            level_idc = level_infos[i].level;
-            mpp_log("set level to %s\n", level_infos[i].name);
-            break;
+        for (i = 0; i < (RK_S32)MPP_ARRAY_ELEMS(level_infos); i++) {
+            if (level_infos[i].max_MBs >= mbs) {
+                min_level = level_infos[i].level;
+
+                if (min_level > (RK_S32)level_idc &&
+                    min_level != H264_LEVEL_1_b) {
+                    level_idc = min_level;
+                    mpp_log("set level to %s\n", level_infos[i].name);
+                }
+
+                break;
+            }
         }
     }
     sps->level_idc = level_idc;
@@ -101,6 +112,10 @@ MPP_RET h264e_sps_update(SynH264eSps *sps, MppEncCfgSet *cfg, MppDeviceId dev)
     sps->chroma_format_idc = H264_CHROMA_420;
 
     // set max frame number and poc lsb according to gop size
+    sps->pic_order_cnt_type = h264->poc_type;
+    sps->log2_max_poc_lsb_minus4 = h264->log2_max_poc_lsb;
+    sps->log2_max_frame_num_minus4 = h264->log2_max_frame_num;
+
     mpp_assert(gop >= 0);
     if (gop == 0) {
         // only one I then all P frame
@@ -108,35 +123,23 @@ MPP_RET h264e_sps_update(SynH264eSps *sps, MppEncCfgSet *cfg, MppDeviceId dev)
         sps->log2_max_poc_lsb_minus4 = 12;
     } else if (gop == 1) {
         // all I frame
-        sps->log2_max_frame_num_minus4 = 0;
-        sps->log2_max_poc_lsb_minus4 = 0;
+        sps->log2_max_frame_num_minus4 = 12;
+        sps->log2_max_poc_lsb_minus4 = 12;
     } else {
         // normal case
-        RK_S32 log2_gop = mpp_log2(gop);
+        RK_S32 log2_gop = MPP_MIN(mpp_log2(gop), 16);
+        RK_S32 log2_frm_num = (log2_gop <= 4) ? (0) : (log2_gop - 4);
+        RK_S32 log2_poc_lsb = (log2_gop <= 3) ? (0) : (log2_gop - 3);
 
-        sps->log2_max_frame_num_minus4 = (log2_gop <= 4) ? (0) : (log2_gop - 4);
-        sps->log2_max_poc_lsb_minus4   = (log2_gop <= 3) ? (0) : (log2_gop - 3);
-    }
+        if (sps->log2_max_frame_num_minus4 < log2_frm_num)
+            sps->log2_max_frame_num_minus4 = log2_frm_num;
 
-    // default poc_type 0
-    sps->pic_order_cnt_type = 0;
-    if (dev == DEV_VEPU) {
-        // VEPU hardware default poc_type is 2
-        sps->pic_order_cnt_type = 2;
-        sps->log2_max_frame_num_minus4 = 12;
-    }
-
-    // NOTE: when tsvc mode enabled poc type should be zero.
-    if (ref->gop_cfg_enable) {
-        sps->pic_order_cnt_type = 0;
-        sps->log2_max_frame_num_minus4 = 12;
+        if (sps->log2_max_poc_lsb_minus4 < log2_poc_lsb)
+            sps->log2_max_poc_lsb_minus4 = log2_poc_lsb;
     }
 
     // max one reference frame
-    sps->num_ref_frames = 1;
-    // on tsvc mode we need more reference frame
-    if (h264->svc)
-        sps->num_ref_frames = 8;
+    sps->num_ref_frames = info->dpb_size;
 
     sps->gaps_in_frame_num_value_allowed = 0;
 
@@ -159,11 +162,41 @@ MPP_RET h264e_sps_update(SynH264eSps *sps, MppEncCfgSet *cfg, MppDeviceId dev)
     }
 
     memset(vui, 0, sizeof(*vui));
+    vui->vui_present = 1;
+    vui->timing_info_present = 1;
+    vui->time_scale = rc->fps_out_num * 2;
+    vui->num_units_in_tick = rc->fps_out_denorm;
+    vui->fixed_frame_rate = !rc->fps_out_flex;
+    vui->vidformat = MPP_FRAME_VIDEO_FMT_UNSPECIFIED;
+
+    if (prep->range == MPP_FRAME_RANGE_JPEG) {
+        vui->signal_type_present = 1;
+        vui->fullrange = 1;
+    }
+
+    if ((prep->colorprim <= MPP_FRAME_PRI_JEDEC_P22 &&
+         prep->colorprim != MPP_FRAME_PRI_UNSPECIFIED) ||
+        (prep->colortrc <= MPP_FRAME_TRC_ARIB_STD_B67 &&
+         prep->colortrc != MPP_FRAME_TRC_UNSPECIFIED) ||
+        (prep->color <= MPP_FRAME_SPC_ICTCP &&
+         prep->color != MPP_FRAME_SPC_UNSPECIFIED)) {
+        vui->signal_type_present = 1;
+        vui->color_description_present = 1;
+        vui->colorprim = prep->colorprim;
+        vui->colortrc = prep->colortrc;
+        vui->colmatrix = prep->color;
+    }
+
+    vui->bitstream_restriction = 1;
+    vui->motion_vectors_over_pic_boundaries = 1;
+    vui->log2_max_mv_length_horizontal = 16;
+    vui->log2_max_mv_length_vertical = 16;
+    vui->max_dec_frame_buffering = info->dpb_size;
 
     return MPP_OK;
 }
 
-RK_S32 h264e_sps_to_packet(SynH264eSps *sps, MppPacket packet, RK_S32 *len)
+MPP_RET h264e_sps_to_packet(H264eSps *sps, MppPacket packet, RK_S32 *len)
 {
     void *pos = mpp_packet_get_pos(packet);
     void *data = mpp_packet_get_data(packet);
@@ -262,7 +295,7 @@ RK_S32 h264e_sps_to_packet(SynH264eSps *sps, MppPacket packet, RK_S32 *len)
     /* vui_parameters_present_flag */
     mpp_writer_put_bits(bit, sps->vui.vui_present, 1);
     if (sps->vui.vui_present) {
-        SynH264eVui *vui = &sps->vui;
+        H264eVui *vui = &sps->vui;
 
         /* aspect_ratio_info_present_flag */
         mpp_writer_put_bits(bit, vui->aspect_ratio_info_present, 1);
@@ -297,7 +330,7 @@ RK_S32 h264e_sps_to_packet(SynH264eSps *sps, MppPacket packet, RK_S32 *len)
                 /* colour_primaries */
                 mpp_writer_put_bits(bit, vui->colorprim, 8);
                 /* transfer_characteristics */
-                mpp_writer_put_bits(bit, vui->transfer, 8);
+                mpp_writer_put_bits(bit, vui->colortrc, 8);
                 /* matrix_coefficients */
                 mpp_writer_put_bits(bit, vui->colmatrix, 8);
             }
@@ -365,7 +398,7 @@ RK_S32 h264e_sps_to_packet(SynH264eSps *sps, MppPacket packet, RK_S32 *len)
     return MPP_OK;
 }
 
-MPP_RET h264e_sps_dump(SynH264eSps *sps)
+MPP_RET h264e_sps_dump(H264eSps *sps)
 {
     (void) sps;
     return MPP_OK;

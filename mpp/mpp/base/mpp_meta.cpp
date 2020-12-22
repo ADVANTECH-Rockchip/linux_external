@@ -26,27 +26,33 @@
 static MppMetaDef meta_defs[] = {
     /* categorized by type */
     /* data flow type */
-    {   KEY_INPUT_FRAME,       TYPE_FRAME,    },
-    {   KEY_OUTPUT_FRAME,      TYPE_FRAME,    },
-    {   KEY_INPUT_PACKET,      TYPE_PACKET,   },
-    {   KEY_OUTPUT_PACKET,     TYPE_PACKET,   },
+    {   KEY_INPUT_FRAME,        TYPE_FRAME,     },
+    {   KEY_OUTPUT_FRAME,       TYPE_FRAME,     },
+    {   KEY_INPUT_PACKET,       TYPE_PACKET,    },
+    {   KEY_OUTPUT_PACKET,      TYPE_PACKET,    },
     /* buffer for motion detection */
-    {   KEY_MOTION_INFO,       TYPE_BUFFER,   },
+    {   KEY_MOTION_INFO,        TYPE_BUFFER,    },
     /* buffer storing the HDR information for current frame*/
-    {   KEY_HDR_INFO,          TYPE_BUFFER,   },
+    {   KEY_HDR_INFO,           TYPE_BUFFER,    },
 
-    {   KEY_OUTPUT_INTRA,      TYPE_S32,      },
-    {   KEY_INPUT_BLOCK,       TYPE_S32,      },
-    {   KEY_OUTPUT_BLOCK,      TYPE_S32,      },
+    {   KEY_OUTPUT_INTRA,       TYPE_S32,       },
+    {   KEY_INPUT_BLOCK,        TYPE_S32,       },
+    {   KEY_OUTPUT_BLOCK,       TYPE_S32,       },
 
     /* extra information for tsvc */
-    {   KEY_TEMPORAL_ID,       TYPE_S32,      },
-    {   KEY_LONG_REF_IDX,      TYPE_S32,      },
+    {   KEY_TEMPORAL_ID,        TYPE_S32,       },
+    {   KEY_LONG_REF_IDX,       TYPE_S32,       },
 
-    {   KEY_ROI_DATA,          TYPE_PTR,      },
-    {   KEY_OSD_DATA,          TYPE_PTR,      },
-    {   KEY_USER_DATA,         TYPE_PTR,      },
-    {   KEY_MV_LIST,           TYPE_PTR,      },
+    {   KEY_ROI_DATA,           TYPE_PTR,       },
+    {   KEY_OSD_DATA,           TYPE_PTR,       },
+    {   KEY_USER_DATA,          TYPE_PTR,       },
+    {   KEY_USER_DATAS,         TYPE_PTR,       },
+    {   KEY_MV_LIST,            TYPE_PTR,       },
+
+    {   KEY_ENC_MARK_LTR,       TYPE_S32,       },
+    {   KEY_ENC_USE_LTR,        TYPE_S32,       },
+    {   KEY_ENC_FRAME_QP,       TYPE_S32,       },
+    {   KEY_ENC_BASE_LAYER_PID, TYPE_S32,       },
 };
 
 class MppMetaService
@@ -64,6 +70,7 @@ private:
     RK_U32              meta_id;
     RK_U32              meta_count;
     RK_U32              node_count;
+    RK_U32              finished;
 
 public:
     static MppMetaService *get_instance() {
@@ -96,7 +103,8 @@ public:
 MppMetaService::MppMetaService()
     : meta_id(0),
       meta_count(0),
-      node_count(0)
+      node_count(0),
+      finished(0)
 {
     INIT_LIST_HEAD(&mlist_meta);
     INIT_LIST_HEAD(&mlist_node);
@@ -104,24 +112,26 @@ MppMetaService::MppMetaService()
 
 MppMetaService::~MppMetaService()
 {
-    mpp_assert(list_empty(&mlist_meta));
-    mpp_assert(list_empty(&mlist_node));
-
-    while (!list_empty(&mlist_meta)) {
+    if (!list_empty(&mlist_meta)) {
         MppMetaImpl *pos, *n;
+
+        mpp_log_f("cleaning leaked metadata\n");
+
         list_for_each_entry_safe(pos, n, &mlist_meta, MppMetaImpl, list_meta) {
             put_meta(pos);
         }
     }
 
-    mpp_assert(list_empty(&mlist_node));
-
-    while (!list_empty(&mlist_node)) {
+    if (!list_empty(&mlist_node)) {
         MppMetaNode *pos, *n;
+
+        mpp_log_f("cleaning leaked metadata key-value node\n");
+
         list_for_each_entry_safe(pos, n, &mlist_node, MppMetaNode, list_node) {
             put_node(pos);
         }
     }
+    finished = 1;
 }
 
 RK_S32 MppMetaService::get_index_of_key(MppMetaKey key, MppMetaType type)
@@ -160,6 +170,9 @@ MppMetaImpl *MppMetaService::get_meta(const char *tag, const char *caller)
 
 void MppMetaService::put_meta(MppMetaImpl *meta)
 {
+    if (finished)
+        return ;
+
     mpp_assert(meta->ref_count);
     if (meta->ref_count)
         meta->ref_count--;

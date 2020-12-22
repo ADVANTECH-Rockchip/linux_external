@@ -21,6 +21,13 @@ if(ENCODER)
                                      ffmpeg/ffmpeg_vid_encoder.cc)
 endif()
 
+if(DECODER)
+  set(EASY_MEDIA_FFMPEG_SOURCE_FILES ${EASY_MEDIA_FFMPEG_SOURCE_FILES}
+                                     ffmpeg/ffmpeg_aud_decoder.cc)
+  set(EASY_MEDIA_FFMPEG_SOURCE_FILES ${EASY_MEDIA_FFMPEG_SOURCE_FILES}
+                                     ffmpeg/ffmpeg_vid_decoder.cc)
+endif()
+
 if(FILTER)
   set(EASY_MEDIA_FFMPEG_SOURCE_FILES ${EASY_MEDIA_FFMPEG_SOURCE_FILES}
                                      ffmpeg/ffmpeg_resample.cc

@@ -21,12 +21,13 @@
 static rockx_image_t input_image;
 
 const std::vector<std::pair<int,int>> posePairs = {
-        {1,2}, {1,5}, {2,3}, {3,4}, {5,6}, {6,7},
-        {1,8}, {8,9}, {9,10}, {1,11}, {11,12}, {12,13},
-        {1,0}, {0,14}, {14,16}, {0,15}, {15,17}
+        {2,3}, {3,4}, {5,6}, {6,7},
+        {8,9}, {9,10}, {11,12}, {12,13},
+        {1,0}, {0,14}, {14,16}, {0,15}, {15,17},
+        {2,5}, {8,11}, {2,8}, {5,11}
 };
 
-void callback(void *result, size_t result_size) {
+void callback_func(void *result, size_t result_size, void *extra_data) {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     printf("%ld on result callback\n", (tv.tv_sec * 1000000 + tv.tv_usec));
@@ -72,7 +73,7 @@ int main(int argc, char** argv) {
     const char *img_path = argv[1];
 
     // create a pose_body handle
-    ret = rockx_create(&pose_body_handle, ROCKX_MODULE_POSE_BODY, nullptr, 0);
+    ret = rockx_create(&pose_body_handle, ROCKX_MODULE_POSE_BODY_V2, nullptr, 0);
     if (ret != ROCKX_RET_SUCCESS) {
         printf("init rockx module ROCKX_MODULE_POSE_BODY error %d\n", ret);
     }
@@ -86,9 +87,13 @@ int main(int argc, char** argv) {
 
     // body pose
 
+    rockx_async_callback callback;
+    callback.callback_func = callback_func;
+    callback.extra_data = nullptr;
+
     gettimeofday(&tv, NULL);
     printf("%ld before rockx_pose_body\n", (tv.tv_sec * 1000000 + tv.tv_usec));
-    ret = rockx_pose_body(pose_body_handle, &input_image, &body_array, callback);
+    ret = rockx_pose_body(pose_body_handle, &input_image, &body_array, &callback);
     gettimeofday(&tv, NULL);
     printf("%ld after rockx_pose_body\n", (tv.tv_sec * 1000000 + tv.tv_usec));
     if (ret != ROCKX_RET_SUCCESS) {

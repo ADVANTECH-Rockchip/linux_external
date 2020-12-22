@@ -13,6 +13,8 @@
 #include <getopt.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 
 #include "bt_target.h"
 
@@ -89,6 +91,11 @@ void bte_print_usage()
 #if defined(PATCHRAM_INCLUDED) && (PATCHRAM_INCLUDED == TRUE)
       "    -p patchfile      force the patchfile (RAM) to use\n"
 #endif
+#if defined(PATCHRAM_DIR_INCLUDED) && (PATCHRAM_DIR_INCLUDED == TRUE)
+      "    -pp patchfile_dir download patchfile (RAM) by reading device\n"
+      "                      local name and specified the directory of\n"
+      "                      patchfile (RAM)\n"
+#endif  /* PATCHRAM_DIR_INCLUDED == TRUE */
 #if defined(FLASH_UPDATE_INCLUDED) && (FLASH_UPDATE_INCLUDED == TRUE)
       "    -flash patchfile      force the patchfile (FLASH) to use\n"
 #endif
@@ -101,6 +108,8 @@ void bte_print_usage()
       "                              legacy = force the Legacy VSC\n"
       "                              3ds = force the 3D Sync Profile (CLB & VSC)\n"
 #endif
+      "    -t start_timeout  set server start timeout (include download patchfile)\n"
+      "                      range (10000 ~ 100000ms)\n"
 #if defined(BSA_CHANGE_STARTUP_BAUDRATE)
       "    -r baudrate       set dynamic baud rate for start up and patchram download\n"
       "                              Baud rate codes:\n"
@@ -114,13 +123,14 @@ void bte_print_usage()
       "                              7  = 115200             \n"
       "                              8  = 230400             \n"
       "                              9  = 460800             \n"
-      "                              10 = 921600             \n"
-      "                              11 = 1M                 \n"
-      "                              12 = 1_5M               \n"
-      "                              13 = 2M                 \n"
-      "                              14 = 2_5M               \n"
-      "                              15 = 3M                 \n"
-      "                              16 = 4M                 \n"
+      "                              10 = 500000             \n"
+      "                              11 = 921600             \n"
+      "                              12 = 1M                 \n"
+      "                              13 = 1_5M               \n"
+      "                              14 = 2M                 \n"
+      "                              15 = 2_5M               \n"
+      "                              16 = 3M                 \n"
+      "                              17 = 4M                 \n"
 #endif
 #if defined(BLE_INCLUDED) && (BLE_INCLUDED == TRUE)
       "    -k file           specify the BLE local key file\n"
@@ -297,10 +307,11 @@ int bte_parse_cmd_line(int argc, char **argv, tBSA_SV_BOOT *p_param)
             {"lpm", no_argument, 0, 0},         /* 26 Low Power Mode => no parameter */
             {"3d", required_argument, 0, 0},    /* 27 3D type =>  1 parameter */
             {"flash", required_argument, 0, 0}, /* 28 Flash download =>  1 parameter */
+            {"pp", required_argument, 0, 0},    /* 29 patchram dir => 1 parameter */
             {NULL, 0, NULL, 0}
         };
 
-        c = getopt_long_only (argc, argv, "b:d:p:u:r:f:g:k:", long_options, &option_index);
+        c = getopt_long_only (argc, argv, "b:d:p:u:r:f:g:k:t:", long_options, &option_index);
         if (c == -1)
         {
             break;
@@ -481,6 +492,11 @@ int bte_parse_cmd_line(int argc, char **argv, tBSA_SV_BOOT *p_param)
                 APPL_TRACE_DEBUG1("Firmware name %s",p_param->p_patchfile);
                 break;
 #endif
+#if (defined(PATCHRAM_DIR_INCLUDED) && (PATCHRAM_DIR_INCLUDED == TRUE))
+            case 29:
+                p_param->p_patchdir = optarg;
+                break;
+#endif  /* PATCHRAM_DIR_INCLUDED == TRUE */
             default:
                 APPL_TRACE_ERROR1("[ %s ] is not compiled in application", long_options[option_index].name);
                 break;
@@ -520,6 +536,15 @@ int bte_parse_cmd_line(int argc, char **argv, tBSA_SV_BOOT *p_param)
             }
             break;
 #endif
+        case 't':
+            p_param->p_start_timeout = optarg;
+            /* check for valid range of BSA start timeout */
+            if ((atol(optarg) > 100000) || (atol(optarg) < 10000))
+            {
+                APPL_TRACE_ERROR0("ERROR: invalid start timeout");
+                return -1;
+            }
+            break;
 #if defined(PATCHRAM_INCLUDED)&&(PATCHRAM_INCLUDED == TRUE)
         case 'p':
 #if defined(FLASH_UPDATE_INCLUDED)&&(FLASH_UPDATE_INCLUDED == TRUE)
@@ -579,6 +604,13 @@ int main(int argc, char **argv)
     tBSA_SV_BOOT  param;
     int rv;
 
+    struct rlimit rlim = {
+        RLIM_INFINITY,
+        RLIM_INFINITY
+    };
+
+    setrlimit(RLIMIT_CORE, &rlim);
+
     memset(&param,0,sizeof(param));
 
 #if defined(BT_USE_TRACES) && (BT_USE_TRACES == TRUE)
@@ -599,6 +631,9 @@ int main(int argc, char **argv)
         /* error traces are done in bte_parse_cmd_line */
         return rv;
     }
+
+    if (param.p_start_timeout)
+        bsa_sv_dm_set_start_timeout(atol(param.p_start_timeout));
 
     APPL_TRACE_DEBUG0("Starting Bluetooth Daemon");
 

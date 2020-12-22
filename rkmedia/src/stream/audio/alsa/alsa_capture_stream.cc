@@ -7,8 +7,10 @@
 #include <assert.h>
 #include <errno.h>
 
+#include "../rk_audio.h"
 #include "alsa_utils.h"
 #include "alsa_volume.h"
+#include "buffer.h"
 #include "buffer.h"
 #include "media_type.h"
 #include "utils.h"
@@ -39,32 +41,77 @@ private:
   size_t Readn(void *ptr, size_t size, size_t nmemb);
 
 private:
-  SampleInfo sample_info;
+  SampleInfo alsa_sample_info;   // for capture
+  SampleInfo output_sample_info; // for output
   std::string device;
   snd_pcm_t *alsa_handle;
   size_t frame_size;
   int interleaved;
+  int64_t buffer_time;
+  int buffer_duration;
+  AI_LAYOUT_E layout;
+
+#ifdef AUDIO_ALGORITHM_ENABLE
+  // for audio process, like aec/anr
+  bool bVqeEnable;
+  VQE_CONFIG_S stVqeConfig;
+  AUDIO_VQE_S *pstVqeHandle;
+#endif
 };
 
 AlsaCaptureStream::AlsaCaptureStream(const char *param)
-    : alsa_handle(NULL), frame_size(0) {
-  memset(&sample_info, 0, sizeof(sample_info));
-  sample_info.fmt = SAMPLE_FMT_NONE;
+    : alsa_handle(NULL), frame_size(0), buffer_time(-1), buffer_duration(-1),
+      layout(AI_LAYOUT_NORMAL)
+#ifdef AUDIO_ALGORITHM_ENABLE
+      ,
+      bVqeEnable(false), pstVqeHandle(NULL)
+#endif
+{
+  memset(&output_sample_info, 0, sizeof(output_sample_info));
+  output_sample_info.fmt = SAMPLE_FMT_NONE;
   std::map<std::string, std::string> params;
-  int ret = ParseAlsaParams(param, params, device, sample_info);
+  int ret = ParseAlsaParams(param, params, device, output_sample_info, layout);
   UNUSED(ret);
   if (device.empty())
     device = "default";
-  if (SampleInfoIsValid(sample_info))
+  if (SampleInfoIsValid(output_sample_info))
     SetReadable(true);
   else
-    LOG("missing some necessary param\n");
-  interleaved = SampleFormatToInterleaved(sample_info.fmt);
+    RKMEDIA_LOGI("missing some necessary param\n");
+  interleaved = SampleFormatToInterleaved(output_sample_info.fmt);
+
+  alsa_sample_info = output_sample_info;
+  if (layout == AI_LAYOUT_MIC_REF || layout == AI_LAYOUT_REF_MIC) {
+    alsa_sample_info.channels = 2;
+  }
+
+#ifdef AUDIO_ALGORITHM_ENABLE
+  memset(&stVqeConfig, 0, sizeof(stVqeConfig));
+  stVqeConfig.u32VQEMode = VQE_MODE_BUTT;
+
+  ParseVQEParams(param, params, &bVqeEnable, &stVqeConfig);
+  RKMEDIA_LOGD("VqeEnable is %d\n", bVqeEnable);
+  RKMEDIA_LOGD("VqeConfig.u32VQEMode is %d\n", stVqeConfig.u32VQEMode);
+  RKMEDIA_LOGD("OpenMask is %d\n", stVqeConfig.stAiTalkConfig.u32OpenMask);
+  RKMEDIA_LOGD("WorkSampleRate is %d\n",
+               stVqeConfig.stAiTalkConfig.s32WorkSampleRate);
+  RKMEDIA_LOGD("FrameSample is %d\n",
+               stVqeConfig.stAiTalkConfig.s32FrameSample);
+  RKMEDIA_LOGD("ParamFilePath is %s\n",
+               stVqeConfig.stAiTalkConfig.aParamFilePath);
+  if (bVqeEnable)
+    pstVqeHandle = RK_AUDIO_VQE_Init(alsa_sample_info, layout, &stVqeConfig);
+#endif
+
+  RKMEDIA_LOGI("%s: Layout %d, output chan %d, alsa chan %d\n", __func__,
+               layout, output_sample_info.channels, alsa_sample_info.channels);
 }
 
 AlsaCaptureStream::~AlsaCaptureStream() {
   if (alsa_handle)
     AlsaCaptureStream::Close();
+  buffer_time = -1;
+  buffer_duration = -1;
 }
 
 size_t AlsaCaptureStream::Read(void *ptr, size_t size, size_t nmemb) {
@@ -93,7 +140,8 @@ size_t AlsaCaptureStream::Readi(void *vptr, size_t size, size_t nmemb) {
       status = snd_pcm_recover(alsa_handle, status, 0);
       if (status < 0) {
         /* Hmm, not much we can do - abort */
-        LOG("ALSA write failed (unrecoverable): %s\n", snd_strerror(status));
+        RKMEDIA_LOGI("ALSA write failed (unrecoverable): %s\n",
+                     snd_strerror(status));
         errno = EIO;
         break;
       }
@@ -110,7 +158,7 @@ size_t AlsaCaptureStream::Readi(void *vptr, size_t size, size_t nmemb) {
 
 size_t AlsaCaptureStream::Readn(void *ptr, size_t size, size_t nmemb) {
   uint8_t *bufs[32];
-  int channels = sample_info.channels;
+  int channels = alsa_sample_info.channels;
   size_t sample_size = frame_size / channels;
   size_t buffer_len = size * nmemb;
   snd_pcm_sframes_t gotten = 0;
@@ -133,7 +181,8 @@ size_t AlsaCaptureStream::Readn(void *ptr, size_t size, size_t nmemb) {
       status = snd_pcm_recover(alsa_handle, status, 0);
       if (status < 0) {
         /* Hmm, not much we can do - abort */
-        LOG("ALSA write failed (unrecoverable): %s\n", snd_strerror(status));
+        RKMEDIA_LOGI("ALSA write failed (unrecoverable): %s\n",
+                     snd_strerror(status));
         errno = EIO;
         break;
       }
@@ -150,25 +199,76 @@ size_t AlsaCaptureStream::Readn(void *ptr, size_t size, size_t nmemb) {
 }
 
 std::shared_ptr<MediaBuffer> AlsaCaptureStream::Read() {
-  int buffer_size = frame_size * sample_info.nb_samples;
+  int buffer_size = frame_size * alsa_sample_info.nb_samples;
   int read_cnt = -1;
-  // struct timespec crt_tm = {0, 0};
+  int output_frame_size = frame_size;
 
   auto sample_buffer = std::make_shared<easymedia::SampleBuffer>(
-      MediaBuffer::Alloc2(buffer_size), sample_info);
+      MediaBuffer::Alloc2(buffer_size), alsa_sample_info);
 
   if (!sample_buffer) {
-    LOG("Alloc audio frame buffer failed:%d,%d!\n", buffer_size, frame_size);
+    RKMEDIA_LOGI("Alloc audio frame buffer failed:%d,%d!\n", buffer_size,
+                 frame_size);
     return nullptr;
   }
+  if (buffer_time == -1 || buffer_duration == -1) {
+    struct timespec crt_tm = {0, 0};
+    clock_gettime(CLOCK_MONOTONIC, &crt_tm);
+    buffer_time = crt_tm.tv_sec * 1000000LL + crt_tm.tv_nsec / 1000;
+    buffer_duration =
+        alsa_sample_info.nb_samples * 1000000LL / alsa_sample_info.sample_rate;
+  }
 
-  // clock_gettime(CLOCK_MONOTONIC, &crt_tm);
-  read_cnt = Read(sample_buffer->GetPtr(), frame_size, sample_info.nb_samples);
-  sample_buffer->SetValidSize(read_cnt * frame_size);
+#ifdef AUDIO_ALGORITHM_ENABLE
+read_one_frame:
+#endif
+
+  read_cnt =
+      Read(sample_buffer->GetPtr(), frame_size, alsa_sample_info.nb_samples);
+
+#ifdef AUDIO_ALGORITHM_ENABLE
+  // dynamic close audio vqe
+  if (pstVqeHandle && !bVqeEnable) {
+    RK_AUDIO_VQE_Deinit(pstVqeHandle);
+    pstVqeHandle = NULL;
+  }
+
+  if (pstVqeHandle && read_cnt > 0) {
+    int ret = RK_AUDIO_VQE_Handle(pstVqeHandle, sample_buffer->GetPtr(),
+                                  read_cnt * frame_size);
+    if (ret < 0)
+      goto read_one_frame;
+  }
+#endif
+
+  if (read_cnt > 0 &&
+      (layout == AI_LAYOUT_MIC_REF && output_sample_info.channels == 1)) {
+    int16_t *in = (int16_t *)sample_buffer->GetPtr();
+    int16_t *out = in;
+    for (int j = 0; j < read_cnt; j++) {
+      *out++ = *in++;
+      in++;
+    }
+    sample_buffer->SetChannels(1);
+    output_frame_size = frame_size / 2;
+    sample_buffer->SetSize(buffer_size / 2); // fix for AAC
+  } else if (read_cnt > 0 && (layout == AI_LAYOUT_REF_MIC &&
+                              output_sample_info.channels == 1)) {
+    int16_t *in = (int16_t *)sample_buffer->GetPtr();
+    int16_t *out = in;
+    for (int j = 0; j < read_cnt; j++) {
+      in++;
+      *out++ = *in++;
+    }
+    sample_buffer->SetChannels(1);
+    output_frame_size = frame_size / 2;
+    sample_buffer->SetSize(buffer_size / 2); // fix for AAC
+  }
+
+  sample_buffer->SetValidSize(read_cnt * output_frame_size);
   sample_buffer->SetSamples(read_cnt);
-  // sample_buffer->SetUSTimeStamp(crt_tm.tv_sec*1000000LL +
-  // crt_tm.tv_nsec/1000);
-  sample_buffer->SetUSTimeStamp(gettimeofday());
+  sample_buffer->SetUSTimeStamp(buffer_time);
+  buffer_time += buffer_duration;
 
   return sample_buffer;
 }
@@ -180,15 +280,15 @@ int AlsaCaptureStream::Open() {
     return -1;
   int status = snd_pcm_hw_params_malloc(&hwparams);
   if (status < 0) {
-    LOG("snd_pcm_hw_params_malloc failed\n");
+    RKMEDIA_LOGI("snd_pcm_hw_params_malloc failed\n");
     return -1;
   }
   pcm_handle = AlsaCommonOpenSetHwParams(device.c_str(), SND_PCM_STREAM_CAPTURE,
-                                         0, sample_info, hwparams);
+                                         0, alsa_sample_info, hwparams);
   if (!pcm_handle)
     goto err;
   if ((status = snd_pcm_hw_params(pcm_handle, hwparams)) < 0) {
-    LOG("cannot set parameters (%s)\n", snd_strerror(status));
+    RKMEDIA_LOGI("cannot set parameters (%s)\n", snd_strerror(status));
     goto err;
   }
 #ifndef NDEBUG
@@ -200,12 +300,13 @@ int AlsaCaptureStream::Open() {
     snd_pcm_hw_params_get_periods(hwparams, &periods, NULL);
     snd_pcm_hw_params_get_period_size(hwparams, &period_size, NULL);
     snd_pcm_hw_params_get_buffer_size(hwparams, &bufsize);
-    LOG("ALSA: period size = %ld, periods = %u, buffer size = %lu\n",
-        period_size, periods, bufsize);
+    RKMEDIA_LOGI("ALSA: period size = %ld, periods = %u, buffer size = %lu\n",
+                 period_size, periods, bufsize);
   } while (0);
 #endif
   if ((status = snd_pcm_prepare(pcm_handle)) < 0) {
-    LOG("cannot prepare audio interface for use (%s)\n", snd_strerror(status));
+    RKMEDIA_LOGI("cannot prepare audio interface for use (%s)\n",
+                 snd_strerror(status));
     goto err;
   }
   /* Switch to blocking mode for capture */
@@ -217,7 +318,7 @@ int AlsaCaptureStream::Open() {
   return 0;
 
 err:
-  LOG("AlsaCaptureStream::Open() failed\n");
+  RKMEDIA_LOGI("AlsaCaptureStream::Open() failed\n");
   if (hwparams)
     snd_pcm_hw_params_free(hwparams);
   if (pcm_handle) {
@@ -228,11 +329,13 @@ err:
 }
 
 int AlsaCaptureStream::Close() {
+  buffer_time = -1;
+  buffer_duration = -1;
   if (alsa_handle) {
     snd_pcm_drop(alsa_handle);
     snd_pcm_close(alsa_handle);
     alsa_handle = NULL;
-    LOG("audio capture close done\n");
+    RKMEDIA_LOGI("audio capture close done\n");
     return 0;
   }
   return -1;
@@ -255,6 +358,36 @@ int AlsaCaptureStream::IoCtrl(unsigned long int request, ...) {
     ret = GetCaptureVolume(device, volume);
     *((int *)arg) = volume;
     break;
+#ifdef AUDIO_ALGORITHM_ENABLE
+  case S_VQE_ENABLE:
+    bVqeEnable = *((int *)arg);
+    if (bVqeEnable) {
+      if (pstVqeHandle) {
+        RKMEDIA_LOGI("already enabled\n");
+        return -1;
+      }
+      if (stVqeConfig.u32VQEMode == VQE_MODE_BUTT ||
+          stVqeConfig.u32VQEMode == VQE_MODE_AO) {
+        RKMEDIA_LOGI("wrong u32VQEMode\n");
+        return -1;
+      }
+      pstVqeHandle = RK_AUDIO_VQE_Init(alsa_sample_info, layout, &stVqeConfig);
+      if (!pstVqeHandle)
+        return -1;
+    }
+    break;
+  case S_VQE_ATTR:
+    if (bVqeEnable) {
+      RKMEDIA_LOGI(
+          "bVqeEnable already enable, please disable it before set attr");
+      return -1;
+    }
+    stVqeConfig = *((VQE_CONFIG_S *)arg);
+    break;
+  case G_VQE_ATTR:
+    *((VQE_CONFIG_S *)arg) = stVqeConfig;
+    break;
+#endif
   default:
     ret = -1;
     break;

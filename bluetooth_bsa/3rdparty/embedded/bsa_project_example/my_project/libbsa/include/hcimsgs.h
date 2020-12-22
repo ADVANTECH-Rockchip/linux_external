@@ -827,6 +827,10 @@ HCI_API extern BOOLEAN btsnd_hcic_change_name(BD_NAME name);
 
 #define HCIC_WRITE_PARAM3_PARAM_OFF      0
 
+#define HCIC_PARAM_SIZE_WRITE_PARAM4     4
+
+#define HCIC_WRITE_PARAM4_PARAM_OFF      0
+
 #define HCIC_PARAM_SIZE_SET_AFH_CHANNELS    10
 
 #define HCIC_PARAM_SIZE_ENH_SET_ESCO_CONN   59
@@ -1463,6 +1467,11 @@ HCI_API extern void btsnd_hcie_ext_inquiry_result(void *buffer, UINT8 num_resp, 
 #define HCIC_PARAM_SIZE_BLE_READ_RESOLVABLE_ADDR_LOCAL  7
 #define HCIC_PARAM_SIZE_BLE_SET_ADDR_RESOLUTION_ENABLE  1
 #define HCIC_PARAM_SIZE_BLE_SET_RAND_PRIV_ADDR_TIMOUT   2
+#define HCIC_PARAM_SIZE_READ_PHY                        2
+#define HCIC_PARAM_SIZE_SET_DFLT_PHY                    3
+#define HCIC_PARAM_SIZE_SET_PHY                         7
+#define HCIC_PARAM_SIZE_BLE_WRITE_EXT_SCAN_ENABLE       6
+#define HCIC_PARAM_SIZE_BLE_SET_PRIVACY_MODE            8
 
 /* ULP HCI command */
 HCI_API extern BOOLEAN btsnd_hcic_ble_set_evt_mask (BT_EVENT_MASK event_mask);
@@ -1594,6 +1603,15 @@ HCI_API extern BOOLEAN btsnd_hcic_ble_read_resolvable_addr_local (UINT8 addr_typ
 HCI_API extern BOOLEAN btsnd_hcic_ble_set_addr_resolution_enable (UINT8 addr_resolution_enable);
 
 HCI_API extern BOOLEAN btsnd_hcic_ble_set_rand_priv_addr_timeout (UINT16 rpa_timout);
+
+#if defined(BLE_2M_PHY_INCLUDED) && (BLE_2M_PHY_INCLUDED == TRUE)
+HCI_API extern BOOLEAN btsnd_hcic_ble_read_phy (UINT16 handle);
+
+HCI_API extern BOOLEAN btsnd_hcic_ble_set_default_phy (UINT8 all_phy, UINT8 tx_phy, UINT8 rx_phy);
+
+HCI_API extern BOOLEAN btsnd_hcic_ble_set_phy (UINT16 handle, UINT8 all_phys, UINT8 tx_phy, UINT8 rx_phy, UINT16 phy_opt);
+
+#endif
 
 #endif /* BLE_INCLUDED */
 

@@ -38,46 +38,31 @@
 // ---------------------------------------------------------------------------
 
 RockchipRga::RockchipRga():
-    mSupportRga(false),
     mLogOnce(0),
     mLogAlways(0),
     mContext(NULL)
 {
-    RkRgaInit();
+    // RkRgaInit();
     printf("Rga built version:%s \n", RK_GRAPHICS_VER);
 }
 
 RockchipRga::~RockchipRga()
 {
-    RgaDeInit(mContext);
+    // RgaDeInit(mContext);
 }
 
 int RockchipRga::RkRgaInit()
 {
-    int ret = 0;
-
-    if (mSupportRga)
-        return 0;
-
-    ret = RgaInit(&mContext);
-    if(ret == 0)
-        mSupportRga = true;
-    else
-        mSupportRga = false;
-
-    return ret;
+    return RgaInit(&mContext);
 }
 
 void RockchipRga::RkRgaDeInit()
 {
-    if (mSupportRga)
-        RgaDeInit(mContext);
-
-    mSupportRga = false;
+    RgaDeInit(mContext);
 }
 
 int RockchipRga::RkRgaAllocBuffer(int drm_fd, bo_t *bo_info, int width,
-                                  int height, int bpp) {
+                                  int height, int bpp, int flags) {
 #if LIBDRM
     struct drm_mode_create_dumb arg;
     int ret;
@@ -86,6 +71,7 @@ int RockchipRga::RkRgaAllocBuffer(int drm_fd, bo_t *bo_info, int width,
     arg.bpp = bpp;
     arg.width = width;
     arg.height = height;
+    arg.flags = flags;
 
     ret = drmIoctl(drm_fd, DRM_IOCTL_MODE_CREATE_DUMB, &arg);
     if (ret) {
@@ -125,7 +111,7 @@ int RockchipRga::RkRgaFreeBuffer(int drm_fd, bo_t *bo_info) {
 #endif
 }
 
-int RockchipRga::RkRgaGetAllocBuffer(bo_t *bo_info, int width, int height, int bpp)
+int RockchipRga::RkRgaGetAllocBufferExt(bo_t *bo_info, int width, int height, int bpp, int flags)
 {
     static const char* card = "/dev/dri/card0";
     int ret;
@@ -141,13 +127,23 @@ int RockchipRga::RkRgaGetAllocBuffer(bo_t *bo_info, int width, int height, int b
         fprintf(stderr, "Fail to open %s: %m\n", card);
         return -errno;
     }
-    ret = RkRgaAllocBuffer(drm_fd, bo_info, width, height, bpp);
+    ret = RkRgaAllocBuffer(drm_fd, bo_info, width, height, bpp, flags);
     if (ret) {
         close(drm_fd);
         return ret;
     }
     bo_info->fd = drm_fd;
     return 0;
+}
+
+int RockchipRga::RkRgaGetAllocBuffer(bo_t *bo_info, int width, int height, int bpp)
+{
+    return RkRgaGetAllocBufferExt(bo_info, width, height, bpp, 0);
+}
+
+int RockchipRga::RkRgaGetAllocBufferCache(bo_t *bo_info, int width, int height, int bpp)
+{
+    return RkRgaGetAllocBufferExt(bo_info, width, height, bpp, ROCKCHIP_BO_CACHABLE);
 }
 
 int RockchipRga::RkRgaGetMmap(bo_t *bo_info)
@@ -227,8 +223,8 @@ int RockchipRga::RkRgaLogOutUserPara(rga_info *rgaInfo)
     if (!rgaInfo)
         return -EINVAL;
 
-    printf("fd-vir-phy-hnd-format[%d, %p, %p, %p, %d] \n", rgaInfo->fd,
-	rgaInfo->virAddr, rgaInfo->phyAddr, (void*)rgaInfo->hnd, rgaInfo->format);
+    printf("fd-vir-phy-hnd-format[%d, %p, %p, %d, %d] \n", rgaInfo->fd,
+	rgaInfo->virAddr, rgaInfo->phyAddr, rgaInfo->hnd, rgaInfo->format);
     printf("rect[%d, %d, %d, %d, %d, %d, %d, %d] \n",
         rgaInfo->rect.xoffset, rgaInfo->rect.yoffset,
         rgaInfo->rect.width,   rgaInfo->rect.height, rgaInfo->rect.wstride,

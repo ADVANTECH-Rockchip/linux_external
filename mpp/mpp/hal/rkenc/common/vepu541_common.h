@@ -24,6 +24,8 @@
 #define VEPU541_REG_BASE_OSD_PLT    0x00000400
 #define VEPU541_REG_BASE_L2         0x00010004
 
+#define VEPU541_MAX_ROI_NUM         8
+
 typedef enum Vepu541Fmt_e {
     VEPU541_FMT_BGRA8888,   // 0
     VEPU541_FMT_BGR888,     // 1
@@ -36,6 +38,10 @@ typedef enum Vepu541Fmt_e {
     VEPU541_FMT_YUYV422,    // 8
     VEPU541_FMT_UYVY422,    // 9
     VEPU541_FMT_BUTT,       // 10
+
+    /* vepu540 add YUV400 support */
+    VEPU540_FMT_YUV400      = VEPU541_FMT_BUTT,     // 10
+    VEPU540_FMT_BUTT,       // 11
 } Vepu541Fmt;
 
 typedef struct VepuFmtCfg_t {
@@ -122,8 +128,7 @@ typedef struct Vepu541OsdPltColor_t {
 
 typedef struct Vepu541OsdCfg_t {
     void                *reg_base;
-    MppDevCtx           dev;
-    RegExtraInfo        extra;
+    MppDev              dev;
     MppEncOSDPltCfg     *plt_cfg;
     MppEncOSDData       *osd_data;
 } Vepu541OsdCfg;
@@ -147,6 +152,7 @@ RK_S32  vepu541_get_roi_buf_size(RK_S32 w, RK_S32 h);
 MPP_RET vepu541_set_roi(void *buf, MppEncROICfg *roi, RK_S32 w, RK_S32 h);
 
 MPP_RET vepu541_set_osd(Vepu541OsdCfg *cfg);
+MPP_RET vepu540_set_osd(Vepu541OsdCfg *cfg);
 
 #ifdef __cplusplus
 }

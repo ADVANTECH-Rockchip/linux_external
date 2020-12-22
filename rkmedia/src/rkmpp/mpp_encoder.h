@@ -7,8 +7,8 @@
 
 #include "encoder.h"
 #include "mpp_inc.h"
-
-#define  RK_MPP_VERSION_NEW 1
+#include "mpp_rc_api.h"
+#include "rk_venc_cfg.h"
 
 namespace easymedia {
 
@@ -44,16 +44,25 @@ public:
   int OsdRegionGet(OsdRegionData *region_data);
 #endif
 
+  // Set sei info by userdata.
+  int SetUserData(const char *data, uint16_t len);
+  void ClearUserData();
+  void RestartUserData();
+  void EnableUserDataAllFrame(bool value);
+
   // for updating roi regions config.
   int RoiUpdateRegions(EncROIRegion *regions, int region_cnt);
+
+  virtual void QueryChange(uint32_t change, void *value, int32_t size);
 
 protected:
   MppCodingType coding_type;
   uint32_t output_mb_flags;
+  std::string rc_api_brief_name;
   // call before Init()
   void SetMppCodeingType(MppCodingType type);
   virtual bool
-  CheckConfigChange(std::pair<uint32_t, std::shared_ptr<ParameterBuffer>>) {
+      CheckConfigChange(std::pair<uint32_t, std::shared_ptr<ParameterBuffer>>) {
     return true;
   }
   // Control before encoding.
@@ -83,11 +92,19 @@ private:
   int64_t cur_ts;
 
 #ifdef MPP_SUPPORT_HW_OSD
+  MppBufferGroup osd_buf_grp;
   MppEncOSDData osd_data;
 #endif // MPP_SUPPORT_HW_OSD
 
   // for roi regions config.
   MppEncROICfg roi_cfg;
+
+#define MPP_ENCODER_USERDATA_MAX_SIZE 1024
+  char userdata[MPP_ENCODER_USERDATA_MAX_SIZE];
+  uint16_t userdata_len;
+  uint16_t userdata_frame_id;
+  uint8_t userdata_all_frame_en;
+  MppEncUserData mpp_ud;
 
   friend class MPPMJPEGConfig;
   friend class MPPCommonConfig;

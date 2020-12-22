@@ -72,7 +72,7 @@ FileReadFlow::FileReadFlow(const char *param)
   value = params[KEY_LOOP_TIME];
   if (!value.empty())
     loop_time = std::stoi(value);
-  if (!SetAsSource(std::vector<int>({0}), void_transaction00, path)) {
+  if (!SetAsSource(std::vector<int>({0}), void_transaction00, "FileReadFlow")) {
     SetError(-EINVAL);
     return;
   }
@@ -83,6 +83,7 @@ FileReadFlow::FileReadFlow(const char *param)
     SetError(-EINVAL);
     return;
   }
+  SetFlowTag("FileReadFlow");
 }
 
 FileReadFlow::~FileReadFlow() {
@@ -106,12 +107,8 @@ void FileReadFlow::ReadThreadRun() {
   AutoPrintLine apl(__func__);
   size_t alloc_size = read_size;
   bool is_image = (info.pix_fmt != PIX_FMT_NONE);
-  if (alloc_size == 0) {
-    if (is_image) {
-      int num = 0, den = 0;
-      GetPixFmtNumDen(info.pix_fmt, num, den);
-      alloc_size = info.vir_width * info.vir_height * num / den;
-    }
+  if (!alloc_size && is_image) {
+    alloc_size = CalPixFmtSize(info.pix_fmt, info.width, info.height, 16);
   }
   while (loop) {
     if (fstream->Eof()) {
@@ -139,7 +136,7 @@ void FileReadFlow::ReadThreadRun() {
     if (read_size) {
       size = fstream->Read(buffer->GetPtr(), 1, read_size);
       if (size != read_size && !fstream->Eof()) {
-        LOG("read get %d != expect %d\n", (int)size, (int)read_size);
+        RKMEDIA_LOGI("read get %d != expect %d\n", (int)size, (int)read_size);
         SetDisable();
         break;
       }
@@ -188,6 +185,7 @@ private:
   std::shared_ptr<Stream> fstream;
   std::string path;
   std::string save_mode;
+  std::string file_path;
   std::string file_prefix;
   std::string file_suffix;
   size_t file_index;
@@ -195,6 +193,11 @@ private:
 
 std::string FileWriteFlow::GenFilePath(time_t curtime) {
   std::ostringstream ostr;
+
+  if (!file_path.empty()) {
+    ostr << file_path;
+    ostr << "/";
+  }
 
   if (!file_prefix.empty()) {
     ostr << file_prefix;
@@ -218,8 +221,7 @@ std::string FileWriteFlow::GenFilePath(time_t curtime) {
   return ostr.str();
 }
 
-FileWriteFlow::FileWriteFlow(const char *param)
-    : file_index(0) {
+FileWriteFlow::FileWriteFlow(const char *param) : file_index(0) {
   std::map<std::string, std::string> params;
   if (!parse_media_param_map(param, params)) {
     SetError(-EINVAL);
@@ -229,10 +231,11 @@ FileWriteFlow::FileWriteFlow(const char *param)
   std::string value;
   file_prefix = params[KEY_FILE_PREFIX];
   if (file_prefix.empty()) {
-    LOG("FileWriteFlow will use default path\n");
+    RKMEDIA_LOGI("FileWriteFlow will use default path\n");
     CHECK_EMPTY_SETERRNO(value, params, KEY_PATH, EINVAL)
     path = value;
   } else {
+    file_path = params[KEY_PATH];
     file_suffix = params[KEY_FILE_SUFFIX];
     path = GenFilePath();
   }
@@ -251,7 +254,6 @@ FileWriteFlow::FileWriteFlow(const char *param)
     return;
   }
 
-
   SlotMap sm;
   sm.input_slots.push_back(0);
   sm.thread_model = Model::ASYNCCOMMON;
@@ -260,9 +262,10 @@ FileWriteFlow::FileWriteFlow(const char *param)
   sm.process = save_buffer;
 
   if (!InstallSlotMap(sm, "FileWriteFlow", 0)) {
-    LOG("Fail to InstallSlotMap for FileWriteFlow\n");
+    RKMEDIA_LOGI("Fail to InstallSlotMap for FileWriteFlow\n");
     return;
   }
+  SetFlowTag("FileWriteFlow");
 }
 
 FileWriteFlow::~FileWriteFlow() {
@@ -277,11 +280,12 @@ bool save_buffer(Flow *f, MediaBufferVector &input_vector) {
     return true;
 
   if (flow->GetSaveMode() == KEY_SAVE_MODE_SINGLE) {
-    time_t curtime = buffer->GetUSTimeStamp() / 1000000LL;
-    flow->fstream->NewStream(flow->GenFilePath(curtime));
+    flow->fstream->NewStream(flow->GenFilePath());
+    return flow->fstream->WriteAndClose(buffer->GetPtr(), 1,
+                                        buffer->GetValidSize());
+  } else {
+    return flow->fstream->Write(buffer->GetPtr(), 1, buffer->GetValidSize());
   }
-
-  return flow->fstream->Write(buffer->GetPtr(), 1, buffer->GetValidSize());
 }
 
 DEFINE_FLOW_FACTORY(FileWriteFlow, Flow)

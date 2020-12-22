@@ -66,6 +66,8 @@ struct _GstMppVideoDec
   MppApi *mpi;
 
   GstBufferPool *pool;          /* Pool of output frames */
+
+  gboolean seen_valid_pts;
 };
 
 struct _GstMppVideoDecClass

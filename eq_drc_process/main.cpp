@@ -4,6 +4,8 @@
 #include <vector>
 #include <errno.h>
 #include <alsa/asoundlib.h>
+#include <signal.h>
+#include <sys/epoll.h>
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -17,10 +19,11 @@
 #define REC_DEVICE_NAME "fake_record"
 #define WRITE_DEVICE_NAME "fake_play"
 #define JACK_DEVICE_NAME "fake_jack"
+#define JACK2_DEVICE_NAME "fake_jack2"
 #define READ_FRAME  1024    //(768)
 #define PERIOD_SIZE (1024)  //(SAMPLE_RATE/8)
-#define PERIOD_counts (20) //double of delay 200ms
-#define BUFFER_SIZE (PERIOD_SIZE * PERIOD_counts)
+#define PERIOD_counts (15) //double of delay 15*21.3=320ms
+#define BUFFER_SIZE (PERIOD_SIZE * 50) // keep a large buffer_size
 #define MUTE_TIME_THRESHOD (4)//seconds
 #define MUTE_FRAME_THRESHOD (SAMPLE_RATE * MUTE_TIME_THRESHOD / READ_FRAME)//30 seconds
 //#define ALSA_READ_FORMAT SND_PCM_FORMAT_S32_LE
@@ -34,7 +37,8 @@
  *  BLUETOOTH: device as bluetooth source.
  */
 #define DEVICE_FLAG_LINE_OUT        0x01
-#define DEVICE_FLAG_HEAD_SET        0x02
+#define DEVICE_FLAG_ANALOG_HP       0x02
+#define DEVICE_FLAG_DIGITAL_HP      0x03
 #define DEVICE_FLAG_BLUETOOTH       0x04
 #define DEVICE_FLAG_BLUETOOTH_BSA   0x05
 
@@ -165,9 +169,13 @@ int alsa_fake_device_write_open(snd_pcm_t** write_handle, int channels,
     int write_dir;
     char bluealsa_device[256] = {0};
 
-    if (device_flag == DEVICE_FLAG_HEAD_SET) {
+    if (device_flag == DEVICE_FLAG_ANALOG_HP) {
         eq_debug("[EQ_WRITE_OPEN] Open PCM: %s\n", JACK_DEVICE_NAME);
         write_err = snd_pcm_open(write_handle, JACK_DEVICE_NAME,
+                                 SND_PCM_STREAM_PLAYBACK, 0);
+    } else if (device_flag == DEVICE_FLAG_DIGITAL_HP) {
+        eq_debug("[EQ_WRITE_OPEN] Open PCM: %s\n", JACK2_DEVICE_NAME);
+        write_err = snd_pcm_open(write_handle, JACK2_DEVICE_NAME,
                                  SND_PCM_STREAM_PLAYBACK, 0);
     } else if (device_flag == DEVICE_FLAG_BLUETOOTH) {
         sprintf(bluealsa_device, "%s%s", "bluealsa:HCI=hci0,PROFILE=a2dp,DEV=",
@@ -363,7 +371,11 @@ int get_device_flag()
     int fd = 0, ret = 0;
     char buff[512] = {0};
     int device_flag = DEVICE_FLAG_LINE_OUT;
+#if 1 //3308
     const char *path = "/sys/devices/platform/ff560000.acodec/rk3308-acodec-dev/dac_output";
+#else //3326
+    const char *path = "/sys/class/switch/h2w/state";
+#endif
     FILE *pp = NULL; /* pipeline */
     char *bt_mac_addr = NULL;
 
@@ -385,8 +397,15 @@ int get_device_flag()
         return device_flag;
     }
 
+#if 1 //3308
     if (strstr(buff, "hp out"))
-        device_flag = DEVICE_FLAG_HEAD_SET;
+        device_flag = DEVICE_FLAG_ANALOG_HP;
+#else //3326
+    if (strstr(buff, "1"))
+        device_flag = DEVICE_FLAG_ANALOG_HP;
+    else if (strstr(buff, "2"))
+        device_flag = DEVICE_FLAG_DIGITAL_HP;
+#endif
 
     close(fd);
 
@@ -403,8 +422,11 @@ const char *get_device_name(int device_flag)
         case DEVICE_FLAG_BLUETOOTH_BSA:
             device_name = "BLUETOOTH";
             break;
-        case DEVICE_FLAG_HEAD_SET:
+        case DEVICE_FLAG_ANALOG_HP:
             device_name = JACK_DEVICE_NAME;
+            break;
+        case DEVICE_FLAG_DIGITAL_HP:
+            device_name = JACK2_DEVICE_NAME;
             break;
         case DEVICE_FLAG_LINE_OUT:
             device_name = WRITE_DEVICE_NAME;
@@ -500,6 +522,29 @@ void *a2dp_status_listen(void *arg)
     return NULL;
 }
 
+static void sigpipe_handler(int sig)
+{
+    eq_info("[EQ] catch the signal number: %d\n", sig);
+}
+
+static int signal_handler()
+{
+    struct sigaction sa;
+
+    /* Install signal handler for SIGPIPE */
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = sigpipe_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    if (sigaction(SIGPIPE, &sa, NULL) < 0) {
+        eq_err("sigaction() failed: %s", strerror(errno));
+        return -1;
+    }
+
+    return 0;
+}
+
 int main()
 {
     int err;
@@ -516,6 +561,11 @@ int main()
     int socket_fd = -1;
 
     wake_lock = RK_wake_lock_new("eq_drc_process");
+
+    if(signal_handler() < 0) {
+        eq_err("[EQ] Install signal_handler for SIGPIPE failed\n");
+        return -1;
+    }
 
     /* Create a thread to listen for Bluetooth connection status. */
     pthread_create(&a2dp_status_listen_thread, NULL, a2dp_status_listen, NULL);
@@ -568,7 +618,7 @@ repeat:
 
         if (g_system_sleep)
             mute_frame = mute_frame_thd;
-        else if(low_power_mode && is_mute_frame(buffer, READ_FRAME))
+        else if(low_power_mode && is_mute_frame(buffer, channels * READ_FRAME))
             mute_frame ++;
         else
             mute_frame = 0;
@@ -607,7 +657,7 @@ repeat:
             }
 
             if (low_power_mode) {
-                int i, num = PERIOD_counts / 2;
+                int i, num = PERIOD_counts;
                 eq_debug("[EQ] feed mute data %d frame\n", num);
                 for (i = 0; i < num; i++) {
                     if(write_handle != NULL) {
@@ -650,10 +700,10 @@ repeat:
         }else if (socket_fd >= 0) {
             if (g_bt_is_connect == BT_CONNECT_BSA) {
                 err = RK_socket_send(socket_fd, (char *)buffer, READ_FRAME * 4);
-                if (err != READ_FRAME * 4)
+                if (err != READ_FRAME * 4 && -EAGAIN != err)
                     eq_err("====[EQ] write frame error = %d===\n", err);
 
-                if (err < 0) {
+                if (err < 0 && -EAGAIN != err) {
                     if (socket_fd >= 0) {
                         eq_err("[EQ] socket send err: %d, teardown client socket\n", err);
                         RK_socket_client_teardown(socket_fd);

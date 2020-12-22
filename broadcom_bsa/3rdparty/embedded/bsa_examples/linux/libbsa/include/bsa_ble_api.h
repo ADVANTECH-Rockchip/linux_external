@@ -274,7 +274,7 @@ typedef struct
     UINT16              conn_id;
 } tBSA_BLE_CL_SEARCH_CMPL_MSG;
 
-#define MAX_READ_LEN 100
+#define MAX_READ_LEN 512
 /* callback event data for BSA_BLE_CL_READ_EVT event */
 typedef struct
 {
@@ -542,7 +542,7 @@ typedef struct
     BOOLEAN             descr;
 } tBSA_BLE_CL_READ;
 
-#define BSA_BLE_CL_WRITE_MAX  255
+#define BSA_BLE_CL_WRITE_MAX  512
 
 typedef struct
 {

@@ -19,15 +19,105 @@
 #include <string.h>
 
 #include "mpp_mem.h"
+#include "mpp_soc.h"
 #include "mpp_common.h"
 
 #include "h265e_ps.h"
+
+#define MAX_UINT        0xFFFFFFFFU
+
+typedef struct H265levelspec_t {
+    RK_U32 maxLumaSamples;
+    RK_U32 maxLumaSamplesPerSecond;
+    RK_U32 maxBitrateMain;
+    RK_U32 maxBitrateHigh;
+    RK_U32 maxCpbSizeMain;
+    RK_U32 maxCpbSizeHigh;
+    RK_U32 minCompressionRatio;
+    RK_S32 levelEnum;
+    const char* name;
+    RK_S32 levelIdc;
+} H265levelspec;
+
+H265levelspec levels[] = {
+    { 36864,    552960,     128,      MAX_UINT, 350,    MAX_UINT, 2, H265_LEVEL1,   "1",   10 },
+    { 122880,   3686400,    1500,     MAX_UINT, 1500,   MAX_UINT, 2, H265_LEVEL2,   "2",   20 },
+    { 245760,   7372800,    3000,     MAX_UINT, 3000,   MAX_UINT, 2, H265_LEVEL2_1, "2.1", 21 },
+    { 552960,   16588800,   6000,     MAX_UINT, 6000,   MAX_UINT, 2, H265_LEVEL3,   "3",   30 },
+    { 983040,   33177600,   10000,    MAX_UINT, 10000,  MAX_UINT, 2, H265_LEVEL3_1, "3.1", 31 },
+    { 2228224,  66846720,   12000,    30000,    12000,  30000,    4, H265_LEVEL4,   "4",   40 },
+    { 2228224,  133693440,  20000,    50000,    20000,  50000,    4, H265_LEVEL4_1, "4.1", 41 },
+    { 8912896,  267386880,  25000,    100000,   25000,  100000,   6, H265_LEVEL5,   "5",   50 },
+    { 8912896,  534773760,  40000,    160000,   40000,  160000,   8, H265_LEVEL5_1, "5.1", 51 },
+    { 8912896,  1069547520, 60000,    240000,   60000,  240000,   8, H265_LEVEL5_2, "5.2", 52 },
+    { 35651584, 1069547520, 60000,    240000,   60000,  240000,   8, H265_LEVEL6,   "6",   60 },
+    { 35651584, 2139095040, 120000,   480000,   120000, 480000,   8, H265_LEVEL6_1, "6.1", 61 },
+    { 35651584, 4278190080U, 240000,  800000,   240000, 800000,   6, H265_LEVEL6_2, "6.2", 62 },
+    { MAX_UINT, MAX_UINT, MAX_UINT, MAX_UINT, MAX_UINT, MAX_UINT, 1, H265_LEVEL8_5, "8.5", 85 },
+};
+
+void init_zscan2raster(RK_S32 maxDepth, RK_S32 depth, RK_U32 startVal, RK_U32** curIdx)
+{
+    RK_S32 stride = 1 << (maxDepth - 1);
+    if (depth == maxDepth) {
+        (*curIdx)[0] = startVal;
+        (*curIdx)++;
+    } else {
+        RK_S32 step = stride >> depth;
+        init_zscan2raster(maxDepth, depth + 1, startVal,                        curIdx);
+        init_zscan2raster(maxDepth, depth + 1, startVal + step,                 curIdx);
+        init_zscan2raster(maxDepth, depth + 1, startVal + step * stride,        curIdx);
+        init_zscan2raster(maxDepth, depth + 1, startVal + step * stride + step, curIdx);
+    }
+}
+
+void init_raster2zscan(RK_U32 maxCUSize, RK_U32 maxDepth, RK_U32 *raster2zscan, RK_U32 *zscan2raster)
+{
+    RK_U32  unitSize = maxCUSize  >> (maxDepth - 1);
+    RK_U32  numPartInCUSize  = (RK_U32)maxCUSize / unitSize;
+    RK_U32  i;
+
+    for ( i = 0; i < numPartInCUSize * numPartInCUSize; i++) {
+        raster2zscan[zscan2raster[i]] = i;
+    }
+}
+
+void init_raster2pelxy(RK_U32 maxCUSize, RK_U32 maxDepth, RK_U32 *raster2pelx, RK_U32 *raster2pely)
+{
+    RK_U32 i;
+
+    RK_U32* tempx = &raster2pelx[0];
+    RK_U32* tempy = &raster2pely[0];
+
+    RK_U32  unitSize  = maxCUSize >> (maxDepth - 1);
+
+    RK_U32  numPartInCUSize = maxCUSize / unitSize;
+
+    tempx[0] = 0;
+    tempx++;
+    for (i = 1; i < numPartInCUSize; i++) {
+        tempx[0] = tempx[-1] + unitSize;
+        tempy++;
+    }
+
+    for (i = 1; i < numPartInCUSize; i++) {
+        memcpy(tempx, tempx - numPartInCUSize, sizeof(RK_U32) * numPartInCUSize);
+        tempx += numPartInCUSize;
+    }
+
+    for (i = 1; i < numPartInCUSize * numPartInCUSize; i++) {
+        tempy[i] = (i / numPartInCUSize) * unitSize;
+    }
+}
 
 MPP_RET h265e_set_vps(H265eCtx *ctx, H265eVps *vps)
 {
     RK_S32 i;
     MppEncH265Cfg *codec = &ctx->cfg->codec.h265;
     ProfileTierLevel *profileTierLevel = &vps->m_ptl.m_generalPTL;
+    MppEncPrepCfg *prep = &ctx->cfg->prep;
+    RK_U32 maxlumas = prep->width * prep->height;
+    RK_S32 level_idc = H265_LEVEL_NONE;
 
     vps->m_VPSId = 0;
     vps->m_maxTLayers = 1;
@@ -46,8 +136,19 @@ MPP_RET h265e_set_vps(H265eCtx *ctx, H265eVps *vps)
     memset(profileTierLevel->m_profileCompatibilityFlag, 0, sizeof(profileTierLevel->m_profileCompatibilityFlag));
     memset(vps->m_ptl.m_subLayerProfilePresentFlag, 0, sizeof(vps->m_ptl.m_subLayerProfilePresentFlag));
     memset(vps->m_ptl.m_subLayerLevelPresentFlag,   0, sizeof(vps->m_ptl.m_subLayerLevelPresentFlag));
+    for (i = 0; i < (RK_S32)MPP_ARRAY_ELEMS(levels); i++) {
+        if (levels[i].maxLumaSamples >= maxlumas) {
+            level_idc = levels[i].levelEnum;
+            break;
+        }
+    }
+
     profileTierLevel->m_profileSpace = 0;
-    profileTierLevel->m_levelIdc = codec->level;
+    if (codec->level < level_idc) {
+        profileTierLevel->m_levelIdc = level_idc;
+    } else {
+        profileTierLevel->m_levelIdc = codec->level;
+    }
     profileTierLevel->m_tierFlag = codec->tier ? 1 : 0;
     profileTierLevel->m_profileIdc = codec->profile;
 
@@ -66,6 +167,7 @@ MPP_RET h265e_set_sps(H265eCtx *ctx, H265eSps *sps, H265eVps *vps)
     MppEncH265Cfg *codec = &ctx->cfg->codec.h265;
     MppEncPrepCfg *prep = &ctx->cfg->prep;
     MppEncRcCfg *rc = &ctx->cfg->rc;
+    MppEncRefCfg ref_cfg = ctx->cfg->ref_cfg;
     MppEncH265VuiCfg *vui = &codec->vui;
     RK_S32 i_timebase_num = 1;
     RK_S32 i_timebase_den = rc->fps_out_num / rc->fps_out_denorm;
@@ -74,6 +176,8 @@ MPP_RET h265e_set_sps(H265eCtx *ctx, H265eSps *sps, H265eVps *vps)
     RK_S32 pad[2] = {0};
     RK_S32 minCUSize, log2MinCUSize;
     RK_S32 tuQTMinLog2Size = 2, tuQTMaxLog2Size;
+    MppEncCpbInfo *cpb_info = mpp_enc_ref_cfg_get_cpb_info(ref_cfg);
+    RK_U32 *tmp = &sps->zscan2raster[0];
 
     memset(convertToBit, -1, sizeof(convertToBit));
     c = 0;
@@ -95,6 +199,9 @@ MPP_RET h265e_set_sps(H265eCtx *ctx, H265eSps *sps, H265eVps *vps)
 
     maxCUDepth += addCUDepth;
     addCUDepth++;
+    init_zscan2raster(maxCUDepth + 1, 1, 0, &tmp );
+    init_raster2zscan(codec->max_cu_size, maxCUDepth + 1, &sps->raster2zscan[0], &sps->zscan2raster[0]);
+    init_raster2pelxy(codec->max_cu_size, maxCUDepth + 1, &sps->raster2pelx[0], &sps->raster2pely[0]);
 
     if ((prep->width % minCUDepth) != 0) {
         RK_U32 padsize = 0;
@@ -130,6 +237,7 @@ MPP_RET h265e_set_sps(H265eCtx *ctx, H265eSps *sps, H265eVps *vps)
     sps->m_log2DiffMaxMinCodingBlockSize = 0 ;
     sps->m_maxCUSize = codec->max_cu_size;
     sps->m_maxCUDepth = maxCUDepth;
+    sps->m_addCUDepth = addCUDepth;
     sps->m_RPSList.m_numberOfReferencePictureSets = 0;
     sps->m_RPSList.m_referencePictureSets = NULL;
 
@@ -190,12 +298,9 @@ MPP_RET h265e_set_sps(H265eCtx *ctx, H265eSps *sps, H265eVps *vps)
     sps->m_bLongTermRefsPresent = 0;
     sps->m_TMVPFlagsPresent = codec->tmvp_enable;
     sps->m_useStrongIntraSmoothing = codec->cu_cfg.strong_intra_smoothing_enabled_flag;
-    if (codec->ref_cfg.num_lt_ref_pic > 0 || ctx->dpbcfg.nLongTerm) {
-        h265e_dbg_ps("ctx->dpbcfg.nLongTerm = %d", ctx->dpbcfg.nLongTerm);
-        if (codec->ref_cfg.num_lt_ref_pic == 0) {
-            codec->ref_cfg.num_lt_ref_pic = 1;
-        }
-        sps->m_numLongTermRefPicSPS = codec->ref_cfg.num_lt_ref_pic;
+
+    if (cpb_info->max_lt_cnt) {
+        sps->m_numLongTermRefPicSPS = cpb_info->max_lt_cnt;
         sps->m_bLongTermRefsPresent = 1;
         sps->m_TMVPFlagsPresent = 0;
         codec->tmvp_enable = 0;
@@ -211,12 +316,25 @@ MPP_RET h265e_set_sps(H265eCtx *ctx, H265eSps *sps, H265eVps *vps)
         sps->vui.m_overscanInfoPresentFlag = 0;
         sps->vui.m_overscanAppropriateFlag = 0;
         sps->vui.m_videoSignalTypePresentFlag = 0;
-        sps->vui.m_videoFormat = 5;
-        sps->vui.m_videoFullRangeFlag = 0;
-        sps->vui.m_colourDescriptionPresentFlag = 0;
-        sps->vui.m_colourPrimaries = 2;
-        sps->vui.m_transferCharacteristics = 2;
-        sps->vui.m_matrixCoefficients = 2;
+        sps->vui.m_videoFormat = MPP_FRAME_VIDEO_FMT_UNSPECIFIED;
+        if (prep->range == MPP_FRAME_RANGE_JPEG) {
+            sps->vui.m_videoFullRangeFlag = 1;
+            sps->vui.m_videoSignalTypePresentFlag = 1;
+        }
+
+        if ((prep->colorprim <= MPP_FRAME_PRI_JEDEC_P22 &&
+             prep->colorprim != MPP_FRAME_PRI_UNSPECIFIED) ||
+            (prep->colortrc <= MPP_FRAME_TRC_ARIB_STD_B67 &&
+             prep->colortrc != MPP_FRAME_TRC_UNSPECIFIED) ||
+            (prep->color <= MPP_FRAME_SPC_ICTCP &&
+             prep->color != MPP_FRAME_SPC_UNSPECIFIED)) {
+            sps->vui.m_videoSignalTypePresentFlag = 1;
+            sps->vui.m_colourDescriptionPresentFlag = 1;
+            sps->vui.m_colourPrimaries = prep->colorprim;
+            sps->vui.m_transferCharacteristics = prep->colortrc;
+            sps->vui.m_matrixCoefficients = prep->color;
+        }
+
         sps->vui.m_chromaLocInfoPresentFlag = 0;
         sps->vui.m_chromaSampleLocTypeTopField = 0;
         sps->vui.m_chromaSampleLocTypeBottomField = 0;
@@ -236,9 +354,6 @@ MPP_RET h265e_set_sps(H265eCtx *ctx, H265eSps *sps, H265eVps *vps)
         if (vui->vui_aspect_ratio) {
             sps->vui.m_aspectRatioInfoPresentFlag = !!vui->vui_aspect_ratio;
             sps->vui.m_aspectRatioIdc = vui->vui_aspect_ratio;
-        }
-        if (vui->full_range) {
-            sps->vui.m_videoFullRangeFlag = 1;
         }
         sps->vui.m_timingInfo.m_timingInfoPresentFlag = 1;
         sps->vui.m_timingInfo.m_numUnitsInTick = i_timebase_num;
@@ -306,10 +421,7 @@ MPP_RET h265e_set_pps(H265eCtx  *ctx, H265ePps *pps, H265eSps *sps)
         pps->m_deblockingFilterTcOffsetDiv2 = 0;
     }
 
-    if (ctx->dpbcfg.vgop_size > 1) {
-        pps->m_listsModificationPresentFlag = 1;
-    }
-
+    pps->m_listsModificationPresentFlag = 1;
     pps->m_log2ParallelMergeLevelMinus2 = 0;
     pps->m_numRefIdxL0DefaultActive = 1;
     pps->m_numRefIdxL1DefaultActive = 1;
@@ -317,118 +429,35 @@ MPP_RET h265e_set_pps(H265eCtx  *ctx, H265ePps *pps, H265eSps *sps)
     pps->m_useTransformSkip = codec->trans_cfg.transform_skip_enabled_flag;
 
     pps->m_entropyCodingSyncEnabledFlag = 0;
-    pps->m_loopFilterAcrossTilesEnabledFlag = 1;
     pps->m_signHideFlag = 0;
     pps->m_cabacInitPresentFlag = codec->entropy_cfg.cabac_init_flag;
     pps->m_encCABACTableIdx = I_SLICE;
     pps->m_sliceHeaderExtensionPresentFlag = 0;
     pps->m_numExtraSliceHeaderBits = 0;
-    return 0;
-}
-#if 0
+    pps->m_tiles_enabled_flag = 0;
+    pps->m_bTileUniformSpacing = 0;
+    pps->m_nNumTileRowsMinus1 = 0;
+    pps->m_nNumTileColumnsMinus1 = 0;
+    pps->m_loopFilterAcrossTilesEnabledFlag = 1;
 
-void h265e_sei_pack2str(char *str, H265eCtx *ctx, RcSyntax *rc_syn)
-{
-    MppEncCfgSet *cfg = ctx->cfg;
-    MppEncH265Cfg *codec = &cfg->codec.h265;
-    MppEncPrepCfg *prep = &cfg->prep;
-    MppEncRcCfg *rc = &cfg->rc;
-    RK_U32 prep_change = prep->change & MPP_ENC_PREP_CFG_CHANGE_INPUT;
-    RK_U32 codec_change = codec->change;
-    RK_U32 rc_change = rc->change;
-    RK_S32 len = H265E_SEI_BUF_SIZE - H265E_UUID_LENGTH;
+    if (sps->m_picWidthInLumaSamples > 1920) {
+        const char *soc_name = mpp_get_soc_name();
 
-    if (prep_change || codec_change || rc_change)
-        H265E_HAL_SPRINT(str, len, "frm %d cfg: ", ctx->frame_cnt);
+        /* check tile support on rk3566 and rk3568 */
+        if (strstr(soc_name, "rk3566") || strstr(soc_name, "rk3568")) {
+            if (sps->m_picWidthInLumaSamples <= 3840) {
+                pps->m_nNumTileColumnsMinus1 = 1;
+            } else {
+                pps->m_nNumTileColumnsMinus1 = 2;
+            }
 
-    /* prep cfg */
-    if (prep_change) {
-        H265E_HAL_SPRINT(str, len, "[prep] ");
-        if (prep_change & MPP_ENC_PREP_CFG_CHANGE_INPUT) {
-            H265E_HAL_SPRINT(str, len, "w=%d ", prep->width);
-            H265E_HAL_SPRINT(str, len, "h=%d ", prep->height);
-            H265E_HAL_SPRINT(str, len, "fmt=%d ", prep->format);
-            H265E_HAL_SPRINT(str, len, "h_strd=%d ", prep->hor_stride);
-            H265E_HAL_SPRINT(str, len, "v_strd=%d ", prep->ver_stride);
-        }
-    }
-#if 0
-    /* codec cfg */
-    if (codec_change) {
-        H264E_HAL_SPRINT(str, len, "[codec] ");
-        H264E_HAL_SPRINT(str, len, "profile=%d ", codec->profile);
-        H264E_HAL_SPRINT(str, len, "level=%d ", codec->level);
-        H264E_HAL_SPRINT(str, len, "b_cabac=%d ", codec->entropy_coding_mode);
-        H264E_HAL_SPRINT(str, len, "cabac_idc=%d ", codec->cabac_init_idc);
-        H264E_HAL_SPRINT(str, len, "t8x8=%d ", codec->transform8x8_mode);
-        H264E_HAL_SPRINT(str, len, "constrain_intra=%d ", codec->constrained_intra_pred_mode);
-        H264E_HAL_SPRINT(str, len, "dblk=%d:%d:%d ", codec->deblock_disable,
-                         codec->deblock_offset_alpha, codec->deblock_offset_beta);
-        H264E_HAL_SPRINT(str, len, "cbcr_qp_offset=%d:%d ", codec->chroma_cb_qp_offset,
-                         codec->chroma_cr_qp_offset);
-        H264E_HAL_SPRINT(str, len, "qp_max=%d ", codec->qp_max);
-        H264E_HAL_SPRINT(str, len, "qp_min=%d ", codec->qp_min);
-        H264E_HAL_SPRINT(str, len, "qp_max_step=%d ", codec->qp_max_step);
-    }
-#endif
-    /* rc cfg */
-    if (rc_change) {
-        H265E_HAL_SPRINT(str, len, "[rc] ");
-        H265E_HAL_SPRINT(str, len, "fps_in=%d:%d:%d ", rc->fps_in_num, rc->fps_in_denorm, rc->fps_in_flex);
-        H265E_HAL_SPRINT(str, len, "fps_out=%d:%d:%d ", rc->fps_out_num, rc->fps_out_denorm, rc->fps_out_flex);
-        H265E_HAL_SPRINT(str, len, "gop=%d ", rc->gop);
-    }
-    /* record detailed RC parameter
-     * Start to write parameter when the first frame is encoded,
-     * because we can get all parameter only when it's encoded.
-     */
-    if (rc_syn && rc_syn->rc_head && (ctx->frame_cnt > 0)) {
-        RecordNode *pos, *m;
-        MppLinReg *lin_reg;
-
-        list_for_each_entry_safe(pos, m, rc_syn->rc_head, RecordNode, list) {
-            if (ctx->frame_cnt == pos->frm_cnt) {
-                H265E_HAL_SPRINT(str, len, "[frm %d]detailed param ", pos->frm_cnt);
-                H265E_HAL_SPRINT(str, len, "tgt_bits=%d:%d:%d:%d ",
-                                 pos->tgt_bits, pos->real_bits,
-                                 pos->bit_min, pos->bit_max);
-                H265E_HAL_SPRINT(str, len, "tgt_qp=%d:%d:%d:%d ",
-                                 pos->set_qp, pos->real_qp,
-                                 pos->qp_min, pos->qp_max);
-
-                H265E_HAL_SPRINT(str, len, "per_pic=%d intra=%d inter=%d ",
-                                 pos->bits_per_pic,
-                                 pos->bits_per_intra, pos->bits_per_inter);
-                H265E_HAL_SPRINT(str, len, "acc_intra=%d inter=%d last_fps=%d ",
-                                 pos->acc_intra_bits_in_fps,
-                                 pos->acc_inter_bits_in_fps,
-                                 pos->last_fps_bits);
-                H265E_HAL_SPRINT(str, len, "qp_sum=%d sse_sum=%lld ",
-                                 pos->qp_sum, pos->sse_sum);
-
-                lin_reg = &pos->lin_reg;
-                H265E_HAL_SPRINT(str, len, "size=%d n=%d i=%d ",
-                                 lin_reg->size, lin_reg->n, lin_reg->i);
-                H265E_HAL_SPRINT(str, len, "a=%0.2f b=%0.2f c=%0.2f ",
-                                 lin_reg->a, lin_reg->b, lin_reg->c);
-                H265E_HAL_SPRINT(str, len, "weight_len=%d wlen=%d ",
-                                 lin_reg->weight_mode, pos->wlen);
-
-                /* frame type is intra */
-                if (pos->frm_type == INTRA_FRAME)
-                    H265E_HAL_SPRINT(str, len, "fps=%d gop=%d I=%0.2f ", pos->fps,
-                                     pos->gop, pos->last_intra_percent);
-
-                break;
+            if (pps->m_nNumTileColumnsMinus1) {
+                pps->m_tiles_enabled_flag = 1;
+                pps->m_bTileUniformSpacing = 1;
+                pps->m_loopFilterAcrossTilesEnabledFlag = 1;
             }
         }
     }
-    /* frame type is intra */
-    if (rc_syn && (hw_cfg->frame_type == 2)) {
-        H265E_HAL_SPRINT(str, len, "[frm %d] ", ctx->frame_cnt);
-        H265E_HAL_SPRINT(str, len, "rc_mode=%d ", rc->rc_mode);
-        H265E_HAL_SPRINT(str, len, "quality=%d ", rc->quality);
-        H265E_HAL_SPRINT(str, len, "bps=%d:%d:%d ", rc->bps_target, rc->bps_min, rc->bps_max);
-    }
+
+    return 0;
 }
-#endif

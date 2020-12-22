@@ -31,6 +31,9 @@ typedef enum {
     ROCKX_IMAGE_TRANSFORM_ROTATE_270        = 0x07,  ///< Rotate image 270 defree
 } rockx_image_transform_mode;
 
+/**
+ * @brief Image Illumination Result
+ */
 typedef enum {
     ROCKX_IMAGE_ILLUMINATION_NORM = 0,
     ROCKX_IMAGE_ILLUMINATION_UNEVEN = 1,
@@ -38,11 +41,24 @@ typedef enum {
     ROCKX_IMAGE_UNDER_EXPOSURE = 3,
 } rockx_image_illumination_t;
 
+/**
+ * @brief Image Contrast Result
+ */
 typedef enum {
     ROCKX_IMAGE_CONTRAST_NORM = 0,
     ROCKX_IMAGE_CONTRAST_WEAK = 1,
     ROCKX_IMAGE_CONTRAST_STRONG = 2,
 } rockx_image_contrast_t;
+
+/**
+ * @brief Image Resize Method
+ */
+typedef enum {
+    ROCKX_IMAGE_RESIZE_INTER_LINEAR = 0, //default resize method
+    ROCKX_IMAGE_RESIZE_INTER_AREA = 1,
+    ROCKX_IMAGE_RESIZE_INTER_CUBIC = 2,
+    ROCKX_IMAGE_RESIZE_INTER_NEAREST = 3,
+}rockx_image_resize_method_t;
 
 /**
  * Get Channels of a @ref rockx_image_t
@@ -68,6 +84,17 @@ int rockx_image_get_size(rockx_image_t *img);
 rockx_ret_t rockx_image_convert(rockx_image_t *src, rockx_image_t *dst, rockx_image_transform_mode mode);
 
 /**
+ * @brief Convert Image With Crop
+ * 
+ * @param src_img [in] Source image
+ * @param roi [in] Source image ROI
+ * @param dst_img [out] Destination image
+ * @param trans_mode [in] transform mode
+ * @return @ref rockx_ret_t 
+ */
+rockx_ret_t rockx_image_convert_with_crop(rockx_image_t *src_img, rockx_rect_t *roi, rockx_image_t *dst_img, rockx_image_transform_mode trans_mode);
+
+/**
  * Convert Image Size(Keep Ration) and Color
  * @param src [in] Source image (must )
  * @param dst [out] Destination image(need set width/height/pixel_fmt)
@@ -81,6 +108,22 @@ rockx_ret_t rockx_image_convert(rockx_image_t *src, rockx_image_t *dst, rockx_im
  */
 rockx_ret_t rockx_image_convert_keep_ration(rockx_image_t *src, rockx_image_t *dst, int on_center, int pad_color, 
         float *scale_w, float *scale_h, float *left_offset, float *top_offset);
+
+/**
+ * Convert Image Size(Keep Ratio) and Color using different interpolation method
+ * @param src [in] Source image (must )
+ * @param dst [out] Destination image(need set width/height/pixel_fmt)
+ * @param on_center [in] Is Image on target image center and border padding.
+ * @param resize_method [in] Image interpolation method.
+ * @param pad_color [in] padding color
+ * @param scale_w [out] width resize scale
+ * @param scale_h [out] height resize scale
+ * @param left_offset [out] Image left padding offset
+ * @param top_offset [out] Image top padding offset
+ * @return @ref rockx_ret_t
+ */
+rockx_ret_t rockx_image_convert_keep_ratio_by_method(rockx_image_t *src, rockx_image_t *dst, int on_center, int pad_color, 
+        float *scale_w, float *scale_h, float *left_offset, float *top_offset,rockx_image_resize_method_t resize_method);
 
 /**
  * @brief Image Clarity
@@ -127,11 +170,27 @@ rockx_ret_t rockx_image_write(const char *path, rockx_image_t *img);
 rockx_ret_t rockx_image_write_raw(const char *path, rockx_image_t *img);
 
 /**
+ * Write Image Data To txt File
+ * @param path [in] File path to write
+ * @param img [in] Image to write
+ * @return @ref rockx_ret_t
+ */
+rockx_ret_t rockx_image_write_to_txt(const char *path, rockx_image_t *img);
+
+/**
  * Clone Image
  * @param img [in] Source image
  * @return cloned image
  */
 rockx_image_t *rockx_image_clone(rockx_image_t *img);
+
+/**
+ * Clone Image
+ * @param img [in] Source image
+ * @param clone_data [in] is clone image data
+ * @return cloned image
+ */
+rockx_image_t *rockx_image_clone2(rockx_image_t *img, int clone_data);
 
 /**
  * Release Image
@@ -187,6 +246,24 @@ rockx_ret_t rockx_image_draw_rect(rockx_image_t *img, rockx_point_t pt1, rockx_p
  */
 rockx_ret_t rockx_image_draw_text(rockx_image_t *img, const char *text, rockx_point_t pt,
         rockx_color_t color, int thickness);
+
+/**
+ * Histogram equalization of the image
+ * 
+ * @param src_img [in] in image
+ * @param dst_img [out] out image
+ * @return @ref rockx_ret_t
+ */
+rockx_ret_t rockx_image_equalize_hist(rockx_image_t *src_img, rockx_image_t *dst_img);
+
+/**
+ * border on Image
+ * @param img [in] Image to border
+ * @param img_border [in] border Image
+ * @param box [in] Box to crop RoI
+ * @return @ref rockx_ret_t
+ */
+rockx_ret_t rockx_image_border_fillblack(rockx_image_t *img, rockx_image_t *img_border, rockx_rect_t *box);
 
 #ifdef __cplusplus
 } //extern "C"

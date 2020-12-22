@@ -73,15 +73,28 @@ if(FILTER)
   add_subdirectory(rkrga)
   add_subdirectory(guard)
   add_subdirectory(filter)
-  if(RKNN)
-    include_directories(${RKNPU_HEADER_DIR})
-    add_subdirectory(rknn)
-  endif()
+  add_subdirectory(rknn)
 endif()
+
+  add_subdirectory(c_api)
 
 if(MOVE_DETECTION)
 add_definitions(-DRK_MOVE_DETECTION)
 set(EASY_MEDIA_DEPENDENT_LIBS ${EASY_MEDIA_DEPENDENT_LIBS} md_share)
+endif()
+
+if(OCCLUSION_DETECTION)
+set(EASY_MEDIA_DEPENDENT_LIBS ${EASY_MEDIA_DEPENDENT_LIBS} od_share)
+endif()
+
+if(ROCKFACE)
+    add_definitions(-DUSE_ROCKFACE)
+endif()
+
+if(ROCKX)
+  add_definitions(-DUSE_ROCKX)
+  include_directories(${ROCKX_HEADER_DIR})
+  set(EASY_MEDIA_DEPENDENT_LIBS ${EASY_MEDIA_DEPENDENT_LIBS} rockx)
 endif()
 
 set(LIBRARY_VERSION 1.0.1)
@@ -97,6 +110,10 @@ set_target_properties(${LIBRARY_NAME} PROPERTIES SOVERSION 1)
 if(SANITIZER)
   add_definitions(-fsanitize=address -static-libasan -g)
   target_link_libraries(${LIBRARY_NAME} libasan.a)
+endif()
+
+if(USE_RKAIQ)
+  set(EASY_MEDIA_DEPENDENT_LIBS ${EASY_MEDIA_DEPENDENT_LIBS} RkAiq::RkAiq)
 endif()
 
 if(EASY_MEDIA_COMPILE_DEFINITIONS)

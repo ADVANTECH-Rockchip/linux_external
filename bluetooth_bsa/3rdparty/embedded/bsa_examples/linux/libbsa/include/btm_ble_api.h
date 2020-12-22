@@ -28,8 +28,6 @@ typedef UINT8 tBTM_BLE_CHNL_MAP[CHNL_MAP_LEN];
 #define BTM_BLE_SCAN_REQ_EVT    0x05
 #define BTM_BLE_UNKNOWN_EVT     0xff
 
-#define BTM_BLE_UNKNOWN_EVT     0xff
-
 #define BTM_BLE_SCAN_MODE_PASS      0
 #define BTM_BLE_SCAN_MODE_ACTI      1
 #define BTM_BLE_SCAN_MODE_NONE      0xff
@@ -263,6 +261,29 @@ typedef UINT8   tBTM_BLE_AD_TYPE;
 #define BTM_BLE_LL_DATA_TX_TIME_MIN     0x0148
 #define BTM_BLE_LL_DATA_TX_TIME_MAX     0x0848
 
+#if defined(BLE_2M_PHY_INCLUDED) && (BLE_2M_PHY_INCLUDED == TRUE)
+
+#define BTM_BLE_ALL_TX_PHY_NO_PREFERRED         0x1
+#define BTM_BLE_ALL_RX_PHY_NO_PREFERRED         (0x1 << 1)
+#define BTM_BLE_ALL_PHY_NO_PREFERRED_MASK       (BTM_BLE_ALL_TX_PHY_NO_PREFERRED | BTM_BLE_ALL_RX_PHY_NO_PREFERRED)
+
+#define BTM_BLE_TX_1M_PHY_PREFERRED             0x1
+#define BTM_BLE_TX_2M_PHY_PREFERRED             (0x1 << 1)
+#define BTM_BLE_TX_CODED_PHY_PREFERRED          (0x1 << 2)
+#define BTM_BLE_TX_PHY_PREFERRED_MASK           (BTM_BLE_TX_1M_PHY_PREFERRED | BTM_BLE_TX_2M_PHY_PREFERRED | BTM_BLE_TX_CODED_PHY_PREFERRED)
+
+#define BTM_BLE_RX_1M_PHY_PREFERRED             0x1
+#define BTM_BLE_RX_2M_PHY_PREFERRED             (0x1 << 1)
+#define BTM_BLE_RX_CODED_PHY_PREFERRED          (0x1 << 2)
+#define BTM_BLE_RX_PHY_PREFERRED_MASK           (BTM_BLE_RX_1M_PHY_PREFERRED | BTM_BLE_RX_2M_PHY_PREFERRED | BTM_BLE_RX_CODED_PHY_PREFERRED)
+
+#define BTM_BLE_OPT_NO_CODED_PHY_PREFERRED      0x0
+#define BTM_BLE_OPT_S2_CODED_PHY_PREFERRED      0x1
+#define BTM_BLE_OPT_S8_CODED_PHY_PREFERRED      0x2
+#define BTM_BLE_OPT_CODED_PHY_PREFERRED_MASK    (BTM_BLE_OPT_NO_CODED_PHY_PREFERRED | BTM_BLE_OPT_S2_CODED_PHY_PREFERRED | BTM_BLE_OPT_S8_CODED_PHY_PREFERRED)
+
+#endif
+
 /* slave preferred connection interval range */
 typedef struct
 {
@@ -360,7 +381,29 @@ enum
 };
 typedef UINT8   tBTM_BLE_CONN_TYPE;
 
-typedef BOOLEAN (tBTM_BLE_SEL_CBACK)(BD_ADDR random_bda,     UINT8 *p_remote_name);
+typedef BOOLEAN (tBTM_BLE_SEL_CBACK)(BD_ADDR random_bda, UINT8 *p_remote_name);
+
+typedef enum
+{
+    BTM_BLE_CONN_UPDATE_EVT
+} tBTM_BLE_EVT;
+
+typedef struct
+{
+    BD_ADDR     bd_addr;
+    tBTM_STATUS status;
+    UINT16      conn_interval;
+    UINT16      conn_latency;
+    UINT16      conn_timeout;
+} tBTM_BLE_CONN_UPDATE;
+
+typedef union
+{
+    tBTM_BLE_CONN_UPDATE        conn_update;
+} tBTM_BLE_DATA;
+
+/* BLE events callback */
+typedef void (tBTM_BLE_CBACK)(tBTM_BLE_EVT event, tBTM_BLE_DATA *p_data);
 
 /* callback function for SMP signing algorithm, signed data in little endian order with tlen bits long */
 typedef void (tBTM_BLE_SIGN_CBACK)(void *p_ref_data, UINT8 *p_signing_data);
@@ -368,12 +411,60 @@ typedef void (tBTM_BLE_VERIFY_CBACK)(void *p_ref_data, BOOLEAN match);
 /* random address set complete callback */
 typedef void (tBTM_BLE_RANDOM_SET_CBACK) (BD_ADDR random_bda);
 
+#if defined(BLE_2M_PHY_INCLUDED) && (BLE_2M_PHY_INCLUDED == TRUE)
+enum
+{
+    BTM_BLE_READ_PHY_EVT,
+    BTM_BLE_SET_DEFAULT_PHY_EVT,
+    BTM_BLE_PHY_UPDATE_EVT
+};
+typedef UINT8 tBTM_BLE_PHY_EVT;
+
+typedef struct
+{
+    tBTM_STATUS status;
+    UINT8       hci_status;
+    BD_ADDR     bd_addr;
+    UINT8       tx_phy;
+    UINT8       rx_phy;
+} tBTM_BLE_READ_PHY;
+
+typedef tBTM_BLE_READ_PHY tBTM_BLE_PHY_UPDATE;
+
+typedef struct
+{
+    tBTM_STATUS status;
+    UINT8       hci_status;
+} tBTM_BLE_SET_DEFAULT_PHY;
+
+typedef union
+{
+    tBTM_BLE_READ_PHY           read_phy;
+    tBTM_BLE_SET_DEFAULT_PHY    default_phy;
+    tBTM_BLE_PHY_UPDATE         phy_update;
+} tBTM_BLE_PHY_DATA;
+#endif
+
 /*****************************************************************************
 **  EXTERNAL FUNCTION DECLARATIONS
 *****************************************************************************/
 #ifdef __cplusplus
 extern "C" {
 #endif
+/********************************************************************************
+**
+** Function         BTM_BleRegCback
+**
+** Description      This function is called to register callback to be called
+**                  when some BLE related event is received from controller
+**
+** Parameters:      p_cback: callback function to notify upper layer
+**
+** Returns          void
+**
+********************************************************************************/
+BTM_API extern void BTM_BleRegCback(tBTM_BLE_CBACK *p_cback);
+
 /*******************************************************************************
 **
 ** Function         BTM_SecAddBleDevice
@@ -613,6 +704,74 @@ BTM_API extern BOOLEAN BTM_BleKeyprNotif (BD_ADDR bd_addr, UINT8 kp_val);
 *******************************************************************************/
 BTM_API extern void BTM_BleOobDataReply(BD_ADDR bd_addr, UINT8 res, UINT8 len, UINT8 *p_data);
 
+#if defined(BLE_2M_PHY_INCLUDED) && (BLE_2M_PHY_INCLUDED == TRUE)
+/* BLE PHY events callback */
+typedef void (tBTM_BLE_PHY_CBACK)(tBTM_BLE_PHY_EVT event, tBTM_BLE_PHY_DATA *p_data);
+
+/********************************************************************************
+**
+** Function         BTM_BleRegPhyCback
+**
+** Description      This function is called to register callback to be called
+**                  when some BLE phy related event is received from controller
+**
+** Parameters:      p_cback: callback function to notify upper layer
+**
+** Returns          void
+**
+********************************************************************************/
+BTM_API extern void BTM_BleRegPhyCback(tBTM_BLE_PHY_CBACK *p_cback);
+
+/********************************************************************************
+**
+** Function         BTM_BleReadPhy
+**
+** Description      Read physical adaption info from a BLE connection
+**
+** Parameters:      remote_bda: remote address
+**
+** Returns          BTM_CMD_STARTED if success, or fail reason otherwisely
+**
+********************************************************************************/
+BTM_API extern tBTM_STATUS BTM_BleReadPhy(BD_ADDR remote_bda);
+
+/********************************************************************************
+**
+** Function         BTM_BleSetDefaultPhy
+**
+** Description      Set default BLE physical adaption preference to controller
+**
+** Parameters:      all_phys: specify whether host has preference among the PHY
+**                  that the Controller supports in a given direction
+**
+**                  tx_phy: transmitter PHY preference
+**                  rx_phy: receiver PHY preference
+**
+** Returns          BTM_CMD_STARTED if success, or fail reason otherwisely
+**
+********************************************************************************/
+BTM_API extern tBTM_STATUS BTM_BleSetDefaultPhy(UINT8 all_phys, UINT8 tx_phy, UINT8 rx_phy);
+
+/********************************************************************************
+**
+** Function         BTM_BleSetPhy
+**
+** Description      Set BLE physical adaption preference for a connection
+**
+** Parameters:      remote_bda: remote address
+**                  all_phys: specify whether host has preference among the PHY
+**                  that the Controller supports in a given direction
+**
+**                  tx_phy: transmitter PHY preference
+**                  rx_phy: receiver PHY preference
+**                  phy_opt: preferred coding for transmitting on the PHY
+**
+** Returns          BTM_CMD_STARTED if success, or fail reason otherwisely
+**
+********************************************************************************/
+BTM_API extern tBTM_STATUS BTM_BleSetPhy(BD_ADDR remote_bda, UINT8 all_phys, UINT8 tx_phy, UINT8 rx_phy, UINT16 phy_opt);
+
+#endif
 
 /*******************************************************************************
 **

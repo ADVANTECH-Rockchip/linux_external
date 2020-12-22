@@ -197,7 +197,7 @@ static MPP_RET m2vd_parser_init_ctx(M2VDParserContext *ctx, ParserCfg *cfg)
     ctx->mExtraHeaderDecFlag = 0;
     ctx->max_stream_size = M2VD_BUF_SIZE_BITMEM;
     ctx->ref_frame_cnt = 0;
-    ctx->need_split = cfg->need_split;
+    ctx->need_split = cfg->cfg->base.split_parse;
     ctx->left_length = 0;
     ctx->vop_header_found = 0;
 
@@ -429,7 +429,7 @@ MPP_RET mpp_m2vd_parser_split(M2VDParserContext *ctx, MppPacket dst, MppPacket s
             p->state = (p->state << 8) | src_buf[src_pos];
             dst_buf[dst_len++] = src_buf[src_pos++];
 
-            if (((p->state & 0x00FFFFFF) == 0x000001) &&
+            if (((p->state & 0x00FFFFFF) == 0x000001) && (src_pos < src_len) &&
                 (src_buf[src_pos] == (SEQUENCE_HEADER_CODE & 0xFF) ||
                  src_buf[src_pos] == (PICTURE_START_CODE & 0xFF))) {
                 dst_len -= 3;

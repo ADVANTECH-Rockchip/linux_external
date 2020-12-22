@@ -359,6 +359,7 @@ MPP_RET vp9d_parser_init(Vp9CodecContext *vp9_ctx, ParserCfg *init)
 
     s->packet_slots = init->packet_slots;
     s->slots = init->frame_slots;
+    s->cfg = init->cfg;
     mpp_buf_slot_setup(s->slots, 25);
 
     mpp_env_get_u32("vp9d_debug", &vp9d_debug, 0);
@@ -384,16 +385,16 @@ static RK_S32 vp9_alloc_frame(Vp9CodecContext *ctx, VP9Frame *frame)
     mpp_frame_set_width(frame->f, ctx->width);
     mpp_frame_set_height(frame->f, ctx->height);
 
-    mpp_frame_set_hor_stride(frame->f, ctx->width);
+    mpp_frame_set_hor_stride(frame->f, ctx->width * s->bpp / 8);
     mpp_frame_set_ver_stride(frame->f, ctx->height);
     mpp_frame_set_errinfo(frame->f, 0);
     mpp_frame_set_discard(frame->f, 0);
     mpp_frame_set_pts(frame->f, s->pts);
-#if 0
-    mpp_frame_set_fmt(frame->frame, s->h265dctx->pix_fmt);
-    mpp_frame_set_errinfo(frame->f, 0);
 
-#endif
+    if (MPP_FRAME_FMT_IS_FBC(s->cfg->base.out_fmt))
+        ctx->pix_fmt |= (s->cfg->base.out_fmt & (~MPP_FRAME_FBC_MASK));
+
+    mpp_frame_set_fmt(frame->f, ctx->pix_fmt);
     mpp_buf_slot_get_unused(s->slots, &frame->slot_index);
     mpp_buf_slot_set_prop(s->slots, frame->slot_index, SLOT_FRAME, frame->f);
     mpp_buf_slot_set_flag(s->slots, frame->slot_index, SLOT_CODEC_USE);
@@ -655,6 +656,7 @@ static RK_S32 decode_parser_header(Vp9CodecContext *ctx,
             mpp_err("Invalid sync code\n");
             return MPP_ERR_STREAM;
         }
+
         if ((fmt = read_colorspace_details(ctx)) < 0)
             return fmt;
         // for profile 1, here follows the subsampling bits
@@ -787,7 +789,7 @@ static RK_S32 decode_parser_header(Vp9CodecContext *ctx,
             for (i = 0; i < 3; i++) {
                 RK_U32 refw = mpp_frame_get_width(s->refs[s->refidx[i]].f);
                 RK_U32 refh = mpp_frame_get_height(s->refs[s->refidx[i]].f);
-                RK_S32 reffmt =  mpp_frame_get_fmt(s->refs[s->refidx[i]].f);
+                RK_S32 reffmt = mpp_frame_get_fmt(s->refs[s->refidx[i]].f) & MPP_FRAME_FMT_MASK;
 
                 vp9d_dbg(VP9D_DBG_REF, "ref get width frame slot %p", s->refs[s->refidx[i]].f);
                 if (reffmt != fmt) {
