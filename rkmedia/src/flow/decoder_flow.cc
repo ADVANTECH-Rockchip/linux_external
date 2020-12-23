@@ -10,6 +10,11 @@
 #include "image.h"
 #include "key_string.h"
 
+#ifdef MOD_TAG
+#undef MOD_TAG
+#endif
+#define MOD_TAG 3
+
 namespace easymedia {
 
 static bool do_decode(Flow *f, MediaBufferVector &input_vector);
@@ -25,6 +30,8 @@ private:
   Model thread_model;
   std::vector<std::shared_ptr<MediaBuffer>> out_buffers;
   size_t out_index;
+
+  bool is_single_frame_out;
 
   friend bool do_decode(Flow *f, MediaBufferVector &input_vector);
 };
@@ -43,7 +50,7 @@ VideoDecoderFlow::VideoDecoderFlow(const char *param)
   decoder = REFLECTOR(Decoder)::Create<VideoDecoder>(decoder_name,
                                                      decode_param.c_str());
   if (!decoder) {
-    LOG("Create decoder %s failed\n", decoder_name);
+    RKMEDIA_LOGI("Create decoder %s failed\n", decoder_name);
     SetError(-EINVAL);
     return;
   }
@@ -59,13 +66,37 @@ VideoDecoderFlow::VideoDecoderFlow(const char *param)
   sm.input_maxcachenum.push_back(input_maxcachenum);
   sm.output_slots.push_back(0);
   sm.process = do_decode;
-  if (!InstallSlotMap(sm, name, -1)) {
-    LOG("Fail to InstallSlotMap, %s\n", decoder_name);
+  if (!InstallSlotMap(sm, "VideoDecoderFlow", -1)) {
+    RKMEDIA_LOGI("Fail to InstallSlotMap for VideoDecoderFlow\n");
     SetError(-EINVAL);
     return;
   }
+
+  std::string split_mode;
+  std::string stimeout;
+  std::list<std::pair<const std::string, std::string &>> req_list;
+  req_list.push_back(std::pair<const std::string, std::string &>(
+      KEY_MPP_SPLIT_MODE, split_mode));
+  req_list.push_back(std::pair<const std::string, std::string &>(
+      KEY_OUTPUT_TIMEOUT, stimeout));
+  parse_media_param_match(param, params, req_list);
+
+  int auto_split = 0;
+  int tout = 0;
+  if (!split_mode.empty())
+    auto_split = std::stoi(split_mode);
+  if (!stimeout.empty())
+    tout = std::stoi(stimeout);
+
+  is_single_frame_out = false;
+  if (!auto_split && (tout < 0)) {
+    RKMEDIA_LOGI("MPP Decoder: Enable single frame output mode!\n");
+    is_single_frame_out = true;
+  }
+
   if (decoder->SendInput(nullptr) < 0 && errno == ENOSYS)
     support_async = false;
+  SetFlowTag("VideoDecoderFlow");
 }
 
 bool do_decode(Flow *f, MediaBufferVector &input_vector) {
@@ -92,6 +123,8 @@ bool do_decode(Flow *f, MediaBufferVector &input_vector) {
         break;
       if (flow->SetOutput(output, 0))
         ret = true;
+      if (flow->is_single_frame_out)
+        break;
     } while (true);
   } else {
     output = std::make_shared<ImageBuffer>();

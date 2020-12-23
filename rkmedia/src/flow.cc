@@ -4,9 +4,9 @@
 
 #include "flow.h"
 
-#include <assert.h>
-
 #include <algorithm>
+#include <assert.h>
+#include <sys/prctl.h>
 
 #include "buffer.h"
 #include "key_string.h"
@@ -22,6 +22,9 @@ public:
   void Bind(std::vector<int> &in, std::vector<int> &out);
   bool Start();
   void RunOnce();
+  int GetCachedBufferCnt();
+  bool IsProcessing();
+  void ClearCachedBuffers();
 
 private:
   void WhileRun();
@@ -48,36 +51,34 @@ private:
   std::vector<int> out_slots;
   std::thread *th;
   FunctionProcess th_run;
+  bool is_processing;
+  bool clear_buffers_enable;
+  ConditionLockMutex clear_buffers_mtx;
 
   MediaBufferVector in_vector;
   decltype(&FlowCoroutine::SyncFetchInput) fetch_input_func;
   decltype(&FlowCoroutine::SendBufferDown) send_down_func;
-#ifndef NDEBUG
+
 public:
   void SetMarkName(std::string s) { name = s; }
   void SetExpectProcessTime(int time) { expect_process_time = time; }
 
   std::string name;
   int expect_process_time; // ms
-#endif
 };
 
 FlowCoroutine::FlowCoroutine(Flow *f, Model sync_model, FunctionProcess func,
                              float inter)
-    : flow(f), model(sync_model), interval(inter), th(nullptr), th_run(func)
-#ifndef NDEBUG
-      ,
-      expect_process_time(0)
-#endif
-{
-}
+    : flow(f), model(sync_model), interval(inter), th(nullptr), th_run(func),
+      is_processing(false), clear_buffers_enable(false),
+      expect_process_time(0) {}
 
 FlowCoroutine::~FlowCoroutine() {
   if (th) {
     th->join();
     delete th;
   }
-  LOGD("%s quit\n", name.c_str());
+  RKMEDIA_LOGI("%s quit\n", name.c_str());
 }
 
 void FlowCoroutine::Bind(std::vector<int> &in, std::vector<int> &out) {
@@ -107,7 +108,7 @@ bool FlowCoroutine::Start() {
     send_down_func = &FlowCoroutine::SendBufferDown;
     break;
   default:
-    LOG("invalid model %d\n", (int)model);
+    RKMEDIA_LOGI("invalid model %d\n", (int)model);
     return false;
   }
   in_vector.resize(in_slots.size());
@@ -124,25 +125,32 @@ bool FlowCoroutine::Start() {
 #ifndef NDEBUG
 static void check_consume_time(const char *name, int expect, int exactly) {
   if (exactly > expect) {
-    LOG("%s, expect consume %d ms, however %d ms\n", name, expect, exactly);
+    RKMEDIA_LOGI("%s, expect consume %d ms, however %d ms\n", name, expect,
+                 exactly);
   }
 }
 #endif
 
 void FlowCoroutine::RunOnce() {
-  bool ret;
+  bool ret = true;
   (this->*fetch_input_func)(in_vector);
+
+  if (flow->GetRunTimesRemaining()) {
 #ifndef NDEBUG
-  {
-    AutoDuration ad;
+    {
+      AutoDuration ad;
 #endif
-    ret = (*th_run)(flow, in_vector);
+      is_processing = true;
+      ret = (*th_run)(flow, in_vector);
+      is_processing = false;
 #ifndef NDEBUG
-    if (expect_process_time > 0)
-      check_consume_time(name.c_str(), expect_process_time,
-                         (int)(ad.Get() / 1000));
-  }
+      if (expect_process_time > 0)
+        check_consume_time(name.c_str(), expect_process_time,
+                           (int)(ad.Get() / 1000));
+    }
 #endif // DEBUG
+  }
+
   for (int idx : out_slots) {
     auto &fm = flow->downflowmap[idx];
     std::list<Flow::FlowInputMap> flows;
@@ -153,9 +161,13 @@ void FlowCoroutine::RunOnce() {
   }
   for (auto &buffer : in_vector)
     buffer.reset();
+
+  pthread_yield();
 }
 
 void FlowCoroutine::WhileRun() {
+  prctl(PR_SET_NAME, this->name.c_str());
+  RKMEDIA_LOGD("flow-name %s\n", this->name.c_str());
   while (!flow->quit)
     RunOnce();
 }
@@ -164,6 +176,9 @@ void FlowCoroutine::WhileRunSleep() {
   int64_t times = 0;
   AutoDuration ad;
   assert(interval > 0);
+  prctl(PR_SET_NAME, this->name.c_str());
+  RKMEDIA_LOGD("flow-name %s\n", this->name.c_str());
+
   while (!flow->quit) {
     if (times == 0)
       ad.Reset();
@@ -187,22 +202,45 @@ void FlowCoroutine::SyncFetchInput(MediaBufferVector &in) {
 }
 
 void FlowCoroutine::ASyncFetchInputCommon(MediaBufferVector &in) {
+  flow->cond_mtx.lock();
+  bool empty = true;
   for (size_t i = 0; i < in_slots.size(); i++) {
     int idx = in_slots[i];
     auto &input = flow->v_input[idx];
-    AutoLockMutex _am(input.cond_mtx);
+    auto &v = input.cached_buffers;
+    if (!v.empty())
+      empty = false;
+  }
+
+  if (clear_buffers_enable) {
+    clear_buffers_mtx.lock();
+    clear_buffers_enable = false;
+    for (size_t i = 0; i < in_slots.size(); i++) {
+      int idx = in_slots[i];
+      auto &input = flow->v_input[idx];
+      auto &v = input.cached_buffers;
+      v.clear();
+    }
+    clear_buffers_mtx.unlock();
+    empty = true;
+  }
+
+  if (empty && !flow->quit)
+    flow->cond_mtx.wait();
+  flow->cond_mtx.unlock();
+
+  for (size_t i = 0; i < in_slots.size(); i++) {
+    int idx = in_slots[i];
+    auto &input = flow->v_input[idx];
     auto &v = input.cached_buffers;
     if (v.empty()) {
-      if (!input.fetch_block) {
-        in[i] = nullptr;
-        continue;
-      }
-      input.cond_mtx.wait();
+      continue;
     }
     if (!flow->enable) {
       in.assign(in_slots.size(), nullptr);
       break;
     }
+    AutoLockMutex _alm(input.mtx);
     assert(!v.empty());
     in[i] = v.front();
     v.pop_front();
@@ -246,6 +284,7 @@ void FlowCoroutine::SendBufferDown(Flow::FlowMap &fm,
     OutputHoldRelated(fm, fm.cached_buffer, in);
     f.flow->SendInput(fm.cached_buffer, f.index_of_in);
   }
+  fm.cached_buffer.reset();
 }
 
 void FlowCoroutine::SendBufferDownFromDeque(
@@ -276,6 +315,24 @@ FlowCoroutine::OutputHoldRelated(Flow::FlowMap &fm,
   return 0;
 }
 
+int FlowCoroutine::GetCachedBufferCnt() {
+  int cnt = 0;
+  for (auto inv : in_vector) {
+    if (inv)
+      cnt++;
+  }
+
+  return cnt;
+}
+
+bool FlowCoroutine::IsProcessing() { return is_processing; }
+
+void FlowCoroutine::ClearCachedBuffers() {
+  clear_buffers_mtx.lock();
+  clear_buffers_enable = true;
+  clear_buffers_mtx.unlock();
+}
+
 DEFINE_REFLECTOR(Flow)
 DEFINE_FACTORY_COMMON_PARSE(Flow)
 DEFINE_PART_FINAL_EXPOSE_PRODUCT(Flow, Flow)
@@ -283,20 +340,187 @@ DEFINE_PART_FINAL_EXPOSE_PRODUCT(Flow, Flow)
 const FunctionProcess Flow::void_transaction00 = void_transaction<0, 0>;
 
 Flow::Flow()
-    : out_slot_num(0), input_slot_num(0), down_flow_num(0), enable(true),
-      quit(false), event_handler_(nullptr) {}
+    : out_slot_num(0), input_slot_num(0), down_flow_num(0),
+      waite_down_flow(true), event_handler2_(nullptr), event_callback_(nullptr),
+      enable(true), quit(false), event_handler_(nullptr),
+      play_video_handler_(nullptr), play_audio_handler_(nullptr),
+      user_handler_(nullptr), user_callback_(nullptr), out_handler_(nullptr),
+      out_callback_(nullptr), run_times(-1) {}
 
 Flow::~Flow() { StopAllThread(); }
 
 void Flow::StopAllThread() {
-  for (auto &in : v_input) {
-    AutoLockMutex _alm(in.cond_mtx);
-    enable = false;
-    quit = true;
-    in.cond_mtx.notify();
-  }
+  cond_mtx.lock();
+  enable = false;
+  quit = true;
+  cond_mtx.notify();
+  cond_mtx.unlock();
   for (auto &coroutine : coroutines)
     coroutine.reset();
+  coroutines.clear();
+}
+
+bool Flow::IsAllBuffEmpty() {
+#ifndef NDEBUG
+  int i = 0;
+
+  for (auto &input : v_input) {
+    RKMEDIA_LOGI("#FLOW v_input-%d cached_buffers size:%zu\n", i,
+                 input.cached_buffers.size());
+    RKMEDIA_LOGI("#FLOW v_input-%d cached_buffer :%s\n", i++,
+                 input.cached_buffer ? "NotNull" : "Null");
+  }
+
+  i = 0;
+  for (auto &coroutin : coroutines) {
+    RKMEDIA_LOGI("#FLOW coroutin-%d in_vector size:%d\n", i++,
+                 coroutin->GetCachedBufferCnt());
+  }
+
+  i = 0;
+  for (auto &fm : downflowmap) {
+    RKMEDIA_LOGI("#FLOW downflowmap-%d cached_buffers size:%zu\n", i,
+                 fm.cached_buffers.size());
+    RKMEDIA_LOGI("#FLOW downflowmap-%d cached_buffer : %s\n", i++,
+                 fm.cached_buffer ? "NotNull" : "Null");
+  }
+#endif
+
+  for (auto &input : v_input) {
+    if (input.cached_buffers.size() || input.cached_buffer)
+      return false;
+  }
+
+  for (auto &coroutin : coroutines) {
+    if (coroutin->GetCachedBufferCnt())
+      return false;
+  }
+
+  for (auto &fm : downflowmap) {
+    if (fm.cached_buffers.size() || fm.cached_buffer)
+      return false;
+  }
+
+  return true;
+}
+
+int Flow::GetCachedBufferNum(unsigned int &total, unsigned int &used) {
+  unsigned int buf_used_cnt = 0;
+  unsigned int buf_total_cnt = 0;
+  for (auto &input : v_input) {
+    if (input.cached_buffers.size() > 0)
+      buf_used_cnt += input.cached_buffers.size();
+    else if (input.cached_buffer)
+      buf_used_cnt += 1;
+
+    buf_total_cnt += (input.max_cache_num + 1);
+  }
+
+  for (auto &coroutin : coroutines) {
+    if (coroutin->IsProcessing())
+      buf_used_cnt++;
+  }
+
+  total = buf_total_cnt;
+  used = buf_used_cnt;
+
+  return 0;
+}
+
+void Flow::ClearCachedBuffers() {
+  for (auto &coroutin : coroutines) {
+    coroutin->ClearCachedBuffers();
+  }
+}
+
+void Flow::StartStream() {
+  source_start_cond_mtx->lock();
+  waite_down_flow = false;
+  source_start_cond_mtx->notify();
+  source_start_cond_mtx->unlock();
+}
+
+int Flow::SetRunTimes(int _run_times) {
+  run_times = _run_times;
+  RKMEDIA_LOGI("Flow:%s set run_times to %d\n", flow_tag.c_str(), run_times);
+  return run_times;
+}
+
+int Flow::GetRunTimesRemaining() {
+  int remaining_value = run_times;
+
+  if (run_times > 0)
+    run_times--;
+
+  return remaining_value;
+}
+
+void Flow::DumpBase(std::string &dump_info) {
+  int idx = 0;
+  char str_line[1024] = {0};
+
+  dump_info = "";
+  sprintf(str_line, "#Dump Flow(%s) base info:\r\n", GetFlowTag());
+  dump_info.append(str_line);
+  memset(str_line, 0, sizeof(str_line));
+  sprintf(str_line, "  InSlotNum: %d\r\n", input_slot_num);
+  dump_info.append(str_line);
+  memset(str_line, 0, sizeof(str_line));
+  sprintf(str_line, "  OutSlotNum: %d\r\n", out_slot_num);
+  dump_info.append(str_line);
+
+  for (auto &input : v_input) {
+    memset(str_line, 0, sizeof(str_line));
+    sprintf(str_line, "  ->Input[%d] info:\r\n", idx);
+    dump_info.append(str_line);
+    memset(str_line, 0, sizeof(str_line));
+    sprintf(str_line, "    Valid: %s\r\n", input.valid ? "True" : "False");
+    dump_info.append(str_line);
+    memset(str_line, 0, sizeof(str_line));
+    if (input.thread_model == Model::ASYNCCOMMON)
+      sprintf(str_line, "    ThreadMode: ASYNCCOMMON\r\n");
+    else if (input.thread_model == Model::ASYNCATOMIC)
+      sprintf(str_line, "    ThreadMode: ASYNCATOMIC\r\n");
+    else if (input.thread_model == Model::SYNC)
+      sprintf(str_line, "    ThreadMode: SYNC\r\n");
+    else
+      sprintf(str_line, "    ThreadMode: NONE\r\n");
+    dump_info.append(str_line);
+    memset(str_line, 0, sizeof(str_line));
+    if (input.mode_when_full == InputMode::BLOCKING)
+      sprintf(str_line, "    InputMode: BLOCKING\r\n");
+    else if (input.mode_when_full == InputMode::DROPCURRENT)
+      sprintf(str_line, "    InputMode: DROPCURRENT\r\n");
+    else if (input.mode_when_full == InputMode::DROPFRONT)
+      sprintf(str_line, "    InputMode: DROPFRONT\r\n");
+    else
+      sprintf(str_line, "    InputMode: NONE\r\n");
+    dump_info.append(str_line);
+    memset(str_line, 0, sizeof(str_line));
+    sprintf(str_line, "    BufferCnt: current:%zu, max:%d\r\n",
+            input.cached_buffers.size(), input.max_cache_num);
+    dump_info.append(str_line);
+  }
+
+  idx = 0;
+  for (auto &fm : downflowmap) {
+    memset(str_line, 0, sizeof(str_line));
+    sprintf(str_line, "  ->FlowMap[%d] info:\r\n", idx);
+    dump_info.append(str_line);
+    memset(str_line, 0, sizeof(str_line));
+    sprintf(str_line, "    Valid: %s\r\n", fm.valid ? "True" : "False");
+    dump_info.append(str_line);
+    memset(str_line, 0, sizeof(str_line));
+    sprintf(str_line, "    BufferCnt: %zu\r\n", fm.cached_buffers.size());
+    dump_info.append(str_line);
+
+    dump_info.append("    NextFlow: ");
+    for (auto &nflow : fm.flows) {
+      dump_info.append(nflow.flow->GetFlowTag());
+      dump_info.append(" ");
+    }
+    dump_info.append("\r\n");
+  }
 }
 
 static bool check_slots(std::vector<int> &slots, const char *debugstr) {
@@ -305,12 +529,12 @@ static bool check_slots(std::vector<int> &slots, const char *debugstr) {
   std::sort(slots.begin(), slots.end());
   auto iend = std::unique(slots.begin(), slots.end());
   if (iend != slots.end()) {
-    LOG("%s slot duplicate :", debugstr);
+    RKMEDIA_LOGI("%s slot duplicate :", debugstr);
     while (iend != slots.end()) {
-      LOG(" %d", *iend);
+      RKMEDIA_LOGI(" %d", *iend);
       iend++;
     }
-    LOG("\n");
+    RKMEDIA_LOGI("\n");
     return false;
   }
   return true;
@@ -318,7 +542,7 @@ static bool check_slots(std::vector<int> &slots, const char *debugstr) {
 
 Flow::FlowMap::FlowMap(FlowMap &&fm) {
   if (fm.valid) {
-    LOG("Flow::FlowMap is not copyable and moveable after inited\n");
+    RKMEDIA_LOGI("Flow::FlowMap is not copyable and moveable after inited\n");
     assert(0);
   }
 }
@@ -344,7 +568,7 @@ void Flow::FlowMap::SetOutputToQueueBehavior(
 
 Flow::Input::Input(Input &&in) {
   if (in.valid) {
-    LOG("Flow::Input is not copyable and moveable after inited\n");
+    RKMEDIA_LOGI("Flow::Input is not copyable and moveable after inited\n");
     assert(0);
   }
 }
@@ -399,7 +623,7 @@ bool Flow::SetAsSource(const std::vector<int> &output_slots, FunctionProcess f,
   sm.thread_model = Model::SYNC;
   sm.mode_when_full = InputMode::DROPFRONT;
   if (!InstallSlotMap(sm, mark, 0)) {
-    LOG("Fail to InstallSlotMap, read %s\n", mark.c_str());
+    RKMEDIA_LOGI("Fail to InstallSlotMap, read %s\n", mark.c_str());
     return false;
   }
   return true;
@@ -407,12 +631,12 @@ bool Flow::SetAsSource(const std::vector<int> &output_slots, FunctionProcess f,
 
 bool Flow::InstallSlotMap(SlotMap &map, const std::string &mark,
                           int exp_process_time) {
-  LOGD("%s, thread_model=%d, mode_when_full=%d\n", mark.c_str(),
-       map.thread_model, map.mode_when_full);
+  RKMEDIA_LOGD("%s, thread_model=%d, mode_when_full=%d\n", mark.c_str(),
+               (int)map.thread_model, (int)map.mode_when_full);
   // parameters validity check
   auto &in_slots = map.input_slots;
   if (in_slots.size() > 1 && map.thread_model == Model::SYNC) {
-    LOG("More than 1 input to flow, can not set sync input\n");
+    RKMEDIA_LOGI("More than 1 input to flow, can not set sync input\n");
     return false;
   }
   if (!check_slots(in_slots, "input"))
@@ -422,7 +646,7 @@ bool Flow::InstallSlotMap(SlotMap &map, const std::string &mark,
     if (i >= (int)v_input.size())
       continue;
     if (v_input[i].valid) {
-      LOG("input slot %d has been set\n", i);
+      RKMEDIA_LOGI("input slot %d has been set\n", i);
       ret = false;
     }
   }
@@ -436,7 +660,7 @@ bool Flow::InstallSlotMap(SlotMap &map, const std::string &mark,
     if (i >= (int)downflowmap.size())
       continue;
     if (downflowmap[i].valid) {
-      LOG("output slot %d has been set\n", i);
+      RKMEDIA_LOGI("output slot %d has been set\n", i);
       ret = false;
     }
   }
@@ -479,13 +703,9 @@ bool Flow::InstallSlotMap(SlotMap &map, const std::string &mark,
       out_slot_num++;
     }
   }
-#ifndef NDEBUG
+
   c->SetMarkName(mark);
   c->SetExpectProcessTime(exp_process_time);
-#else
-  UNUSED(mark);
-  UNUSED(exp_process_time);
-#endif
   c->Start();
   return true;
 }
@@ -494,7 +714,7 @@ void Flow::FlowMap::AddFlow(std::shared_ptr<Flow> flow, int index) {
   AutoLockMutex _lg(list_mtx);
   auto i = std::find(flows.begin(), flows.end(), flow);
   if (i != flows.end()) {
-    LOG("repeatedly add, update index\n");
+    RKMEDIA_LOGI("repeatedly add, update index\n");
     i->index_of_in = index;
     return;
   }
@@ -510,15 +730,15 @@ void Flow::FlowMap::RemoveFlow(std::shared_ptr<Flow> flow) {
 bool Flow::AddDownFlow(std::shared_ptr<Flow> down, int out_slot_index,
                        int in_slot_index_of_down) {
   if (out_slot_num <= 0 || (int)downflowmap.size() != out_slot_num) {
-    LOG("Uncompleted or final flow\n");
+    RKMEDIA_LOGI("Uncompleted or final flow\n");
     return false;
   }
   if (out_slot_index >= (int)downflowmap.size()) {
-    LOG("output slot index exceed max\n");
+    RKMEDIA_LOGI("output slot index exceed max\n");
     return false;
   }
   if (this == down.get()) {
-    LOG("can not set self loop flow\n");
+    RKMEDIA_LOGI("can not set self loop flow\n");
     return false;
   }
   downflowmap[out_slot_index].AddFlow(down, in_slot_index_of_down);
@@ -535,7 +755,7 @@ void Flow::RemoveDownFlow(std::shared_ptr<Flow> down) {
   if (out_slot_num <= 0 || (int)downflowmap.size() != out_slot_num)
     return;
   // if (down->down_flow_num > 0)
-  //   LOG("the removing flow has down flows, remove them first\n");
+  //   RKMEDIA_LOGI("the removing flow has down flows, remove them first\n");
   for (auto &dm : downflowmap) {
     if (!dm.valid)
       continue;
@@ -552,7 +772,7 @@ void Flow::RemoveDownFlow(std::shared_ptr<Flow> down) {
 void Flow::SendInput(std::shared_ptr<MediaBuffer> &input, int in_slot_index) {
   if (in_slot_index < 0 || in_slot_index >= input_slot_num) {
     errno = EINVAL;
-    LOG("ERROR: Input slot[%d] is vaild!\n", in_slot_index);
+    RKMEDIA_LOGE("Input slot[%d] is vaild!\n", in_slot_index);
     return;
   }
   if (enable) {
@@ -565,9 +785,13 @@ bool Flow::SetOutput(const std::shared_ptr<MediaBuffer> &output,
                      int out_slot_index) {
   if (out_slot_index < 0 || out_slot_index >= out_slot_num) {
     errno = EINVAL;
-    LOG("ERROR: Output slot[%d] is vaild!\n", out_slot_index);
+    RKMEDIA_LOGE("Output slot[%d] is vaild!\n", out_slot_index);
     return false;
   }
+
+  if (out_callback_ && output)
+    out_callback_(out_handler_, output);
+
   if (enable) {
     auto &out = downflowmap[out_slot_index];
     CALL_MEMBER_FN(out, out.set_output_behavior)(output);
@@ -586,18 +810,14 @@ bool Flow::ParseWrapFlowParams(const char *param,
     return false;
   sub_param_list.pop_front();
   if (flow_params[KEY_NAME].empty()) {
-    LOG("missing key name\n");
+    RKMEDIA_LOGI("missing key name\n");
     return false;
   }
   return true;
 }
 
-void Flow::RegisterEventHandler(std::shared_ptr<Flow> flow, EventHook proc)
-{
-  if (event_handler_ != nullptr)
-   UnRegisterEventHandler();
-
-  event_handler_ = new EventHandler();
+void Flow::RegisterEventHandler(std::shared_ptr<Flow> flow, EventHook proc) {
+  event_handler_.reset(new EventHandler());
   if (event_handler_) {
     event_handler_->RegisterEventHook(flow, proc);
   }
@@ -606,48 +826,65 @@ void Flow::RegisterEventHandler(std::shared_ptr<Flow> flow, EventHook proc)
 void Flow::UnRegisterEventHandler() {
   if (event_handler_) {
     event_handler_->UnRegisterEventHook();
-    delete event_handler_;
-    event_handler_ = nullptr;
+    event_handler_.reset(nullptr);
   }
 }
 
-void Flow::NotifyToEventHandler(EventMessage *msg)
-{
+void Flow::NotifyToEventHandler(EventParamPtr param, int type) {
   if (event_handler_) {
+    MessagePtr msg = std::make_shared<EventMessage>(this, param, type);
     event_handler_->NotifyToEventHandler(msg);
     event_handler_->SignalEventHook();
   }
 }
 
-void Flow::EventHookWait()
-{
+void Flow::NotifyToEventHandler(int id, int type) {
+  if (event_handler_) {
+    EventParamPtr event_param = std::make_shared<EventParam>(id, 0);
+    MessagePtr msg = std::make_shared<EventMessage>(this, event_param, type);
+    event_handler_->NotifyToEventHandler(msg);
+    event_handler_->SignalEventHook();
+  }
+}
+
+void Flow::EventHookWait() {
   if (event_handler_)
     event_handler_->EventHookWait();
 }
 
-EventMessage * Flow::GetEventMessages()
-{
-  if (event_handler_) {
-    return event_handler_->GetEventMessages();
-  }
+MessagePtr Flow::GetEventMessage() {
+  if (event_handler_)
+    return event_handler_->GetEventMessage();
+  return nullptr;
+}
+
+EventParamPtr Flow::GetEventParam(MessagePtr msg) {
+  if (msg)
+    return msg->GetEventParam();
   return nullptr;
 }
 
 void Flow::Input::SyncSendInputBehavior(std::shared_ptr<MediaBuffer> &input) {
   cached_buffer = input;
   coroutine->RunOnce();
+  cached_buffer.reset();
 }
 
 void Flow::Input::ASyncSendInputCommonBehavior(
     std::shared_ptr<MediaBuffer> &input) {
-  AutoLockMutex _alm(cond_mtx);
+  mtx.lock();
   if (max_cache_num > 0 && max_cache_num <= (int)cached_buffers.size()) {
     bool ret = (this->*async_full_behavior)(flow->enable);
-    if (!ret)
+    if (!ret) {
+      mtx.unlock();
       return;
+    }
   }
   cached_buffers.push_back(input);
-  cond_mtx.notify();
+  mtx.unlock();
+  AutoLockMutex _alm(flow->cond_mtx);
+  flow->cond_mtx.notify();
+  pthread_yield();
 }
 
 void Flow::Input::ASyncSendInputAtomicBehavior(
@@ -657,25 +894,36 @@ void Flow::Input::ASyncSendInputAtomicBehavior(
 }
 
 bool Flow::Input::ASyncFullBlockingBehavior(volatile bool &pred) {
+#ifndef NDEBUG
+  AutoDuration ad;
+#endif
   do {
+    mtx.unlock();
     msleep(5);
-    cond_mtx.unlock();
     if (max_cache_num > (int)cached_buffers.size()) {
-      cond_mtx.lock();
+      mtx.lock();
       break;
     }
-    cond_mtx.lock();
+    mtx.lock();
   } while (pred);
-
+#ifndef NDEBUG
+  if (ad.Get() > 100000 /*ms*/)
+    RKMEDIA_LOGW("Flow[%s]: Input[block mode]: block too long(%.2fms) > 5ms\n",
+                 flow ? flow->GetFlowTag() : "Name is null", ad.Get() / 1000.0);
+#endif
   return pred;
 }
 
 bool Flow::Input::ASyncFullDropFrontBehavior(volatile bool &pred _UNUSED) {
+  RKMEDIA_LOGW("Flow[%s]: Input: drop front buffer!\n",
+               flow ? flow->GetFlowTag() : "Name is null");
   cached_buffers.pop_front();
   return true;
 }
 
 bool Flow::Input::ASyncFullDropCurrentBehavior(volatile bool &pred _UNUSED) {
+  RKMEDIA_LOGW("Flow[%s]: Input: drop current buffer!\n",
+               flow ? flow->GetFlowTag() : "Name Is Null");
   return false;
 }
 
@@ -686,7 +934,7 @@ std::string gen_datatype_rule(std::map<std::string, std::string> &params) {
   PARAM_STRING_APPEND(rule, KEY_INPUTDATATYPE, value);
   CHECK_EMPTY_SETERRNO_RETURN(, value, params, KEY_OUTPUTDATATYPE, , "");
   PARAM_STRING_APPEND(rule, KEY_OUTPUTDATATYPE, value);
-  return std::move(rule);
+  return rule;
 }
 
 Model GetModelByString(const std::string &model) {
@@ -727,7 +975,7 @@ void ParseParamToSlotMap(std::map<std::string, std::string> &params,
   if (!cache_num_str.empty()) {
     cache_num = std::stoi(cache_num_str);
     if (cache_num <= 0)
-      LOG("warning, input cache num = %d\n", cache_num);
+      RKMEDIA_LOGW("input cache num = %d\n", cache_num);
     input_maxcachenum = cache_num;
   }
 }
@@ -764,7 +1012,7 @@ std::string JoinFlowParam(const std::string &flow_param, size_t num_elem, ...) {
     ret.append(1, FLOW_PARAM_SEPARATE_CHAR).append(elem_param);
   }
   va_end(va);
-  return std::move(ret);
+  return ret;
 }
 
 std::list<std::string> ParseFlowParamToList(const char *param) {
@@ -772,7 +1020,7 @@ std::list<std::string> ParseFlowParamToList(const char *param) {
   if (!parse_media_param_list(param, separate_list, FLOW_PARAM_SEPARATE_CHAR) ||
       separate_list.size() < 2)
     separate_list.clear();
-  return std::move(separate_list);
+  return separate_list;
 }
 
 } // namespace easymedia

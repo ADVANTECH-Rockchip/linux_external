@@ -9,7 +9,7 @@
  **  Copyright (c) 2004-2016, Broadcom Corp., All Rights Reserved.
  **  Broadcom Bluetooth Core. Proprietary and confidential.
  **
- **  Copyright (C) 2017 Cypress Semiconductor Corporation
+ **  Copyright (C) 2017-2018 Cypress Semiconductor Corporation
  **
  *****************************************************************************/
 #ifndef BSA_AVK_API_H
@@ -178,7 +178,8 @@ typedef UINT8 tBSA_AVK_STATE;
 #define BSA_AVK_GET_FOLDER_ITEMS_EVT        31      /* get folder items response */
 #define BSA_AVK_CHANGE_PATH_EVT             32      /* change path response */
 #define BSA_AVK_GET_ITEM_ATTR_EVT           33      /* get item attr response */
-#define BSA_AVK_PLAY_ITEM_EVT               34      /* play item response */
+#define BSA_AVK_SEARCH_ITEMS_EVT            34      /* search item response */
+#define BSA_AVK_PLAY_ITEM_EVT               35      /* play item response */
 #define BSA_AVK_ADD_TO_NOW_PLAYING_EVT      36      /* add to now playing response */
 #define BSA_AVK_SET_ABS_VOL_CMD_EVT         37      /* set abs vol command */
 #define BSA_AVK_REG_NOTIFICATION_CMD_EVT    38      /* reg notification cmd */
@@ -195,6 +196,9 @@ typedef UINT8 tBSA_AVK_STATE;
 #endif
 
 #define BSA_AVK_DELAY_RPT_RSP_EVT           48      /* Delay Report Notification */
+
+#define BSA_AVK_RC_BROWSING_OPEN_EVT        49       /* Browsing channel open */
+#define BSA_AVK_RC_BROWSING_CLOSE_EVT       50       /* Browsing channel closed */
 
 /* Define the PDUs carried in the vendor dependant data */
 #define BSA_AVK_RC_VD_GET_CAPABILITIES               AVRC_PDU_GET_CAPABILITIES
@@ -442,6 +446,20 @@ typedef struct
     tBSA_STATUS  status;
 } tBSA_AVK_RC_CLOSE_MSG;
 
+
+/* data associated with tBSA_AVK_RC_BROWSING_OPEN_MSG */
+typedef struct
+{
+    tBSA_STATUS  status;
+    BD_ADDR  bd_addr;
+} tBSA_AVK_RC_BROWSING_OPEN_MSG;
+
+/* data associated with tBSA_AVK_RC_BROWSING_CLOSE_MSG */
+typedef struct
+{
+    tBSA_STATUS  status;
+    BD_ADDR  bd_addr;
+} tBSA_AVK_RC_BROWSING_CLOSE_MSG;
 
 /* data associated with BSA_AVK_REMOTE_RSP_MSG */
 typedef struct
@@ -713,6 +731,15 @@ typedef struct
     UINT8               handle;
 } tBSA_AVK_GET_ITEM_ATTR_MSG;
 
+/* data for search items response */
+typedef struct
+{
+    tAVRC_STS   status;
+    UINT16      uid_counter;
+    UINT32      num_items;
+    UINT8       handle;
+} tBSA_AVK_SEARCH_ITEMS_MSG;
+
 /* data for play item response */
 typedef struct
 {
@@ -786,24 +813,40 @@ typedef struct
     tBIP_IMG_HDL_STR    handle;     /* the image handle */
     tBIP_FNAME_STR      f_name;     /* the friendly name */
     UINT8               num_variant;/* the actual number of items in variant */
-    UINT8               bi_handle;
+    BD_ADDR             bd_addr;
 } tBSA_AVK_CAC_GET_PROP_EVT;
 
-typedef tBTA_BI_PROGRESS tBSA_AVK_CAC_PROGRESS_EVT;
+typedef struct
+{
+    UINT32              obj_size;   /* Total size of object (BTA_FS_LEN_UNKNOWN if unknown) */
+    UINT16              bytes;      /* Number of bytes read or written since last progress event */
+    BD_ADDR             bd_addr;
+}tBSA_AVK_CAC_PROGRESS_EVT;
 
 typedef struct
 {
     tBSA_STATUS status;
 } tBSA_AVK_CAC_GET_IMG_CMD_RSP;
 
-typedef tBTA_BI_GET_IMAGE_EVT tBSA_AVK_CAC_GET_IMG_EVT;
+typedef struct
+{
+    tBIP_IMG_HDL_STR    img_hdl;    /* The handle for the image */
+    UINT32              size;       /* The size of the image */
+    tBSA_STATUS         status;
+    BD_ADDR             bd_addr;
+}tBSA_AVK_CAC_GET_IMG_EVT;
 
 typedef struct
 {
     tBSA_STATUS status;
 } tBSA_AVK_CAC_GET_THUMB_CMD_RSP;
 
-typedef tBTA_BI_GET_THUMB_EVT tBSA_AVK_CAC_GET_THUMB_EVT;
+typedef struct
+{
+    tBIP_IMG_HDL_STR    img_hdl;    /* The image for the thumbnail */
+    tBSA_STATUS         status;
+    BD_ADDR             bd_addr;
+}tBSA_AVK_CAC_GET_THUMB_EVT;
 
 typedef tBSA_AVK_CAC_ABORT tBSA_AVK_CAC_ABORT_CMD_REQ;
 
@@ -812,11 +855,17 @@ typedef struct
     tBSA_STATUS status;
 } tBSA_AVK_CAC_ABORT_CMD_RSP;
 
-typedef tBTA_BI_ABORT_EVT tBSA_AVK_CAC_ABORT_EVT;
+typedef struct
+{
+    tBIP_FNAME_STR      p_file;    /* The file name associated with the aborte operation */
+    tBSA_STATUS         status;
+    BD_ADDR             bd_addr;
+}tBSA_AVK_CAC_ABORT_EVT;
 
 typedef struct
 {
-    tBSA_STATUS status;
+    tBSA_STATUS         status;
+    BD_ADDR             bd_addr;
 } tBSA_AVK_CAC_ERROR_EVT;
 
 #endif
@@ -834,6 +883,8 @@ typedef union
     tBSA_AVK_STOP_MSG stop_streaming;
     tBSA_AVK_RC_OPEN_MSG rc_open;
     tBSA_AVK_RC_CLOSE_MSG rc_close;
+    tBSA_AVK_RC_BROWSING_OPEN_MSG rc_browsing_open;
+    tBSA_AVK_RC_BROWSING_CLOSE_MSG rc_browsing_close;
     tBSA_AVK_REMOTE_REQ_MSG remote_cmd;
     tBSA_AVK_REMOTE_RSP_MSG remote_rsp;
     tBSA_AVK_VENDOR_CMD_MSG vendor_cmd;
@@ -858,6 +909,7 @@ typedef union
     tBSA_AVK_GET_ITEMS_MSG              get_items;
     tBSA_AVK_CHG_PATH_MSG               chg_path;
     tBSA_AVK_GET_ITEM_ATTR_MSG          item_attr;
+    tBSA_AVK_SEARCH_ITEMS_MSG           search_items;
     tBSA_AVK_PLAY_ITEM_MSG              play_item;
     tBSA_AVK_NOW_PLAYING_MSG            now_playing;
 
@@ -1074,7 +1126,6 @@ typedef struct
     tAVRC_UID   folder_uid;
 } tBSA_AVK_CHG_PATH;
 
-
 /* data associated with BSA_AvkGetFolderItemsCmd */
 typedef struct
 {
@@ -1084,10 +1135,8 @@ typedef struct
     UINT32      start_item;
     UINT32      end_item;
     UINT8       attr_count;
-    UINT32       attrs[BSA_AVK_PLAYER_SETTINGS_MAX];
-
+    UINT32      attrs[BSA_AVK_PLAYER_SETTINGS_MAX];
 } tBSA_AVK_GET_FOLDER_ITEMS;
-
 
 /* data associated with BSA_AvkGetItemsAttrCmd */
 typedef struct
@@ -1099,8 +1148,17 @@ typedef struct
     UINT16      uid_counter;
     UINT8       attr_count;
     UINT32      attrs[BSA_AVK_PLAYER_SETTINGS_MAX];
-
 } tBSA_AVK_GET_ITEMS_ATTR;
+
+/* data associated with BSA_AvkSearchItemsCmd */
+typedef struct
+{
+    UINT8       label;
+    UINT8       rc_handle;
+    UINT16      charset_id;
+    UINT16      str_len;
+    UINT8       p_str[BSA_RC_MAX_PARAM_LEN];
+} tBSA_AVK_SEARCH_ITEMS;
 
 /* data associated with BSA_AvkPlayItemCmd */
 typedef struct
@@ -1111,7 +1169,6 @@ typedef struct
     tAVRC_UID   uid;
     UINT16      uid_counter;
 } tBSA_AVK_PLAY_ITEM;
-
 
 /* data associated with BSA_AvkAddToPlayCmd */
 typedef struct
@@ -1738,13 +1795,37 @@ tBSA_STATUS BSA_AvkGetFolderItemsCmd(tBSA_AVK_GET_FOLDER_ITEMS *pGetFolderItemsC
 **
 ** Function         BSA_AvkGetItemsAttrCmdInit
 **
-** Description      Init a structure tBSA_AVK_GET_ITEMS_ATTR to be used with BSA_AvkGetItemsAttrCmd
+** Description      Init a structure tBSA_AVK_GET_ITEMS_ATTR
+**                  to be used with BSA_AvkGetItemsAttrCmd
 **
 ** Returns          tBSA_STATUS
 **
 *******************************************************************************/
 tBSA_STATUS BSA_AvkGetItemsAttrCmdInit(tBSA_AVK_GET_ITEMS_ATTR *pGetItemsAttrCmd);
 
+/*******************************************************************************
+**
+** Function         BSA_AvkSearchItemsCmdInit
+**
+** Description      Init a structure tBSA_AVK_SEARCH_ITEMS
+**                  to be used with BSA_AvkSearchItemsCmd
+**
+** Returns          tBSA_STATUS
+**
+*******************************************************************************/
+tBSA_STATUS BSA_AvkSearchItemsCmdInit(tBSA_AVK_SEARCH_ITEMS *pSearchItemsCmd);
+
+/*******************************************************************************
+**
+** Function         BSA_AvkSearchItemsCmd
+**
+** Description      Send a remote control command.  This function can only
+**                  be used if AVK is enabled with feature BSA_RC_FEAT_BROWSE.
+**
+** Returns          tBSA_STATUS
+**
+*******************************************************************************/
+tBSA_STATUS BSA_AvkSearchItemsCmd(tBSA_AVK_SEARCH_ITEMS *pSearchItemsCmd);
 
 /*******************************************************************************
 **

@@ -14,6 +14,8 @@
 #include <sys/time.h>
 
 #include "rockx.h"
+#define True 1
+#define False 0
 
 int main(int argc, char** argv) {
 
@@ -21,13 +23,25 @@ int main(int argc, char** argv) {
     rockx_handle_t face_det_handle;
     struct timeval tv;
 
+    int filter_face = True;
+    rockx_handle_t face_landmark_handle;
+
     const char *img_path = argv[1];
 
     // create a face detection handle
-    ret = rockx_create(&face_det_handle, ROCKX_MODULE_FACE_DETECTION, nullptr, 0);
+    ret = rockx_create(&face_det_handle, ROCKX_MODULE_FACE_DETECTION_V2, nullptr, 0);
     if (ret != ROCKX_RET_SUCCESS) {
         printf("init rockx module ROCKX_MODULE_FACE_DETECTION error %d\n", ret);
     }
+
+    if (filter_face)
+    {
+        ret = rockx_create(&face_landmark_handle, ROCKX_MODULE_FACE_LANDMARK_5, nullptr, 0);
+        if (ret != ROCKX_RET_SUCCESS) {
+            printf("init ROCKX_MODULE_FACE_LANDMARK_5 error %d\n", ret);
+        }
+    }
+
 
     // read image
     rockx_image_t input_image;
@@ -46,6 +60,18 @@ int main(int argc, char** argv) {
 
     // process result
     for (int i = 0; i < face_array.count; i++) {
+        if (filter_face) {
+            int is_false_face;
+            ret = rockx_face_filter(face_landmark_handle, &input_image, &face_array.object[i].box, &is_false_face);
+            if (ret != ROCKX_RET_SUCCESS) {
+                printf("rockx_face_filter error %d\n", ret);
+                return -1;
+            }
+            //printf("is_false_face: %d\n", is_false_face);
+            if(is_false_face)
+                continue;
+        }
+
         int left = face_array.object[i].box.left;
         int top = face_array.object[i].box.top;
         int right = face_array.object[i].box.right;
@@ -66,4 +92,5 @@ int main(int argc, char** argv) {
     // release
     rockx_image_release(&input_image);
     rockx_destroy(face_det_handle);
+    rockx_destroy(face_landmark_handle);
 }

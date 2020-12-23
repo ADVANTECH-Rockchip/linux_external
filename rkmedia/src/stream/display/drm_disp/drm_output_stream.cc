@@ -33,7 +33,7 @@ public:
     int fd = buffer->GetFD();
     int ret = drmPrimeFDToHandle(drm_fd, fd, &handle);
     if (ret) {
-      LOG("Fail to drmPrimeFDToHandle, ret=%d, %m\n", ret);
+      RKMEDIA_LOGI("Fail to drmPrimeFDToHandle, ret=%d, %m\n", ret);
       return;
     }
     int w = buffer->GetVirWidth() * num / den;
@@ -73,15 +73,15 @@ public:
       offsets[0] = 0;
       break;
     default:
-      LOG("TODO format for drm %c%c%c%c\n", DUMP_FOURCC(drm_fmt));
+      RKMEDIA_LOGI("TODO format for drm %c%c%c%c\n", DUMP_FOURCC(drm_fmt));
       return;
     }
     ret = drmModeAddFB2(drm_fd, w, h, drm_fmt, handles, pitches, offsets,
                         &fb_id, 0);
     if (ret) {
-      LOG("Fail to drmModeAddFB2, ret=%d, %m\n", ret);
-      LOG("num/den=%d/%d, w=%d, h=%d, drm_fmt=%c%c%c%c\n", num, den, w, h,
-          DUMP_FOURCC(drm_fmt));
+      RKMEDIA_LOGI("Fail to drmModeAddFB2, ret=%d, %m\n", ret);
+      RKMEDIA_LOGI("num/den=%d/%d, w=%d, h=%d, drm_fmt=%c%c%c%c\n", num, den, w,
+                   h, DUMP_FOURCC(drm_fmt));
     }
   }
   ~DRMDisplayBuffer() {
@@ -93,7 +93,7 @@ public:
       };
       int ret = drmIoctl(drm_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &data);
       if (ret)
-        LOG("Fail to free drm handle <%d>: %m\n", handle);
+        RKMEDIA_LOGI("Fail to free drm handle <%d>: %m\n", handle);
     }
   }
   uint32_t GetFBID() { return fb_id; }
@@ -126,6 +126,7 @@ private:
   std::shared_ptr<DRMDisplayBuffer> disp_buffer;
   ImageRect src_rect;
   ImageRect dst_rect;
+  ConditionLockMutex rect_mtx;
 };
 
 DRMOutPutStream::DRMOutPutStream(const char *param)
@@ -152,8 +153,8 @@ DRMOutPutStream::DRMOutPutStream(const char *param)
   do {                                                                         \
     ret = drmModeAtomicAddProperty(req, object_id, property_id, value);        \
     if (ret < 0)                                                               \
-      LOG("Failed to add prop val[%d] to [%d], ret=%d\n", (int)value,          \
-          property_id, ret);                                                   \
+      RKMEDIA_LOGI("Failed to add prop val[%d] to [%d], ret=%d\n", (int)value, \
+                   property_id, ret);                                          \
   } while (0)
 
 #define DRM_ATOMIC_ADD_PROP_EXTRA(errvalue, addcode)                           \
@@ -164,7 +165,7 @@ DRMOutPutStream::DRMOutPutStream(const char *param)
   addcode /* flags |= DRM_MODE_ATOMIC_ALLOW_MODESET; */                        \
       ret = drmModeAtomicCommit(fd, req, flags, NULL);                         \
   if (ret)                                                                     \
-    LOG("Fail to atomic commit, ret=%d, %m\n", ret);                           \
+    RKMEDIA_LOGI("Fail to atomic commit, ret=%d, %m\n", ret);                  \
   drmModeAtomicFree(req);
 
 int DRMOutPutStream::Open() {
@@ -174,26 +175,37 @@ int DRMOutPutStream::Open() {
   if (ret)
     return ret;
   if (!GetAgreeableIDSet())
-    return false;
-  if (!active) {
-    size_t size = CalPixFmtSize(img_info);
-    auto &&mb = MediaBuffer::Alloc2(size, MediaBuffer::MemType::MEM_HARD_WARE);
-    if (mb.GetSize() < size)
-      return -1;
-    auto fb = std::make_shared<ImageBuffer>(mb, img_info);
-    if (!fb)
-      return -1;
-    uint32_t disp_fb_id = 0;
-    disp_buffer = std::make_shared<DRMDisplayBuffer>(fb, dev, drm_fmt);
-    if (!disp_buffer || (disp_fb_id = disp_buffer->GetFBID()) == 0)
-      return -1;
-    ret = drmModeSetCrtc(fd, crtc_id, disp_fb_id, 0, 0, &connector_id, 1,
-                         &cur_mode);
+    return -1;
+
+  {
+    // Set Crtc
+    drmModeAtomicReq *req;
+    uint32_t blob_id;
+    uint32_t property_crtc_id;
+    uint32_t property_mode_id;
+    uint32_t property_active;
+
+    property_crtc_id = get_property_id(res, DRM_MODE_OBJECT_CONNECTOR,
+                                       connector_id, "CRTC_ID");
+    property_active =
+        get_property_id(res, DRM_MODE_OBJECT_CRTC, crtc_id, "ACTIVE");
+    property_mode_id =
+        get_property_id(res, DRM_MODE_OBJECT_CRTC, crtc_id, "MODE_ID");
+
+    drmModeCreatePropertyBlob(fd, &cur_mode, sizeof(cur_mode), &blob_id);
+
+    req = drmModeAtomicAlloc();
+    drmModeAtomicAddProperty(req, crtc_id, property_active, 1);
+    drmModeAtomicAddProperty(req, crtc_id, property_mode_id, blob_id);
+    drmModeAtomicAddProperty(req, connector_id, property_crtc_id, crtc_id);
+    ret = drmModeAtomicCommit(fd, req, DRM_MODE_ATOMIC_ALLOW_MODESET, NULL);
+    drmModeAtomicFree(req);
     if (ret) {
-      LOG("Fail to set crtc, ret=%d, %m\n", ret);
-      return -1;
+      RKMEDIA_LOGE("DrmDisp: set crtc failed!\n");
+      return ret;
     }
   }
+
   // get property ids
   std::map<const char *, uint32_t *> plane_prop_id_map = {
       {KEY_CRTC_ID, &plane_prop_ids.crtc_id},
@@ -225,16 +237,20 @@ int DRMOutPutStream::Open() {
   if (zindex >= 0) {
     DRM_ATOMIC_ADD_PROP_EXTRA(
         -1, DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.zpos, zindex);)
+    if (ret) {
+      RKMEDIA_LOGE("DrmDisp: set zpos(%d) failed!\n", zindex);
+      return ret;
+    }
   }
   ImageRect ir = {0, 0, img_info.vir_width, img_info.vir_height};
   ret = IoCtrl(S_SOURCE_RECT, &ir);
   if (ret) {
-    LOG("Fail to set display source rect\n");
+    RKMEDIA_LOGE("DrmDisp:Fail to set display source rect\n");
     return -1;
   }
   ret = IoCtrl(S_DESTINATION_RECT, &ir);
   if (ret) {
-    LOG("Fail to set display destination rect\n");
+    RKMEDIA_LOGE("DrmDisp:Fail to set display destination rect\n");
     return -1;
   }
 
@@ -263,65 +279,44 @@ int DRMOutPutStream::IoCtrl(unsigned long int request, ...) {
     ImageRect *rect = (static_cast<ImageRect *>(arg));
     if (!support_scale && ((dst_rect.w != 0 && rect->w != dst_rect.w) ||
                            (dst_rect.h != 0 && rect->h != dst_rect.h))) {
-      LOG("plane[%d] do not support scale, the source rect should the same to "
+      RKMEDIA_LOGI(
+          "plane[%d] do not support scale, the source rect should the same to "
           "the destination rect\n",
           plane_id);
       return -1;
     }
-    DRM_ATOMIC_ADD_PROP_EXTRA(-1, {
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.crtc_id, crtc_id);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.src_x, rect->x << 16);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.src_y, rect->y << 16);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.src_w, rect->w << 16);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.src_h, rect->h << 16);
-    })
-    if (!ret)
-      src_rect = *rect;
+    rect_mtx.lock();
+    src_rect = *rect;
+    rect_mtx.unlock();
   } break;
   case S_DESTINATION_RECT: {
     ImageRect *rect = (static_cast<ImageRect *>(arg));
     if (rect->x > img_info.width || rect->y > img_info.height)
       return -EINVAL;
-    if (!support_scale && ((src_rect.w != 0 && rect->w != src_rect.w) ||
-                           (src_rect.h != 0 && rect->h != src_rect.h))) {
-      LOG("plane[%d] do not support scale, the destination rect should the "
-          "same to the source rect\n",
-          plane_id);
-      return -1;
-    }
-    DRM_ATOMIC_ADD_PROP_EXTRA(-1, {
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.crtc_id, crtc_id);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.crtc_x, rect->x);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.crtc_y, rect->y);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.crtc_w, rect->w);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.crtc_h, rect->h);
-    })
-    if (!ret)
-      dst_rect = *rect;
+    rect_mtx.lock();
+    dst_rect = *rect;
+    rect_mtx.unlock();
   } break;
   case S_SRC_DST_RECT: {
     ImageRect *rect = (static_cast<ImageRect *>(arg));
     if (!support_scale && (rect[0].w != rect[1].w || rect[0].h != rect[1].h)) {
-      LOG("plane[%d] do not support scale, input source rect and destination "
+      RKMEDIA_LOGI(
+          "plane[%d] do not support scale, input source rect and destination "
           "rect should be the same\n",
           plane_id);
       return -1;
     }
-    DRM_ATOMIC_ADD_PROP_EXTRA(-1, {
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.crtc_id, crtc_id);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.src_x, rect[0].x << 16);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.src_y, rect[0].y << 16);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.src_w, rect[0].w << 16);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.src_h, rect[0].h << 16);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.crtc_x, rect[1].x);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.crtc_y, rect[1].y);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.crtc_w, rect[1].w);
-      DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.crtc_h, rect[1].h);
-    })
-    if (!ret) {
-      src_rect = rect[0];
-      dst_rect = rect[1];
-    }
+    rect_mtx.lock();
+    src_rect = rect[0];
+    dst_rect = rect[1];
+    rect_mtx.unlock();
+  } break;
+  case G_SRC_DST_RECT: {
+    ImageRect *rect = (static_cast<ImageRect *>(arg));
+    rect_mtx.lock();
+    rect[0] = src_rect;
+    rect[1] = dst_rect;
+    rect_mtx.unlock();
   } break;
   case G_PLANE_IMAGE_INFO: {
     *(static_cast<ImageInfo *>(arg)) = img_info;
@@ -345,13 +340,13 @@ int DRMOutPutStream::IoCtrl(unsigned long int request, ...) {
     }
     DRMPropertyArg *prop_arg = (static_cast<DRMPropertyArg *>(arg));
     assert(prop_arg->name);
-    // LOG("set propery[%s]=%d on object id[%d]\n", prop_arg->name,
+    // RKMEDIA_LOGI("set propery[%s]=%d on object id[%d]\n", prop_arg->name,
     //    (int)prop_arg->value, object_id);
     ret = set_property(res, object_type, object_id, prop_arg->name,
                        prop_arg->value);
     if (ret < 0)
-      LOG("Fail to set propery[%s]=%d on object id[%d]\n", prop_arg->name,
-          (int)prop_arg->value, object_id);
+      RKMEDIA_LOGI("Fail to set propery[%s]=%d on object id[%d]\n",
+                   prop_arg->name, (int)prop_arg->value, object_id);
   } break;
   default:
     ret = -1;
@@ -373,24 +368,60 @@ bool DRMOutPutStream::Write(std::shared_ptr<MediaBuffer> input) {
     num = in_num * drm_den;
     den = in_den * drm_num;
   }
+
+  ImageRect src_rect_tmp;
+  ImageRect dst_rect_tmp;
+  rect_mtx.lock();
+  src_rect_tmp = src_rect;
+  dst_rect_tmp = dst_rect;
+  rect_mtx.unlock();
+
+  if ((input_img->GetVirWidth() < (src_rect_tmp.x + src_rect_tmp.w)) ||
+      (input_img->GetVirHeight() < (src_rect_tmp.y + src_rect_tmp.h))) {
+    RKMEDIA_LOGE("DrmDisp: InBuf<%dx%d> does not match the "
+                 "imgRect<%d,%d,%d,%d>\n",
+                 input_img->GetVirWidth(), input_img->GetVirHeight(),
+                 src_rect_tmp.x, src_rect_tmp.y, src_rect_tmp.w,
+                 src_rect_tmp.h);
+    return false;
+  }
+
   uint32_t disp_fb_id = 0;
   auto disp =
       std::make_shared<DRMDisplayBuffer>(input_img, dev, drm_fmt, num, den);
   if (!disp || (disp_fb_id = disp->GetFBID()) == 0)
     return false;
   int ret = 0;
-  if (0) {
-    ret = drmModeSetPlane(fd, plane_id, crtc_id, disp_fb_id, 0, dst_rect.x,
-                          dst_rect.y, dst_rect.w, dst_rect.h, src_rect.x << 16,
-                          src_rect.y << 16, src_rect.w << 16, src_rect.h << 16);
-  } else {
-    DRM_ATOMIC_ADD_PROP_EXTRA(
-        false, DRM_ATOMIC_ADD_PROP(plane_id, plane_prop_ids.fb_id, disp_fb_id);)
-  }
+  drmModeAtomicReq *req = drmModeAtomicAlloc();
+  drmModeAtomicAddProperty(req, plane_id, plane_prop_ids.crtc_id, crtc_id);
+  drmModeAtomicAddProperty(req, plane_id, plane_prop_ids.fb_id, disp_fb_id);
+  drmModeAtomicAddProperty(req, plane_id, plane_prop_ids.crtc_x,
+                           dst_rect_tmp.x);
+  drmModeAtomicAddProperty(req, plane_id, plane_prop_ids.crtc_y,
+                           dst_rect_tmp.y);
+  drmModeAtomicAddProperty(req, plane_id, plane_prop_ids.crtc_w,
+                           dst_rect_tmp.w);
+  drmModeAtomicAddProperty(req, plane_id, plane_prop_ids.crtc_h,
+                           dst_rect_tmp.h);
+  drmModeAtomicAddProperty(req, plane_id, plane_prop_ids.src_x, src_rect_tmp.x
+                                                                    << 16);
+  drmModeAtomicAddProperty(req, plane_id, plane_prop_ids.src_y, src_rect_tmp.y
+                                                                    << 16);
+  drmModeAtomicAddProperty(req, plane_id, plane_prop_ids.src_w, src_rect_tmp.w
+                                                                    << 16);
+  drmModeAtomicAddProperty(req, plane_id, plane_prop_ids.src_h, src_rect_tmp.h
+                                                                    << 16);
+  ret = drmModeAtomicCommit(fd, req, 0, NULL);
+  drmModeAtomicFree(req);
   if (!ret) {
     disp_buffer = disp;
     return true;
   }
+  RKMEDIA_LOGE("DrmDisp: %d:%d::Imgbuf<%d,%d,%d,%d> display with "
+               "<%d,%d,%d,%d> failed!\n",
+               crtc_id, plane_id, src_rect_tmp.x, src_rect_tmp.y,
+               src_rect_tmp.w, src_rect_tmp.h, dst_rect_tmp.x, dst_rect_tmp.y,
+               dst_rect_tmp.w, dst_rect_tmp.h);
   return false;
 }
 

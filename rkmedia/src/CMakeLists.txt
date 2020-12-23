@@ -11,10 +11,27 @@ aux_source_directory(. EASY_MEDIA_SOURCE_FILES)
 # ----------------------------------------------------------------------------
 
 option(RKMPP "compile: rkmpp wrapper" OFF)
+option(RKMPP_ENCODER_OSD "compile: rkmpp encoder osd wrapper" OFF)
 if(RKMPP)
+  pkg_check_modules(ROCKCHIP_MPP REQUIRED rockchip_mpp)
   include_directories(rkmpp)
-  include_directories(${RKMPP_HEADER_DIR})
+  include_directories(${ROCKCHIP_MPP_INCLUDE_DIRS}/rockchip/)
+  set(EASY_MEDIA_DEPENDENT_LIBS
+    ${EASY_MEDIA_DEPENDENT_LIBS} ${ROCKCHIP_MPP_LIBRARIES})
+
+  if (RKMPP_ENCODER)
+    if (RKMPP_ENCODER_OSD)
+      add_definitions(-DMPP_SUPPORT_HW_OSD)
+    endif()
+  endif()
+
   add_subdirectory(rkmpp)
+
+  option(UVC "compile: uvc" OFF)
+  if(UVC)
+     add_subdirectory(uvc)
+  endif()
+
 endif()
 
 option(OGG "compile: ogg" OFF)
@@ -22,7 +39,9 @@ if(OGG)
   add_subdirectory(ogg)
 endif()
 
+if(FFMPEG)
 add_subdirectory(ffmpeg)
+endif()
 
 option(LIVE555 "compile: live555" OFF)
 if(LIVE555)
@@ -52,10 +71,30 @@ endif()
 
 if(FILTER)
   add_subdirectory(rkrga)
-  if(RKNN)
-    include_directories(${RKNPU_HEADER_DIR})
-    add_subdirectory(rknn)
-  endif()
+  add_subdirectory(guard)
+  add_subdirectory(filter)
+  add_subdirectory(rknn)
+endif()
+
+  add_subdirectory(c_api)
+
+if(MOVE_DETECTION)
+add_definitions(-DRK_MOVE_DETECTION)
+set(EASY_MEDIA_DEPENDENT_LIBS ${EASY_MEDIA_DEPENDENT_LIBS} md_share)
+endif()
+
+if(OCCLUSION_DETECTION)
+set(EASY_MEDIA_DEPENDENT_LIBS ${EASY_MEDIA_DEPENDENT_LIBS} od_share)
+endif()
+
+if(ROCKFACE)
+    add_definitions(-DUSE_ROCKFACE)
+endif()
+
+if(ROCKX)
+  add_definitions(-DUSE_ROCKX)
+  include_directories(${ROCKX_HEADER_DIR})
+  set(EASY_MEDIA_DEPENDENT_LIBS ${EASY_MEDIA_DEPENDENT_LIBS} rockx)
 endif()
 
 set(LIBRARY_VERSION 1.0.1)
@@ -71,6 +110,10 @@ set_target_properties(${LIBRARY_NAME} PROPERTIES SOVERSION 1)
 if(SANITIZER)
   add_definitions(-fsanitize=address -static-libasan -g)
   target_link_libraries(${LIBRARY_NAME} libasan.a)
+endif()
+
+if(USE_RKAIQ)
+  set(EASY_MEDIA_DEPENDENT_LIBS ${EASY_MEDIA_DEPENDENT_LIBS} RkAiq::RkAiq)
 endif()
 
 if(EASY_MEDIA_COMPILE_DEFINITIONS)

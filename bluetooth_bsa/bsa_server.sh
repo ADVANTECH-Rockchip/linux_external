@@ -8,6 +8,7 @@ echo "ttys_dev = $ttys_dev"
 case "$1" in
     start)
 
+    killall brcm_patchram_plus1
     killall bsa_server
     check_not_exist.sh bsa_server
 

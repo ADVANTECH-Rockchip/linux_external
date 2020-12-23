@@ -30,7 +30,7 @@
  *
  * @section Introduction
  *
- * Rock-X SDK is a set of AI components based on the RK3399Pro/RK1808 platform. Developers can quickly build AI
+ * Rock-X SDK is a set of AI components based on the RK3399Pro/RK180X platform. Developers can quickly build AI
  * applications through the API interface provided by SDK.
  * The functions provided by the SDK are as follows:
  *

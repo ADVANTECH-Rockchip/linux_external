@@ -8,10 +8,13 @@
 **  Copyright (c) 2013, Broadcom Corp., All Rights Reserved.
 **  Broadcom Bluetooth Core. Proprietary and confidential.
 **
+**  Copyright (C) 2018 Cypress Semiconductor Corporation
+**
 *****************************************************************************/
 #ifndef BSA_PBC_API_H
 #define BSA_PBC_API_H
 
+#include "bta_pbc_api.h"
 #include "uipc.h"
 
 /* for tBSA_STATUS */
@@ -20,6 +23,9 @@
 /*****************************************************************************
 **  Constants and Type Definitions
 *****************************************************************************/
+
+/* Number of PBC connections */
+#define BSA_PBC_NUM_CONN                BTA_PBC_NUM_CONN
 
 #define BSA_PBC_FILENAME_MAX            255
 #define BSA_PBC_SERVICE_NAME_LEN_MAX    150
@@ -32,7 +38,7 @@
 
 #define BSA_PBC_CLOSE_CLOSED        1
 #define BSA_PBC_CLOSE_CONN_LOSS     2
-
+#define BSA_PBC_CLOSE_FAILED        3
 
 /* BSA PBAP Client callback events */
 typedef enum
@@ -129,6 +135,25 @@ typedef UINT8 tBSA_PBC_SUP_REPOSIT_MASK;
 
 enum
 {
+    BSA_SV_PBC_CO_WRITE,
+};
+
+typedef struct
+{
+    int                     fd;
+    UINT32                  nbytes;
+    UINT8                   *p_buf;
+    UINT16                  evt;
+    BD_ADDR                 bd_addr;
+}tBSA_SV_PBC_CO_WRITE;
+
+typedef union
+{
+    tBSA_SV_PBC_CO_WRITE    write;
+} tBSA_SV_PBC_CO_MSG;
+
+enum
+{
     BSA_PBC_FORMAT_CARD_21, /* vCard format 2.1 */
     BSA_PBC_FORMAT_CARD_30, /* vCard format 3.0 */
     BSA_PBC_FORMAT_MAX
@@ -214,8 +239,9 @@ typedef UINT8 tBSA_PBC_SET_PARAM_TYPE;
 
 typedef struct
 {
-    UINT32 file_size;   /* Total size of file (BSA_FS_LEN_UNKNOWN if unknown) */
-    UINT16 num_bytes;       /* Number of bytes read or written since last progress event */
+    BD_ADDR                 bd_addr;
+    UINT32                  file_size;   /* Total size of file (BSA_FS_LEN_UNKNOWN if unknown) */
+    UINT16                  num_bytes;       /* Number of bytes read or written since last progress event */
 } tBSA_PBC_PROGRESS_MSG;
 
 /* Get operation is used for GetList, GetCard, GetPhoneBook */
@@ -225,6 +251,7 @@ typedef struct
     GetList, GetCard, GetPhoneBook or ChDir */
     tBSA_PBC_GET_PARAM_TYPE type;
     tBSA_STATUS             status;
+    BD_ADDR                 bd_addr;
 
     union {
         /* get operations */
@@ -241,6 +268,7 @@ typedef struct
     /* This defines what the data in this structure corresponds to ChDir */
     tBSA_PBC_SET_PARAM_TYPE type;
     tBSA_STATUS             status;
+    BD_ADDR                 bd_addr;
     union {
         /* Reserved. Not used. - Set operations event data*/
         int dummy;
@@ -251,6 +279,7 @@ typedef struct
 /* Request for authorization */
 typedef struct
 {
+    BD_ADDR bd_addr;
     UINT8   realm[BSA_PBC_MAX_REALM_LEN] ;
     UINT8   realm_len;
     UINT8   realm_charset;
@@ -260,9 +289,9 @@ typedef struct
 /* BSA_PBC_OPEN_EVT callback event data */
 typedef struct
 {
+    BD_ADDR             bd_addr;
     tBSA_SERVICE_ID     service;            /* Connection is open with PBAP */
     tBSA_STATUS         status;
-    BOOLEAN             initiator;          /* connection initiator, local TRUE, peer FALSE */
     tUIPC_CH_ID         uipc_channel;       /* out: uipc channel */
     tBSA_PBC_FEA_MASK   peer_features;      /* Peer supported features */
     tBSA_PBC_SUP_REPOSIT_MASK peer_repositories; /* Peer supported repositories */
@@ -272,6 +301,7 @@ typedef struct
 typedef struct
 {
     tBSA_STATUS         status;
+    BD_ADDR             bd_addr;
 } tBSA_PBC_CLOSE_MSG;
 
 /* BSA_PBC_DISABLE_EVT callback event data */
@@ -284,6 +314,7 @@ typedef struct
 typedef struct
 {
     tBSA_STATUS         status;
+    BD_ADDR             bd_addr;
 } tBSA_PBC_ABORT_MSG;
 
 /* Data for all PBC events */
@@ -318,24 +349,17 @@ typedef struct
 
 typedef struct
 {
-    int dummy;
+    BD_ADDR bd_addr;
 } tBSA_PBC_CLOSE;
 
-#if defined(BSA_UNIFIED_CLIENT_SERVER) && (BSA_UNIFIED_CLIENT_SERVER == TRUE)
 typedef struct
 {
-    int dummy;
-} tBSA_PBC_CONTINUE_RES;
-#endif
-
-typedef struct
-{
-    int dummy;
+    BD_ADDR bd_addr;
 } tBSA_PBC_ABORT;
 
 typedef struct
 {
-    UINT16 dummy;
+    BD_ADDR bd_addr;
 } tBSA_PBC_CANCEL;
 
 
@@ -383,8 +407,9 @@ typedef struct
 {
 /*  This defines what the data in this structure corresponds to.
     GetList, GetCard, GetPhoneBook or ChDir*/
-    tBSA_PBC_GET_TYPE type;
-    BOOLEAN     is_xml;
+    tBSA_PBC_GET_TYPE       type;
+    BOOLEAN                 is_xml;
+    BD_ADDR                 bd_addr;
 
     union {
         /* get operations */
@@ -405,8 +430,8 @@ typedef struct
 typedef struct
 {
     /* This defines what the data in this structure corresponds to. */
-    tBSA_PBC_SET_TYPE type;
-
+    tBSA_PBC_SET_TYPE   type;
+    BD_ADDR             bd_addr;
     union {
         /*For CHDIR*/
         tBSA_PBC_CHDIR  ch_dir;
@@ -416,8 +441,9 @@ typedef struct
 
 typedef struct
 {
-    char password[BSA_PBC_MAX_AUTH_KEY_SIZE];
-    char userid[BSA_PBC_MAX_REALM_LEN];
+    BD_ADDR     bd_addr;
+    char        password[BSA_PBC_MAX_AUTH_KEY_SIZE];
+    char        userid[BSA_PBC_MAX_REALM_LEN];
 } tBSA_PBC_AUTHRSP;
 
 /*****************************************************************************
@@ -627,32 +653,6 @@ tBSA_STATUS BSA_PbcAuthRspInit (tBSA_PBC_AUTHRSP *p_authrsp);
 **
 *******************************************************************************/
 tBSA_STATUS BSA_PbcAuthRsp (tBSA_PBC_AUTHRSP *p_authrsp);
-
-#if defined(BSA_UNIFIED_CLIENT_SERVER) && (BSA_UNIFIED_CLIENT_SERVER == TRUE)
-/*******************************************************************************
-**
-** Function         BSA_PbcContinueResInit
-**
-** Description      Initialize structure containing API parameters with default values
-**
-** Parameters       Pointer on structure containing API parameters
-**
-** Returns          tBSA_STATUS
-**
-*******************************************************************************/
-tBSA_STATUS BSA_PbcContinueResInit(tBSA_PBC_CONTINUE_RES *p_con);
-
-/*******************************************************************************
-**
-** Function         BSA_PbcContinueRes
-**
-** Description      Continue PBC get operation.
-**
-** Returns          tBSA_STATUS
-**
-*******************************************************************************/
-tBSA_STATUS BSA_PbcContinueRes(tBSA_PBC_CONTINUE_RES *p_con);
-#endif
 
 /*******************************************************************************
 **

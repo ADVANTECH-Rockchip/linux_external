@@ -17,6 +17,7 @@
 #define  MODULE_TAG "mpp"
 
 #include <errno.h>
+#include <string.h>
 
 #include "rk_mpi.h"
 
@@ -25,6 +26,7 @@
 #include "mpp_env.h"
 #include "mpp_time.h"
 #include "mpp_impl.h"
+#include "mpp_2str.h"
 
 #include "mpp.h"
 #include "mpp_hal.h"
@@ -44,6 +46,18 @@ static void mpp_notify_by_buffer_group(void *arg, void *group)
     mpp->notify((MppBufferGroup) group);
 }
 
+static void *list_wraper_packet(void *arg)
+{
+    mpp_packet_deinit((MppPacket *)arg);
+    return NULL;
+}
+
+static void *list_wraper_frame(void *arg)
+{
+    mpp_frame_deinit((MppFrame *)arg);
+    return NULL;
+}
+
 Mpp::Mpp()
     : mPackets(NULL),
       mFrames(NULL),
@@ -61,30 +75,40 @@ Mpp::Mpp()
       mOutputPort(NULL),
       mInputTaskQueue(NULL),
       mOutputTaskQueue(NULL),
-      mInputTimeout(MPP_POLL_NON_BLOCK),
-      mOutputTimeout(MPP_POLL_NON_BLOCK),
+      mInputTimeout(MPP_POLL_BUTT),
+      mOutputTimeout(MPP_POLL_BUTT),
       mInputTask(NULL),
       mDec(NULL),
       mEnc(NULL),
+      mEncVersion(0),
       mType(MPP_CTX_BUTT),
       mCoding(MPP_VIDEO_CodingUnused),
       mInitDone(0),
       mMultiFrame(0),
       mStatus(0),
-      mParserFastMode(0),
-      mParserNeedSplit(0),
-      mParserInternalPts(0),
       mExtraPacket(NULL),
       mDump(NULL)
 {
     mpp_env_get_u32("mpp_debug", &mpp_debug, 0);
+
+    memset(&mDecInitcfg, 0, sizeof(mDecInitcfg));
     mpp_dump_init(&mDump);
 }
 
 MPP_RET Mpp::init(MppCtxType type, MppCodingType coding)
 {
+    MPP_RET ret = MPP_NOK;
+
+    if (!mpp_check_soc_cap(type, coding)) {
+        mpp_err("unable to create %s %s for soc %s unsupported\n",
+                strof_ctx_type(type), strof_coding_type(coding),
+                mpp_get_soc_info()->compatible);
+        return MPP_NOK;
+    }
+
     if (mpp_check_support_format(type, coding)) {
-        mpp_err("unable to create unsupported type %d coding %d\n", type, coding);
+        mpp_err("unable to create %s %s for mpp unsupported\n",
+                strof_ctx_type(type), strof_coding_type(coding));
         return MPP_NOK;
     }
 
@@ -92,23 +116,29 @@ MPP_RET Mpp::init(MppCtxType type, MppCodingType coding)
 
     mType = type;
     mCoding = coding;
+
+    mpp_task_queue_init(&mInputTaskQueue, this, "input");
+    mpp_task_queue_init(&mOutputTaskQueue, this, "output");
+
     switch (mType) {
     case MPP_CTX_DEC : {
-        mPackets    = new mpp_list((node_destructor)mpp_packet_deinit);
-        mFrames     = new mpp_list((node_destructor)mpp_frame_deinit);
-        mTimeStamps = new MppQueue((node_destructor)mpp_packet_deinit);
+        mPackets    = new mpp_list(list_wraper_packet);
+        mFrames     = new mpp_list(list_wraper_frame);
+        mTimeStamps = new mpp_list(list_wraper_packet);
+
+        if (mInputTimeout == MPP_POLL_BUTT)
+            mInputTimeout = MPP_POLL_NON_BLOCK;
+
+        if (mOutputTimeout == MPP_POLL_BUTT)
+            mOutputTimeout = MPP_POLL_NON_BLOCK;
 
         if (mCoding != MPP_VIDEO_CodingMJPEG) {
             mpp_buffer_group_get_internal(&mPacketGroup, MPP_BUFFER_TYPE_ION);
             mpp_buffer_group_limit_config(mPacketGroup, 0, 3);
 
-            mpp_task_queue_init(&mInputTaskQueue);
-            mpp_task_queue_init(&mOutputTaskQueue);
             mpp_task_queue_setup(mInputTaskQueue, 4);
             mpp_task_queue_setup(mOutputTaskQueue, 4);
         } else {
-            mpp_task_queue_init(&mInputTaskQueue);
-            mpp_task_queue_init(&mOutputTaskQueue);
             mpp_task_queue_setup(mInputTaskQueue, 1);
             mpp_task_queue_setup(mOutputTaskQueue, 1);
         }
@@ -116,42 +146,50 @@ MPP_RET Mpp::init(MppCtxType type, MppCodingType coding)
         mInputPort  = mpp_task_queue_get_port(mInputTaskQueue,  MPP_PORT_INPUT);
         mOutputPort = mpp_task_queue_get_port(mOutputTaskQueue, MPP_PORT_OUTPUT);
 
-        MppDecCfg cfg = {
+        MppDecInitCfg cfg = {
             coding,
-            mParserFastMode,
-            mParserNeedSplit,
-            mParserInternalPts,
             this,
+            &mDecInitcfg,
         };
 
-        mpp_dec_init(&mDec, &cfg);
-        mpp_dec_start(mDec);
-
+        ret = mpp_dec_init(&mDec, &cfg);
+        if (ret)
+            break;
+        ret = mpp_dec_start(mDec);
+        if (ret)
+            break;
         mInitDone = 1;
     } break;
     case MPP_CTX_ENC : {
-        mFrames     = new mpp_list((node_destructor)NULL);
-        mPackets    = new mpp_list((node_destructor)mpp_packet_deinit);
+        mFrames     = new mpp_list(NULL);
+        mPackets    = new mpp_list(list_wraper_packet);
+
+        if (mInputTimeout == MPP_POLL_BUTT)
+            mInputTimeout = MPP_POLL_BLOCK;
+
+        if (mOutputTimeout == MPP_POLL_BUTT)
+            mOutputTimeout = MPP_POLL_NON_BLOCK;
 
         mpp_buffer_group_get_internal(&mPacketGroup, MPP_BUFFER_TYPE_ION);
         mpp_buffer_group_get_internal(&mFrameGroup, MPP_BUFFER_TYPE_ION);
 
-        mpp_task_queue_init(&mInputTaskQueue);
-        mpp_task_queue_init(&mOutputTaskQueue);
         mpp_task_queue_setup(mInputTaskQueue, 1);
         mpp_task_queue_setup(mOutputTaskQueue, 1);
 
         mInputPort  = mpp_task_queue_get_port(mInputTaskQueue,  MPP_PORT_INPUT);
         mOutputPort = mpp_task_queue_get_port(mOutputTaskQueue, MPP_PORT_OUTPUT);
 
-        MppEncCfg cfg = {
+        MppEncInitCfg cfg = {
             coding,
             this,
         };
 
-        mpp_enc_init(&mEnc, &cfg);
-        mpp_enc_start(mEnc);
-
+        ret = mpp_enc_init_v2(&mEnc, &cfg);
+        if (ret)
+            break;
+        ret = mpp_enc_start_v2(mEnc);
+        if (ret)
+            break;
         mInitDone = 1;
     } break;
     default : {
@@ -165,7 +203,7 @@ MPP_RET Mpp::init(MppCtxType type, MppCodingType coding)
         clear();
     }
 
-    return MPP_OK;
+    return ret;
 }
 
 Mpp::~Mpp ()
@@ -188,8 +226,8 @@ void Mpp::clear()
         }
     } else {
         if (mEnc) {
-            mpp_enc_stop(mEnc);
-            mpp_enc_deinit(mEnc);
+            mpp_enc_stop_v2(mEnc);
+            mpp_enc_deinit_v2(mEnc);
             mEnc = NULL;
         }
     }
@@ -363,6 +401,21 @@ MPP_RET Mpp::put_frame(MppFrame frame)
         mpp_log_f("set input frame to task ret %d\n", ret);
         goto RET;
     }
+
+    if (mpp_frame_has_meta(frame)) {
+        MppMeta meta = mpp_frame_get_meta(frame);
+        MppPacket packet = NULL;
+
+        mpp_meta_get_packet(meta, KEY_OUTPUT_PACKET, &packet);
+        if (packet) {
+            ret = mpp_task_meta_set_packet(mInputTask, KEY_OUTPUT_PACKET, packet);
+            if (ret) {
+                mpp_log_f("set output packet to task ret %d\n", ret);
+                goto RET;
+            }
+        }
+    }
+
     // dump input
     mpp_ops_enc_put_frm(mDump, frame);
 
@@ -373,8 +426,9 @@ MPP_RET Mpp::put_frame(MppFrame frame)
         goto RET;
     }
 
+    mInputTask = NULL;
     /* wait enqueued task finished */
-    ret = poll(MPP_PORT_INPUT, MPP_POLL_BLOCK);
+    ret = poll(MPP_PORT_INPUT, mInputTimeout);
     if (ret) {
         mpp_log_f("poll on get timeout %d ret %d\n", mInputTimeout, ret);
         goto RET;
@@ -388,15 +442,6 @@ MPP_RET Mpp::put_frame(MppFrame frame)
     }
 
     mpp_assert(mInputTask);
-
-    /* clear the enqueued task back */
-    if (mInputTask) {
-        ret = mpp_task_meta_get_frame(mInputTask, KEY_INPUT_FRAME, &frame);
-        if (frame) {
-            mpp_frame_deinit(&frame);
-            frame = NULL;
-        }
-    }
 
 RET:
     return ret;
@@ -634,7 +679,7 @@ MPP_RET Mpp::reset()
         mFrames->flush();
         mFrames->unlock();
 
-        mpp_enc_reset(mEnc);
+        mpp_enc_reset_v2(mEnc);
 
         mPackets->lock();
         mPackets->flush();
@@ -759,29 +804,34 @@ MPP_RET Mpp::control_dec(MpiCmd cmd, MppParam param)
         ret = mpp_dec_control(mDec, cmd, param);
         notify(MPP_DEC_NOTIFY_INFO_CHG_DONE | MPP_DEC_NOTIFY_BUFFER_MATCH);
     } break;
-    case MPP_DEC_SET_PARSER_SPLIT_MODE: {
-        RK_U32 flag = *((RK_U32 *)param);
-        mParserNeedSplit = flag;
-        ret = MPP_OK;
-    } break;
-    case MPP_DEC_SET_PARSER_FAST_MODE: {
-        RK_U32 flag = *((RK_U32 *)param);
-        mParserFastMode = flag;
-        ret = MPP_OK;
+    case MPP_DEC_SET_PRESENT_TIME_ORDER :
+    case MPP_DEC_SET_PARSER_SPLIT_MODE :
+    case MPP_DEC_SET_PARSER_FAST_MODE :
+    case MPP_DEC_SET_IMMEDIATE_OUT :
+    case MPP_DEC_SET_DISABLE_ERROR :
+    case MPP_DEC_SET_ENABLE_DEINTERLACE : {
+        /*
+         * These control may be set before mpp_init
+         * When this case happen record the config and wait for decoder init
+         */
+        if (mDec) {
+            ret = mpp_dec_control(mDec, cmd, param);
+            return ret;
+        }
+
+        ret = mpp_dec_set_cfg_by_cmd(&mDecInitcfg, cmd, param);
     } break;
     case MPP_DEC_GET_STREAM_COUNT: {
         AutoMutex autoLock(mPackets->mutex());
         *((RK_S32 *)param) = mPackets->list_size();
         ret = MPP_OK;
     } break;
-    case MPP_DEC_GET_VPUMEM_USED_COUNT:
-    case MPP_DEC_SET_OUTPUT_FORMAT:
-    case MPP_DEC_SET_DISABLE_ERROR:
-    case MPP_DEC_SET_PRESENT_TIME_ORDER:
-    case MPP_DEC_SET_IMMEDIATE_OUT:
-    case MPP_DEC_SET_ENABLE_DEINTERLACE: {
+    case MPP_DEC_GET_VPUMEM_USED_COUNT :
+    case MPP_DEC_SET_OUTPUT_FORMAT :
+    case MPP_DEC_QUERY :
+    case MPP_DEC_SET_CFG : {
         ret = mpp_dec_control(mDec, cmd, param);
-    }
+    } break;
     default : {
     } break;
     }
@@ -791,7 +841,7 @@ MPP_RET Mpp::control_dec(MpiCmd cmd, MppParam param)
 MPP_RET Mpp::control_enc(MpiCmd cmd, MppParam param)
 {
     mpp_assert(mEnc);
-    return mpp_enc_control(mEnc, cmd, param);
+    return mpp_enc_control_v2(mEnc, cmd, param);
 }
 
 MPP_RET Mpp::control_isp(MpiCmd cmd, MppParam param)
@@ -813,7 +863,7 @@ MPP_RET Mpp::notify(RK_U32 flag)
         return mpp_dec_notify(mDec, flag);
     } break;
     case MPP_CTX_ENC : {
-        return mpp_enc_notify(mEnc, flag);
+        return mpp_enc_notify_v2(mEnc, flag);
     } break;
     default : {
         mpp_err("unsupport context type %d\n", mType);

@@ -9,13 +9,14 @@
 **  Copyright (c) 2003-2014, Broadcom Corp., All Rights Reserved.
 **  Broadcom Bluetooth Core. Proprietary and confidential.
 **
+**  Copyright (C) 2018 Cypress Semiconductor Corporation
+**
 *****************************************************************************/
 #ifndef BTA_PBC_API_H
 #define BTA_PBC_API_H
 
 #include "bta_api.h"
 #include "btm_api.h"
-#include "bta_sys.h"
 
 /*****************************************************************************
 **  Constants and data types
@@ -27,6 +28,11 @@
 /* Extra Debug Code */
 #ifndef BTA_PBC_DEBUG
 #define BTA_PBC_DEBUG           FALSE
+#endif
+
+/* Number of PBC connections */
+#ifndef BTA_PBC_NUM_CONN
+#define BTA_PBC_NUM_CONN        2
 #endif
 
 #define BTA_PBC_FLAG_NONE       0
@@ -130,34 +136,55 @@ typedef UINT8 tBTA_PBC_ATTR;
 #define BTA_PBC_GETFILE_EVT     6   /* Get complete */
 #define BTA_PBC_CHDIR_EVT       7   /* Change Directory complete */
 #define BTA_PBC_PHONEBOOK_EVT   8   /* Report the Application Parameters for BTA_PbcGetPhoneBook response */
-#define BTA_PBC_DISABLE_EVT     9   /* Phone Book Access client is disabled. */
+#define BTA_PBC_ABORT_EVT       9   /* Abort complete */
+#define BTA_PBC_DISABLE_EVT     10  /* Phone Book Access client is disabled. */
 
 typedef UINT8 tBTA_PBC_EVT;
 
 /* Client callback function event data */
 
-#define BTA_PBC_OK              0
-#define BTA_PBC_FAIL            1
-#define BTA_PBC_NO_PERMISSION   2
-#define BTA_PBC_NOT_FOUND       3
-#define BTA_PBC_FULL            4
-#define BTA_PBC_BUSY            5
-#define BTA_PBC_ABORTED         6
+#define BTA_PBC_OK                      0
+#define BTA_PBC_FAIL                    1
+#define BTA_PBC_NO_PERMISSION           2
+#define BTA_PBC_NOT_FOUND               3
+#define BTA_PBC_FULL                    4
+#define BTA_PBC_BUSY                    5
+#define BTA_PBC_ABORTED                 6
 #define BTA_PBC_PRECONDITION_FAILED     7
 
 typedef UINT8 tBTA_PBC_STATUS;
 
 typedef struct
 {
-    tBTA_SERVICE_ID service;    /* Connection is open with PBAP */
-    tBTA_PBC_SUP_FEA_MASK   peer_features;      /* Peer supported features */
-
+    tBTA_PBC_STATUS             status;             /* Fields are valid when status is BTA_PBC_OK */
+    BD_ADDR                     bd_addr;
+    tBTA_SERVICE_ID             service;            /* Connection is open with PBAP */
+    tBTA_PBC_SUP_FEA_MASK       peer_features;      /* Peer supported features */
     /* BSA_SPECIFIC */
     tBTA_PBC_SUP_REPOSIT_MASK   peer_repositories;  /* Peer supported repositories */
 } tBTA_PBC_OPEN;
 
 typedef struct
 {
+    tBTA_PBC_STATUS status;
+    BD_ADDR         bd_addr;
+} tBTA_PBC_CLOSE;
+
+typedef struct
+{
+    tBTA_PBC_STATUS status;
+    BD_ADDR         bd_addr;
+} tBTA_PBC_CHDIR;
+
+typedef struct
+{
+    tBTA_PBC_STATUS status;
+    BD_ADDR         bd_addr;
+} tBTA_PBC_GETFILE;
+
+typedef struct
+{
+    BD_ADDR         bd_addr;
     UINT16          phone_book_size;
     BOOLEAN         pbs_exist;          /* phone_book_size is present in the response */
     UINT8           new_missed_calls;
@@ -166,35 +193,46 @@ typedef struct
 
 typedef struct
 {
-    tBTA_PBC_PB_PARAM *p_param;
-    UINT8           *data;
-    UINT16           len;
-    BOOLEAN          final;     /* If TRUE, entry is last of the series */
-    tBTA_PBC_STATUS  status;    /* Fields are valid when status is BTA_PBC_OK */
+    BD_ADDR             bd_addr;
+    tBTA_PBC_PB_PARAM   *p_param;
+    UINT8               *data;
+    UINT16              len;
+    BOOLEAN             final;     /* If TRUE, entry is last of the series */
+    tBTA_PBC_STATUS     status;    /* Fields are valid when status is BTA_PBC_OK */
 } tBTA_PBC_LIST;
 
 typedef struct
 {
-    UINT32 file_size;   /* Total size of file (BTA_FS_LEN_UNKNOWN if unknown) */
-    UINT16 bytes;       /* Number of bytes read or written since last progress event */
+    BD_ADDR             bd_addr;
+    UINT32              file_size;   /* Total size of file (BTA_FS_LEN_UNKNOWN if unknown) */
+    UINT16              bytes;       /* Number of bytes read or written since last progress event */
 } tBTA_PBC_PROGRESS;
 
 typedef struct
 {
-    UINT8  *p_realm;
-    UINT8   realm_len;
-    UINT8   realm_charset;
-    BOOLEAN userid_required;    /* If TRUE, a user ID must be sent */
+    BD_ADDR             bd_addr;
+    UINT8               *p_realm;
+    UINT8               realm_len;
+    UINT8               realm_charset;
+    BOOLEAN             userid_required;    /* If TRUE, a user ID must be sent */
 } tBTA_PBC_AUTH;
 
+typedef struct
+{
+    tBTA_PBC_STATUS     status;
+    BD_ADDR             bd_addr;
+} tBTA_PBC_ABORT;
 
 typedef union
 {
-    tBTA_PBC_STATUS     status;
     tBTA_PBC_OPEN       open;
+    tBTA_PBC_CLOSE      close;
+    tBTA_PBC_CHDIR      chdir;
+    tBTA_PBC_GETFILE    getfile;
     tBTA_PBC_LIST       list;
     tBTA_PBC_PROGRESS   prog;
     tBTA_PBC_AUTH       auth;
+    tBTA_PBC_ABORT      abort;
     tBTA_PBC_PB_PARAM   pb;
 } tBTA_PBC;
 
@@ -269,7 +307,7 @@ BTA_API extern void BTA_PbcOpen(BD_ADDR bd_addr, tBTA_SEC sec_mask);
 ** Returns          void
 **
 *******************************************************************************/
-BTA_API extern void BTA_PbcClose(void);
+BTA_API extern void BTA_PbcClose(BD_ADDR bd_addr);
 
 
 /*******************************************************************************
@@ -289,7 +327,7 @@ BTA_API extern void BTA_PbcClose(void);
 ** Returns          void
 **
 *******************************************************************************/
-BTA_API extern void BTA_PbcGetPhoneBook(char *p_local_name, char *p_remote_name,
+BTA_API extern void BTA_PbcGetPhoneBook(BD_ADDR bd_addr, char *p_local_name, char *p_remote_name,
                          tBTA_PBC_FILTER_MASK filter, tBTA_PBC_FORMAT format,
                          UINT16 max_list_count, UINT16 list_start_offset,
                          BOOLEAN is_reset_miss_calls, tBTA_PBC_FILTER_MASK selector,
@@ -311,7 +349,7 @@ BTA_API extern void BTA_PbcGetPhoneBook(char *p_local_name, char *p_remote_name,
 ** Returns          void
 **
 *******************************************************************************/
-BTA_API extern void BTA_PbcGetCard(char *p_local_name, char *p_remote_name,
+BTA_API extern void BTA_PbcGetCard(BD_ADDR bd_addr, char *p_local_name, char *p_remote_name,
                     tBTA_PBC_FILTER_MASK filter, tBTA_PBC_FORMAT format);
 
 
@@ -327,7 +365,7 @@ BTA_API extern void BTA_PbcGetCard(char *p_local_name, char *p_remote_name,
 ** Returns          void
 **
 *******************************************************************************/
-BTA_API extern void BTA_PbcChDir(char *p_dir, tBTA_PBC_FLAG flag);
+BTA_API extern void BTA_PbcChDir(BD_ADDR bd_addr, char *p_dir, tBTA_PBC_FLAG flag);
 
 /*******************************************************************************
 **
@@ -346,7 +384,7 @@ BTA_API extern void BTA_PbcChDir(char *p_dir, tBTA_PBC_FLAG flag);
 ** Returns          void
 **
 *******************************************************************************/
-BTA_API extern void BTA_PbcAuthRsp (char *p_password, char *p_userid);
+BTA_API extern void BTA_PbcAuthRsp (BD_ADDR bd_addr, char *p_password, char *p_userid);
 
 /*******************************************************************************
 **
@@ -368,24 +406,11 @@ BTA_API extern void BTA_PbcAuthRsp (char *p_password, char *p_userid);
 ** Returns          void
 **
 *******************************************************************************/
-BTA_API extern void BTA_PbcListCards(char *p_dir, tBTA_PBC_ORDER order, char *p_value,
+BTA_API extern void BTA_PbcListCards(BD_ADDR bd_addr, char *p_dir, tBTA_PBC_ORDER order, char *p_value,
                       tBTA_PBC_ATTR attribute, UINT16 max_list_count,
                       UINT16 list_start_offset, BOOLEAN is_reset_miss_calls,
                       tBTA_PBC_FILTER_MASK selector, UINT8 selector_op);
 
-#if defined(BSA_UNIFIED_CLIENT_SERVER) && (BSA_UNIFIED_CLIENT_SERVER == TRUE)
-/* BSA_SPECIFIC */
-/*******************************************************************************
-**
-** Function         BTA_PbcContinueRes
-**
-** Description      Continue rsponse of Get Card operation.
-**
-** Returns          void
-**
-*******************************************************************************/
-BTA_API extern void BTA_PbcContinueRes(void);
-#endif
 
 /*******************************************************************************
 **
@@ -396,7 +421,7 @@ BTA_API extern void BTA_PbcContinueRes(void);
 ** Returns          void
 **
 *******************************************************************************/
-BTA_API extern void BTA_PbcAbort(void);
+BTA_API extern void BTA_PbcAbort(BD_ADDR bd_addr);
 
 
 #ifdef __cplusplus

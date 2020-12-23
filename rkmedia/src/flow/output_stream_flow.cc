@@ -12,7 +12,10 @@ static bool send_buffer(Flow *f, MediaBufferVector &input_vector);
 class OutPutStreamFlow : public Flow {
 public:
   OutPutStreamFlow(const char *param);
-  virtual ~OutPutStreamFlow() { StopAllThread(); };
+  virtual ~OutPutStreamFlow() {
+    AutoPrintLine apl(__func__);
+    StopAllThread();
+  };
   static const char *GetFlowName() { return "output_stream"; }
   virtual int Control(unsigned long int request, ...) final {
     if (!out_stream)
@@ -39,32 +42,33 @@ OutPutStreamFlow::OutPutStreamFlow(const char *param) {
   std::string &name = params[KEY_NAME];
   const char *stream_name = name.c_str();
   SlotMap sm;
-  int input_maxcachenum = 1;
+  int input_maxcachenum = 10;
   ParseParamToSlotMap(params, sm, input_maxcachenum);
   if (sm.thread_model == Model::NONE)
     sm.thread_model =
         !params[KEY_FPS].empty() ? Model::ASYNCATOMIC : Model::ASYNCCOMMON;
   if (sm.mode_when_full == InputMode::NONE)
     sm.mode_when_full = InputMode::DROPCURRENT;
-
   const std::string &stream_param = separate_list.back();
   auto stream =
       REFLECTOR(Stream)::Create<Stream>(stream_name, stream_param.c_str());
   if (!stream) {
-    LOG("Fail to create stream %s\n", stream_name);
+    RKMEDIA_LOGI("Fail to create stream %s\n", stream_name);
     SetError(-EINVAL);
     return;
   }
   sm.input_slots.push_back(0);
   sm.input_maxcachenum.push_back(input_maxcachenum);
-  // sm.output_slots.push_back(0);
   sm.process = send_buffer;
-  if (!InstallSlotMap(sm, name, -1)) {
-    LOG("Fail to InstallSlotMap, %s\n", stream_name);
+  std::string tag = "OutputStreamFlow:";
+  tag.append(stream_name);
+  if (!InstallSlotMap(sm, tag, -1)) {
+    RKMEDIA_LOGI("Fail to InstallSlotMap for %s\n", tag.c_str());
     SetError(-EINVAL);
     return;
   }
   out_stream = stream;
+  SetFlowTag(tag);
 }
 
 bool send_buffer(Flow *f, MediaBufferVector &input_vector) {

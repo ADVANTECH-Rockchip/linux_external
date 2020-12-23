@@ -186,6 +186,30 @@ int app_ble_server_find_index_by_interface(tBSA_BLE_IF if_num)
     return -1;
 }
 
+/*******************************************************************************
+ **
+ ** Function         app_ble_server_find_index_by_conn_id
+ **
+ ** Description      find BLE server index by Connection ID
+ **
+ ** Parameters       conn_id: Connection ID
+ **
+ ** Returns          positive number(include 0) if successful, error code otherwise
+ **
+ *******************************************************************************/
+static int app_ble_server_find_index_by_conn_id(UINT16 conn_id)
+{
+    int index;
+
+    for (index = 0; index < BSA_BLE_SERVER_MAX; index++)
+    {
+        if (app_ble_cb.ble_server[index].conn_id == conn_id)
+        {
+            return index;
+        }
+    }
+    return -1;
+}
 
 /*
  * BLE Server functions
@@ -769,7 +793,9 @@ void app_ble_server_profile_cback(tBSA_BLE_EVT event,  tBSA_BLE_MSG *p_data)
     int num, attr_index;
     int status;
     tBSA_BLE_SE_SENDRSP send_server_resp;
-    UINT8 attribute_value[BSA_BLE_MAX_ATTR_LEN]={0x11,0x22,0x33,0x44};
+    static ATTR_VALUE attribute_value = DEFAULT_ATTRIBUTE_VALUE;
+    static UINT16 attribute_value_length = DEFAULT_ATTRIBUTE_VALUE_LENGTH;
+    UINT16 attr_len_to_copy;
 
     APP_DEBUG1("app_ble_server_profile_cback event = %d ", event);
 
@@ -880,16 +906,49 @@ void app_ble_server_profile_cback(tBSA_BLE_EVT event,  tBSA_BLE_MSG *p_data)
         break;
 
     case BSA_BLE_SE_READ_EVT:
-        APP_INFO1("BSA_BLE_SE_READ_EVT status:%d", p_data->ser_read.status);
+        APP_INFO1("BSA_BLE_SE_READ_EVT status:%d, is_long:%d, offset:%d",
+            p_data->ser_read.status, p_data->ser_read.is_long, p_data->ser_read.offset);
+        if (!p_data->ser_read.is_long)
+        {
+            if (p_data->ser_read.offset != 0)
+            {
+                APP_ERROR0("For Read Request, Offset should be 0!");
+                p_data->ser_read.offset = 0;
+            }
+        }
+        else
+        {
+            num = app_ble_server_find_index_by_conn_id(p_data->ser_read.conn_id);
+            if (num < 0)
+            {
+                APP_ERROR1("Incorrect connection id : %d", p_data->ser_read.conn_id);
+            }
+            else
+            {
+                if (attribute_value_length <= app_ble_cb.ble_server[num].att_mtu)
+                    p_data->ser_read.status = BSA_GATT_NOT_LONG;
+            }
+        }
+        attr_len_to_copy = attribute_value_length;
+        if (p_data->ser_read.offset >= attr_len_to_copy)
+        {
+            attr_len_to_copy = send_server_resp.len = 0;
+            p_data->ser_read.status = BSA_GATT_INVALID_OFFSET;
+        }
+        if (attr_len_to_copy != 0)
+        {
+            attr_len_to_copy -= p_data->ser_read.offset;
+        }
         BSA_BleSeSendRspInit(&send_server_resp);
         send_server_resp.conn_id = p_data->ser_read.conn_id;
         send_server_resp.trans_id = p_data->ser_read.trans_id;
         send_server_resp.status = p_data->ser_read.status;
         send_server_resp.handle = p_data->ser_read.handle;
         send_server_resp.offset = p_data->ser_read.offset;
-        send_server_resp.len = 4;
+        send_server_resp.len = attr_len_to_copy;
         send_server_resp.auth_req = GATT_AUTH_REQ_NONE;
-        memcpy(send_server_resp.value, attribute_value, BSA_BLE_MAX_ATTR_LEN);
+        memcpy(send_server_resp.value, attribute_value + p_data->ser_read.offset,
+                      send_server_resp.len);
         APP_INFO1("BSA_BLE_SE_READ_EVT: send_server_resp.conn_id:%d, send_server_resp.trans_id:%d", send_server_resp.conn_id, send_server_resp.trans_id, send_server_resp.status);
         APP_INFO1("BSA_BLE_SE_READ_EVT: send_server_resp.status:%d,send_server_resp.auth_req:%d", send_server_resp.status,send_server_resp.auth_req);
         APP_INFO1("BSA_BLE_SE_READ_EVT: send_server_resp.handle:%d, send_server_resp.offset:%d, send_server_resp.len:%d", send_server_resp.handle,send_server_resp.offset,send_server_resp.len );
@@ -903,6 +962,15 @@ void app_ble_server_profile_cback(tBSA_BLE_EVT event,  tBSA_BLE_MSG *p_data)
         APP_INFO1("BSA_BLE_SE_WRITE_EVT trans_id:%d, conn_id:%d, handle:%d",
             p_data->ser_write.trans_id, p_data->ser_write.conn_id, p_data->ser_write.handle);
 
+        if (p_data->ser_write.len > BSA_BLE_MAX_ATTR_LEN)
+        {
+            p_data->ser_write.status = BSA_GATT_INVALID_ATTR_LEN;
+        }
+        else
+        {
+            attribute_value_length = p_data->ser_write.len;
+            memcpy(attribute_value, p_data->ser_write.value, attribute_value_length);
+        }
         if (p_data->ser_write.need_rsp)
         {
             BSA_BleSeSendRspInit(&send_server_resp);
@@ -910,7 +978,9 @@ void app_ble_server_profile_cback(tBSA_BLE_EVT event,  tBSA_BLE_MSG *p_data)
             send_server_resp.trans_id = p_data->ser_write.trans_id;
             send_server_resp.status = p_data->ser_write.status;
             send_server_resp.handle = p_data->ser_write.handle;
-            send_server_resp.len = 0;
+            send_server_resp.len = p_data->ser_write.len;
+            send_server_resp.offset = p_data->ser_write.offset;
+            memcpy (send_server_resp.value, p_data->ser_write.value, p_data->ser_write.len);
             APP_INFO1("BSA_BLE_SE_WRITE_EVT: send_server_resp.conn_id:%d, send_server_resp.trans_id:%d", send_server_resp.conn_id, send_server_resp.trans_id, send_server_resp.status);
             APP_INFO1("BSA_BLE_SE_WRITE_EVT: send_server_resp.status:%d,send_server_resp.auth_req:%d", send_server_resp.status,send_server_resp.auth_req);
             APP_INFO1("BSA_BLE_SE_WRITE_EVT: send_server_resp.handle:%d, send_server_resp.offset:%d, send_server_resp.len:%d", send_server_resp.handle,send_server_resp.offset,send_server_resp.len );
@@ -919,22 +989,15 @@ void app_ble_server_profile_cback(tBSA_BLE_EVT event,  tBSA_BLE_MSG *p_data)
         break;
 
     case BSA_BLE_SE_EXEC_WRITE_EVT:
-        APP_INFO1("BSA_BLE_SE_EXEC_WRITE_EVT status:%d", p_data->ser_exec_write.status);
         APP_INFO1("BSA_BLE_SE_EXEC_WRITE_EVT trans_id:%d, conn_id:%d",
             p_data->ser_exec_write.trans_id, p_data->ser_exec_write.conn_id);
 
         BSA_BleSeSendRspInit(&send_server_resp);
         send_server_resp.conn_id = p_data->ser_exec_write.conn_id;
         send_server_resp.trans_id = p_data->ser_exec_write.trans_id;
-        send_server_resp.status = p_data->ser_exec_write.status;
-        send_server_resp.handle = p_data->ser_exec_write.handle;
-        send_server_resp.len = 0;
+        send_server_resp.status = BSA_SUCCESS;;
         APP_INFO1("conn_id:%d, trans_id:%d",
             send_server_resp.conn_id, send_server_resp.trans_id);
-        APP_INFO1("status:%d, auth_req:%d",
-            send_server_resp.status,send_server_resp.auth_req);
-        APP_INFO1("handle:%d, offset:%d, len:%d",
-            send_server_resp.handle,send_server_resp.offset,send_server_resp.len );
         BSA_BleSeSendRsp(&send_server_resp);
         break;
 
@@ -968,6 +1031,20 @@ void app_ble_server_profile_cback(tBSA_BLE_EVT event,  tBSA_BLE_MSG *p_data)
         }
         break;
 
+    case BSA_BLE_SE_MTU_EVT:
+        APP_INFO1("BSA_BLE_SE_MTU_EVT  :conn_id:0x%x, mtu:%d",
+            p_data->ser_mtu.conn_id, p_data->ser_mtu.att_mtu);
+        num = app_ble_server_find_index_by_conn_id(p_data->ser_mtu.conn_id);
+        if (num < 0)
+        {
+            APP_ERROR1("Incorrect connection id : %d", p_data->ser_mtu.conn_id);
+        }
+        else
+        {
+            app_ble_cb.ble_server[num].att_mtu = p_data->ser_mtu.att_mtu;
+        }
+        break;
+
     case BSA_BLE_SE_CONGEST_EVT:
         APP_INFO1("BSA_BLE_SE_CONGEST_EVT  :conn_id:0x%x, congested:%d",
             p_data->ser_congest.conn_id, p_data->ser_congest.congested);
@@ -987,38 +1064,9 @@ void app_ble_server_profile_cback(tBSA_BLE_EVT event,  tBSA_BLE_MSG *p_data)
         break;
 
     case BSA_BLE_SE_CONFIRM_EVT:
-        APP_INFO1("BSA_BLE_SE_CONFIRM_EVT  :conn_id:0x%x, status:%d",
-            p_data->ser_confirm.conn_id, p_data->ser_confirm.status);
-        break;
-
-    case BSA_BLE_APCF_ENABLE_EVT:
-        APP_INFO1("APCF %s, status %d",
-                  (p_data->apcf_enable.enable ? "Enable" : "Disable"),
-                  p_data->apcf_enable.status);
-        break;
-
-    case BSA_BLE_APCF_CFG_EVT:
-        if (p_data->apcf_cfg.status == BSA_SUCCESS)
-        {
-            if (p_data->apcf_cfg.cond_type == BSA_BLE_APCF_FILTER_SETTING)
-            {
-                APP_INFO1("status : %d cond : %d action : %d the remainder filter is : %d",
-                    p_data->apcf_cfg.status, p_data->apcf_cfg.cond_type,
-                    p_data->apcf_cfg.action, p_data->apcf_cfg.num_avail);
-            }
-            else
-            {
-                APP_INFO1("status : %d cond : %d action : %d the remainder condition is : %d",
-                    p_data->apcf_cfg.status, p_data->apcf_cfg.cond_type,
-                    p_data->apcf_cfg.action, p_data->apcf_cfg.num_avail);
-            }
-        }
-        else
-        {
-            APP_INFO1("status : %d cond : %d action : %d",
-                p_data->apcf_cfg.status, p_data->apcf_cfg.cond_type,
-                p_data->apcf_cfg.action);
-        }
+        APP_INFO1("BSA_BLE_SE_CONFIRM_EVT:conn_id:0x%x, attr_id:0x%x, status:%d",
+            p_data->ser_confirm.conn_id, p_data->ser_confirm.attr_id,
+            p_data->ser_confirm.status);
         break;
 
     default:

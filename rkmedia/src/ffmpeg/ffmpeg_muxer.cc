@@ -34,6 +34,7 @@ private:
   std::string path;
   std::string oformat;
   AVFormatContext *context;
+  AVDictionary *opt;
   std::vector<AVStream *> streams;
   int nb_streams;
   std::vector<int64_t> first_timestamp;
@@ -51,21 +52,55 @@ private:
 std::shared_ptr<MediaBuffer> FFMPEGMuxer::empty =
     std::make_shared<MediaBuffer>();
 
+static bool _convert_to_avdictionary(std::string avdictionary,
+                                     AVDictionary **opt) {
+  std::list<std::string> avdics;
+  parse_media_param_list(avdictionary.c_str(), avdics, ',');
+
+  for (auto &avdic : avdics) {
+    std::list<std::string> values;
+    parse_media_param_list(avdic.c_str(), values, '-');
+    if (values.size() != 2) {
+      RKMEDIA_LOGI("ffmpeg_muxer:: avdictionary error: %s.\n", avdic.c_str());
+      continue;
+    }
+    std::string name, value;
+    name = values.front();
+    values.pop_front();
+    value = values.front();
+    values.pop_front();
+    av_dict_set(opt, name.c_str(), value.c_str(), 0);
+  }
+  return true;
+}
+
 FFMPEGMuxer::FFMPEGMuxer(const char *param)
-    : Muxer(param), context(NULL), nb_streams(0) {
+    : Muxer(param), context(NULL), opt(NULL), nb_streams(0) {
   std::map<std::string, std::string> params;
+  std::string muxer_ffmpeg_avdictionary;
   std::list<std::pair<const std::string, std::string &>> req_list;
   req_list.push_back(
       std::pair<const std::string, std::string &>(KEY_PATH, path));
   req_list.push_back(
       std::pair<const std::string, std::string &>(KEY_OUTPUTDATATYPE, oformat));
+  req_list.push_back(std::pair<const std::string, std::string &>(
+      KEY_MUXER_FFMPEG_AVDICTIONARY, muxer_ffmpeg_avdictionary));
+
   parse_media_param_match(param, params, req_list);
+
+  _convert_to_avdictionary(muxer_ffmpeg_avdictionary, &opt);
 }
 
 FFMPEGMuxer::~FFMPEGMuxer() {
   if (!context)
     return;
-  if (context->pb)
+  if (m_handler != nullptr) {
+    // customIO, may not free opaque, it comes from outside.
+    if (context->pb && context->pb->buffer) {
+      av_free(context->pb->buffer);
+      av_free(context->pb);
+    }
+  } else if (context->pb)
     avio_closep(&context->pb);
   avformat_free_context(context);
 }
@@ -73,14 +108,13 @@ FFMPEGMuxer::~FFMPEGMuxer() {
 bool FFMPEGMuxer::Init() {
   if (!empty)
     return false;
-  if (path.empty()) {
-    LOG("missing path\n");
+  if (path.empty() && oformat.empty()) {
+    RKMEDIA_LOGI("you must set path or output format.\n");
     return false;
   }
   AVFormatContext *c = NULL;
-  auto ret = avformat_alloc_output_context2(&c, NULL,
-                                            oformat.empty() ? NULL : oformat.c_str(),
-                                            path.c_str());
+  auto ret = avformat_alloc_output_context2(
+      &c, NULL, oformat.empty() ? NULL : oformat.c_str(), path.c_str());
   if (!c) {
     fprintf(stderr,
             "avformat_alloc_output_context2 failed for url %s, ret: %d\n",
@@ -100,10 +134,10 @@ static bool _convert_to_avcodecparam(AVFormatContext *c, const MediaConfig *mc,
   case Type::Video: {
     const VideoConfig &vc = mc->vid_cfg;
     const ImageConfig &ic = (type == Type::Image) ? mc->img_cfg : vc.image_cfg;
+
     par->codec_type = AVMEDIA_TYPE_VIDEO;
-    par->codec_id = (type == Type::Image)
-                        ? AV_CODEC_ID_RAWVIDEO
-                        : PixFmtToAVCodecID(ic.image_info.pix_fmt);
+    par->codec_id = (type == Type::Image) ? AV_CODEC_ID_RAWVIDEO
+                                          : CodecTypeToAVCodecID(ic.codec_type);
     if (par->codec_id == AV_CODEC_ID_NONE)
       return false;
     auto av_fmt = PixFmtToAVPixFmt(ic.image_info.pix_fmt);
@@ -127,7 +161,7 @@ static bool _convert_to_avcodecparam(AVFormatContext *c, const MediaConfig *mc,
   case Type::Audio: {
     const AudioConfig &ac = mc->aud_cfg;
     par->codec_type = AVMEDIA_TYPE_AUDIO;
-    par->codec_id = SampleFmtToAVCodecID(ac.sample_info.fmt);
+    par->codec_id = CodecTypeToAVCodecID(ac.codec_type);
     if (par->codec_id == AV_CODEC_ID_NONE)
       return false;
     par->codec_tag = av_codec_get_tag(c->oformat->codec_tag, par->codec_id);
@@ -136,7 +170,7 @@ static bool _convert_to_avcodecparam(AVFormatContext *c, const MediaConfig *mc,
     par->channel_layout = av_get_default_channel_layout(par->channels);
     par->sample_rate = ac.sample_info.sample_rate;
     // par->block_align
-    if (par->codec_id == AV_CODEC_ID_MP2)
+    if (par->codec_id == AV_CODEC_ID_MP2 || par->codec_id == AV_CODEC_ID_AAC)
       par->frame_size = ac.sample_info.nb_samples;
     *time_base = (AVRational){1, par->sample_rate};
   } break;
@@ -168,12 +202,12 @@ bool FFMPEGMuxer::NewMuxerStream(
     return false;
   AVStream *s = avformat_new_stream(context, NULL);
   if (!s) {
-    LOG("avformat_new_stream failed\n");
+    RKMEDIA_LOGI("avformat_new_stream failed\n");
     return false;
   }
   assert(s->index < 64);
   stream_no = s->index;
-  LOGD("new stream index %d\n", stream_no);
+  RKMEDIA_LOGD("new stream index %d\n", stream_no);
   s->id = context->nb_streams - 1;
   *(s->codecpar) = *codecpar;
   s->time_base = time_base;
@@ -218,7 +252,7 @@ bool FFMPEGMuxer::NewMuxerStream(
 
 std::shared_ptr<MediaBuffer> FFMPEGMuxer::WriteHeader(int stream_no) {
   if (stream_no < 0 || stream_no >= (int)streams.size()) {
-    LOG("Invalid stream no : %d\n", stream_no);
+    RKMEDIA_LOGI("Invalid stream no : %d\n", stream_no);
     return nullptr;
   }
   const char *url = path.c_str();
@@ -228,6 +262,24 @@ std::shared_ptr<MediaBuffer> FFMPEGMuxer::WriteHeader(int stream_no) {
   av_dump_format(context, stream_no, url, 1);
 #endif
   int ret;
+  // custom IO
+  if (m_handler != nullptr) {
+    AVIOContext *avio_ctx_;
+    unsigned char *avio_ctx_buf_;
+    int avio_ctx_buf_size_ = 102400;
+    if (oformat == MUXER_MPEG_TS) {
+      // TRANSPORT_PACKET_SIZE = 188
+      avio_ctx_buf_size_ = 188 * 1000;
+    }
+    avio_ctx_buf_ = (unsigned char *)av_malloc(avio_ctx_buf_size_);
+    int write_flag = 1;
+    avio_ctx_ =
+        avio_alloc_context(avio_ctx_buf_, avio_ctx_buf_size_, write_flag,
+                           m_handler, NULL, m_write_callback_func, NULL);
+    context->pb = avio_ctx_;
+    context->oformat->flags = AVFMT_NOFILE;
+  }
+
   if (!(context->oformat->flags & AVFMT_NOFILE)) {
     ret = avio_open(&context->pb, url, AVIO_FLAG_WRITE);
     if (ret < 0) {
@@ -238,7 +290,8 @@ std::shared_ptr<MediaBuffer> FFMPEGMuxer::WriteHeader(int stream_no) {
     if (url && !(context->url = av_strdup(url)))
       return nullptr;
   }
-  ret = avformat_write_header(context, NULL);
+  ret = avformat_write_header(context, &opt);
+
   if (ret < 0) {
     PrintAVError(ret, "Fail to write header", path.c_str());
     return nullptr;
@@ -246,8 +299,8 @@ std::shared_ptr<MediaBuffer> FFMPEGMuxer::WriteHeader(int stream_no) {
 #ifndef NDEBUG
   int i = 0;
   for (auto s : streams) {
-    LOGD("stream index %d, after write header time_base: %d/%d\n", i++,
-         s->time_base.num, s->time_base.den);
+    RKMEDIA_LOGD("stream index %d, after write header time_base: %d/%d\n", i++,
+                 s->time_base.num, s->time_base.den);
   }
 #endif
   return empty;
@@ -284,8 +337,8 @@ FFMPEGMuxer::Write(std::shared_ptr<MediaBuffer> data, int stream_no) {
       pre_pts[stream_no] = pts;
     }
     avpkt.dts = avpkt.pts = pts;
-    LOGD("[%d] pts = %ld, num/den =%d/%d\n", stream_no, pts, s->time_base.num,
-         s->time_base.den);
+    RKMEDIA_LOGD("[%d] pts = %lld, num/den =%d/%d\n", stream_no, pts,
+                 s->time_base.num, s->time_base.den);
     ret = av_write_frame(context, &avpkt);
     av_packet_unref(&avpkt);
     if (ret < 0) {

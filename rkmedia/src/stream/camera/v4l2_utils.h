@@ -12,7 +12,36 @@
 
 #include "key_string.h"
 #include "media_type.h"
+#include "rkaiq/common/mediactl/mediactl.h"
 #include "utils.h"
+
+#ifndef V4L2_PIX_FMT_FBC2
+#define V4L2_PIX_FMT_FBC2 v4l2_fourcc('F', 'B', 'C', '2')
+#define V4L2_PIX_FMT_FBC0 v4l2_fourcc('F', 'B', 'C', '0')
+#endif
+
+#define DEV_PATH_LEN 64
+#define MAX_MEDIA_INDEX 4
+
+#define DRIVER_NAME "rkispp"
+#define MB_ENTITY_NAME DRIVER_NAME "_m_bypass"
+#define S0_ENTITY_NAME DRIVER_NAME "_scale0"
+#define S1_ENTITY_NAME DRIVER_NAME "_scale1"
+#define S2_ENTITY_NAME DRIVER_NAME "_scale2"
+
+typedef struct {
+  char media_dev_path[DEV_PATH_LEN];
+  char ispp_m_bypass_path[DEV_PATH_LEN];
+  char ispp_scale0_path[DEV_PATH_LEN];
+  char ispp_scale1_path[DEV_PATH_LEN];
+  char ispp_scale2_path[DEV_PATH_LEN];
+} ispp_t;
+
+typedef struct {
+  char media_dev_path[DEV_PATH_LEN];
+  char isp_main_path[DEV_PATH_LEN];
+  char isp_self_path[DEV_PATH_LEN];
+} isp_t;
 
 namespace easymedia {
 

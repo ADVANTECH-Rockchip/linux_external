@@ -186,7 +186,8 @@ if __name__ == '__main__':
             # draw
             cv2.rectangle(show_frame, (result.box.left, result.box.top), (result.box.right, result.box.bottom), (0, 255, 0), 2)
             if align_img is not None and index < 3:
-                show_frame[(10+112*index):(10+112*index+112), 10:(112+10)] = align_img
+                show_align_img = cv2.cvtColor(align_img, cv2.COLOR_RGB2BGR)
+                show_frame[(10+112*index):(10+112*index+112), 10:(112+10)] = show_align_img
 
             show_str = str(result.id)
             if target_name is not None:

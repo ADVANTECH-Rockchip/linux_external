@@ -559,7 +559,7 @@ static void app_disc_parse_eir_device_id(UINT8 *p_eir, UINT8 data_length)
  ** Returns          void
  **
  *******************************************************************************/
-void app_disc_parse_eir(UINT8 *p_eir, UINT8 *playrole)
+void app_disc_parse_eir(UINT8 *p_eir, char *full_name, char *short_name, UINT8 *playrole)
 {
     UINT8 *p = p_eir;
     UINT8 eir_length;
@@ -796,7 +796,7 @@ void app_generic_disc_cback(tBSA_DISC_EVT event, tBSA_DISC_MSG *p_data)
 
         if (p_data->disc_new.eir_data[0])
         {
-            app_disc_parse_eir(p_data->disc_new.eir_data, NULL);
+            app_disc_parse_eir(p_data->disc_new.eir_data, NULL, NULL, NULL);
         }
         break;
 
@@ -909,7 +909,7 @@ int app_disc_start_regular(tBSA_DISC_CBACK *p_custom_disc_cback, int duration)
  ** Returns          int
  **
  *******************************************************************************/
-int app_disc_start_ble_regular(tBSA_DISC_CBACK *p_custom_disc_cback)
+int app_disc_start_ble_regular(tBSA_DISC_CBACK *p_custom_disc_cback, int duration)
 {
     int status;
     tBSA_DISC_START disc_start_param;
@@ -948,7 +948,7 @@ int app_disc_start_ble_regular(tBSA_DISC_CBACK *p_custom_disc_cback)
  ** Returns          int
  **
  *******************************************************************************/
-int app_disc_start_services(tBSA_SERVICE_MASK services)
+int app_disc_start_services(tBSA_SERVICE_MASK services, int duration)
 {
     int status;
     tBSA_DISC_START disc_start_param;

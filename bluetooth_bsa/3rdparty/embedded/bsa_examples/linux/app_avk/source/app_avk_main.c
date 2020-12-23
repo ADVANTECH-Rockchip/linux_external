@@ -84,6 +84,7 @@ void app_avk_display_main_menu(void)
     APP_INFO1("\t%d  => AVK Send Get Folder Items Command", APP_AVK_MENU_GET_FOLDER_ITEMS);
     APP_INFO1("\t%d  => AVK Send Change Path Command", APP_AVK_MENU_CHANGE_PATH);
     APP_INFO1("\t%d  => AVK Send Get Item Attribute Command", APP_AVK_MENU_GET_ITEM_ATTRIBUTES);
+    APP_INFO1("\t%d  => AVK Send Search Items Command", APP_AVK_MENU_SEARCH_ITEMS);
     APP_INFO1("\t%d  => AVK Send Play Item Command", APP_AVK_MENU_PLAY_ITEM);
     APP_INFO1("\t%d  => AVK Send Add to Now Playing Command", APP_AVK_MENU_ADD_TO_NOW_PLAYING);
     APP_INFO1("\t%d  => AVK Send List Player application setting Attributes Command",
@@ -280,7 +281,9 @@ int main(int argc, char **argv)
     int connection_index;
     UINT32 first_param, second_param, third_param;
     tAVRC_UID uid;
+    char search_str[BSA_RC_MAX_PARAM_LEN];
     UINT16 delay;
+    UINT16 str_len;
     tAPP_AVK_CONNECTION *connection = NULL;
     char msg[64];
     int use_socket = 0;
@@ -665,6 +668,24 @@ int main(int argc, char **argv)
             printf("Choose uid_counter\n");
             third_param = app_get_choice("\n");
             app_avk_rc_get_items_attr(first_param, uid, third_param, connection->rc_handle);
+            break;
+
+        case APP_AVK_MENU_SEARCH_ITEMS:
+            printf("Choose connection index\n");
+            app_avk_display_connections();
+            connection_index = app_get_choice("\n");
+            connection = app_avk_find_connection_by_index(connection_index);
+            if (connection)
+            {
+                str_len = app_get_string("Enter String for Browsing Search",
+                    search_str, sizeof(search_str));
+                app_avk_rc_search_items(str_len, search_str, connection->rc_handle);
+            }
+            else
+            {
+                printf("Unknown choice:%d\n", connection_index);
+            }
+
             break;
 
         case APP_AVK_MENU_PLAY_ITEM:

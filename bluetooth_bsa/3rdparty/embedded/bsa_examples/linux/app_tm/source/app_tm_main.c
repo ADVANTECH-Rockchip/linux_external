@@ -4,8 +4,8 @@
 **
 **  Description:    Bluetooth Test Module main application
 **
-**  Copyright (c) 2010-2014, Broadcom Corp., All Rights Reserved.
-**  Broadcom Bluetooth Core. Proprietary and confidential.
+**  Copyright (c) 2019, Cypress Semiconductor Corp., All Rights Reserved.
+**  Cypress Bluetooth Core. Proprietary and confidential.
 **
 *****************************************************************************/
 
@@ -54,6 +54,10 @@ enum
     APP_TM_MENU_CONFIGURE_PCM,
     APP_TM_MENU_CONFIGURE_SCO,
     APP_TM_MENU_CHANGE_PRIORITY,
+    APP_TM_MENU_COEX_SET_EXT_FRAME_CONFIG,
+    APP_TM_MENU_COEX_SET_MWS_CHANNEL_PARAM,
+    APP_TM_MENU_SET_AFH_BEHAVIOR,
+    APP_TM_MENU_SET_ENCRYPTION_KEY_SIZE,
     APP_TM_MENU_QUIT = 99
 };
 
@@ -101,6 +105,10 @@ void app_tm_display_main_menu(void)
     APP_INFO1("    %d => Configure PCM interface", APP_TM_MENU_CONFIGURE_PCM);
     APP_INFO1("    %d => Configure SCO", APP_TM_MENU_CONFIGURE_SCO);
     APP_INFO1("    %d => Change connection priority", APP_TM_MENU_CHANGE_PRIORITY);
+    APP_INFO1("    %d => Set External Frame Configuration", APP_TM_MENU_COEX_SET_EXT_FRAME_CONFIG);
+    APP_INFO1("    %d => Set MWS Channel Parameters", APP_TM_MENU_COEX_SET_MWS_CHANNEL_PARAM);
+    APP_INFO1("    %d => Set AFH Behavior", APP_TM_MENU_SET_AFH_BEHAVIOR);
+    APP_INFO1("    %d => Set Encryption Key Size", APP_TM_MENU_SET_ENCRYPTION_KEY_SIZE);
     APP_INFO1("    %d => Quit", APP_TM_MENU_QUIT);
 }
 
@@ -313,30 +321,50 @@ int main (int argc, char **argv)
             break;
 
         case APP_TM_MENU_LE_TEST:
-            APP_INFO0("LE Cmd Tests:\n");
-            APP_INFO0("    0: to run tx test\n");
-            APP_INFO0("    1: to run rx test\n");
-            APP_INFO0("    2: to end LE test\n");
-            memset(&cmd,0,sizeof(tBSA_TM_LE_CMD));
-            cmd.test = app_get_choice("LE test");
-            if (cmd.test > 2)
+            APP_INFO0("LE Cmd Tests:");
+            APP_INFO1("    %d: to run rx test", BSA_LE_RX_TEST_CMD);
+            APP_INFO1("    %d: to run tx test", BSA_LE_TX_TEST_CMD);
+            APP_INFO0("    **** 2M PHY Option ****");
+            APP_INFO1("    %d: to run enhanced rx test", BSA_LE_ENHANCED_RX_TEST_CMD);
+            APP_INFO1("    %d: to run enhanced tx test", BSA_LE_ENHANCED_TX_TEST_CMD);
+            APP_INFO1("    %d: to end LE test", BSA_LE_END_TEST_CMD);
+            memset(&cmd, 0, sizeof(tBSA_TM_LE_CMD));
+            cmd.test = app_get_choice("LE Test");
+            if (cmd.test > BSA_LE_END_TEST_CMD)
+            {
+                APP_INFO1("Invalid LE Test Command:%d", cmd.test);
                 break;
-            if (cmd.test == BSA_LE_RX_TEST_CMD)
-            {
-                cmd.freq = app_get_choice("Enter rx frequency (0 - 39)");
             }
-            else if (cmd.test == BSA_LE_TX_TEST_CMD)
+            switch (cmd.test)
             {
-                cmd.freq = app_get_choice("Enter tx frequency (0 - 39)");
-                cmd.payload_len = app_get_choice("Enter test_data_len (0 - 37)");
-                cmd.pattern = app_get_choice("Enter payload_pattern (0 - 7)");
+                case BSA_LE_RX_TEST_CMD:
+                    cmd.freq = app_get_choice("Enter rx frequency (0 - 39)");
+                break;
+                case BSA_LE_TX_TEST_CMD:
+                    cmd.freq = app_get_choice("Enter tx frequency (0 - 39)");
+                    cmd.payload_len = app_get_choice("Enter test_data_len (0 - 255)");
+                    cmd.pattern = app_get_choice("Enter payload_pattern (0 - 7)");
+                break;
+                case BSA_LE_ENHANCED_RX_TEST_CMD:
+                    cmd.freq = app_get_choice("Enter tx frequency (0 - 39)");
+                    cmd.phy = app_get_choice("Enter phy (1 - 3)");
+                    cmd.modulation = app_get_choice("Enter modulation idx (0 - 1)");
+                break;
+                case BSA_LE_ENHANCED_TX_TEST_CMD:
+                    cmd.freq = app_get_choice("Enter tx frequency (0 - 39)");
+                    cmd.payload_len = app_get_choice("Enter test_data_len (0 - 255)");
+                    cmd.pattern = app_get_choice("Enter payload_pattern (0 - 7)");
+                    cmd.phy = app_get_choice("Enter phy (1 - 4)");
+                break;
+                case BSA_LE_END_TEST_CMD:
+                break;
             }
 
-            if(app_tm_le_test(&cmd)==BSA_SUCCESS)
+            if (app_tm_le_test(&cmd) == BSA_SUCCESS)
             {
-                if(cmd.test==BSA_LE_END_TEST_CMD)
+                if (cmd.test == BSA_LE_END_TEST_CMD)
                 {
-                    APP_INFO1("LE Test result. count=%d\n",cmd.retcount);
+                    APP_INFO1("LE Test result. count = %d", cmd.retcount);
                 }
             }
             else
@@ -371,6 +399,42 @@ int main (int argc, char **argv)
 
         case APP_TM_MENU_CHANGE_PRIORITY:
             app_tm_vsc_set_connection_priority();
+            break;
+
+        case APP_TM_MENU_COEX_SET_EXT_FRAME_CONFIG:
+            app_tm_coex_set_ext_frame_config();
+            break;
+
+        case APP_TM_MENU_COEX_SET_MWS_CHANNEL_PARAM:
+            app_tm_coex_set_mws_channel_param();
+            break;
+
+        case APP_TM_MENU_SET_AFH_BEHAVIOR:
+            /* need to enable BSA_AFH_BEHAVIOR_DEBUG definition on bsa_server.txt */
+            app_tm_vsc_set_afh_behavior();
+            break;
+
+        case APP_TM_MENU_SET_ENCRYPTION_KEY_SIZE:
+            APP_INFO0("SET Bluetooth Encryption Key Size");
+            APP_INFO0("Each bit specifying acceptable key sizes");
+            APP_INFO0("0x0001 - Accept 8-bit key");
+            APP_INFO0("0x0002 - Accept 16-bit key");
+            APP_INFO0("0x0004 - Accept 24-bit key");
+            APP_INFO0("0x0008 - Accept 32-bit key");
+            APP_INFO0("0x0010 - Accept 40-bit key");
+            APP_INFO0("0x0020 - Accept 48-bit key");
+            APP_INFO0("0x0040 - Accept 56-bit key");
+            APP_INFO0("0x0080 - Accept 64-bit key");
+            APP_INFO0("0x0100 - Accept 72-bit key");
+            APP_INFO0("0x0200 - Accept 80-bit key");
+            APP_INFO0("0x0400 - Accept 88-bit key");
+            APP_INFO0("0x0800 - Accept 96-bit key");
+            APP_INFO0("0x1000 - Accept 104-bit key");
+            APP_INFO0("0x2000 - Accept 112-bit key");
+            APP_INFO0("0x4000 - Accept 120-bit key");
+            APP_INFO0("0x8000 - Accept 128-bit key");
+            choice = app_get_choice("Value ");
+            app_tm_vsc_set_encryption_key_size(choice);
             break;
 
         default:

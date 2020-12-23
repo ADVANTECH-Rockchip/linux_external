@@ -9,6 +9,11 @@
 #include "ffmpeg_utils.h"
 #include "media_type.h"
 
+#ifdef MOD_TAG
+#undef MOD_TAG
+#endif
+#define MOD_TAG 13
+
 namespace easymedia {
 
 // A encoder which call the ffmpeg interface.
@@ -61,28 +66,29 @@ FFMPEGAudioEncoder::~FFMPEGAudioEncoder() {
 
 bool FFMPEGAudioEncoder::Init() {
   if (output_data_type.empty()) {
-    LOG("missing %s\n", KEY_OUTPUTDATATYPE);
+    RKMEDIA_LOGI("missing %s\n", KEY_OUTPUTDATATYPE);
     return false;
   }
-  output_fmt = StringToSampleFmt(output_data_type.c_str());
+  codec_type = StringToCodecType(output_data_type.c_str());
   if (!ff_codec_name.empty()) {
     av_codec = avcodec_find_encoder_by_name(ff_codec_name.c_str());
   } else {
-    AVCodecID id = SampleFmtToAVCodecID(output_fmt);
+    AVCodecID id = CodecTypeToAVCodecID(codec_type);
     av_codec = avcodec_find_encoder(id);
   }
   if (!av_codec) {
-    LOG("Fail to find ffmpeg codec, request codec name=%s, or format=%s\n",
+    RKMEDIA_LOGI(
+        "Fail to find ffmpeg codec, request codec name=%s, or format=%s\n",
         ff_codec_name.c_str(), output_data_type.c_str());
     return false;
   }
   avctx = avcodec_alloc_context3(av_codec);
   if (!avctx) {
-    LOG("Fail to avcodec_alloc_context3\n");
+    RKMEDIA_LOGI("Fail to avcodec_alloc_context3\n");
     return false;
   }
-  LOG("av codec name=%s\n",
-      av_codec->long_name ? av_codec->long_name : av_codec->name);
+  RKMEDIA_LOGI("av codec name=%s\n",
+               av_codec->long_name ? av_codec->long_name : av_codec->name);
   return true;
 }
 
@@ -95,8 +101,8 @@ static bool check_sample_fmt(const AVCodec *codec,
     if (*p++ == sample_fmt)
       return true;
   }
-  LOG("av codec_id [0x%08x] does not support av sample fmt [%d]\n", codec->id,
-      sample_fmt);
+  RKMEDIA_LOGI("av codec_id [0x%08x] does not support av sample fmt [%d]\n",
+               codec->id, sample_fmt);
   return false;
 }
 
@@ -108,8 +114,8 @@ static bool check_sample_rate(const AVCodec *codec, int sample_rate) {
     if (*p++ == sample_rate)
       return true;
   }
-  LOG("av codec_id [0x%08x] does not support sample_rate [%d]\n", codec->id,
-      sample_rate);
+  RKMEDIA_LOGI("av codec_id [0x%08x] does not support sample_rate [%d]\n",
+               codec->id, sample_rate);
   return false;
 }
 
@@ -122,7 +128,8 @@ static bool check_channel_layout(const AVCodec *codec,
     if (*p++ == channel_layout)
       return true;
   }
-  LOG("av codec_id [0x%08x] does not support audio channel_layout [%d]\n",
+  RKMEDIA_LOGI(
+      "av codec_id [0x%08x] does not support audio channel_layout [%d]\n",
       codec->id, (int)channel_layout);
   return false;
 }
@@ -148,6 +155,7 @@ bool FFMPEGAudioEncoder::InitConfig(const MediaConfig &cfg) {
   }
   auto mc = cfg;
   mc.type = Type::Audio;
+  mc.aud_cfg.codec_type = codec_type;
   if (!(avctx->codec->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE))
     mc.aud_cfg.sample_info.nb_samples = avctx->frame_size;
 
@@ -165,16 +173,53 @@ bool FFMPEGAudioEncoder::InitConfig(const MediaConfig &cfg) {
   return AudioEncoder::InitConfig(mc);
 }
 
-int FFMPEGAudioEncoder::GetNbSamples() {
-  return avctx ? avctx->frame_size : 0;
-}
+int FFMPEGAudioEncoder::GetNbSamples() { return avctx ? avctx->frame_size : 0; }
 
 int FFMPEGAudioEncoder::SendInput(const std::shared_ptr<MediaBuffer> &input) {
   int ret = 0;
-  if (input->IsValid()) {
-    assert(input && input->GetType() == Type::Audio);
+  if (input && input->IsValid()) {
+    if ((input->GetType() != Type::Audio)) {
+      RKMEDIA_LOGE("AENC: input buffer not Audio type.\n");
+      return 0;
+    }
     auto in = std::static_pointer_cast<SampleBuffer>(input);
+    if ((av_codec->id == AV_CODEC_ID_AAC) &&
+        (in->GetSampleFormat() != SAMPLE_FMT_FLTP)) {
+      SampleInfo sampleinfo;
+      sampleinfo.fmt = SAMPLE_FMT_FLTP;
+      sampleinfo.channels = avctx->channels;
+      sampleinfo.nb_samples = avctx->frame_size;
+      // from S16 to FLT
+      int buffer_size = avctx->channels *
+                        av_get_bytes_per_sample(avctx->sample_fmt) *
+                        avctx->frame_size;
+      auto buffer = std::make_shared<easymedia::SampleBuffer>(
+          MediaBuffer::Alloc2(buffer_size), sampleinfo);
+      uint8_t *po = (uint8_t *)buffer->GetPtr();
+      uint8_t *pi = (uint8_t *)in->GetPtr();
+      int is = av_get_bytes_per_sample(AV_SAMPLE_FMT_S16);
+      int os = av_get_bytes_per_sample(avctx->sample_fmt);
+
+      conv_AV_SAMPLE_FMT_S16_to_AV_SAMPLE_FMT_FLT(po, pi, is, os,
+                                                  po + buffer_size);
+
+      if (avctx->channels > 1) {
+        // from FLT to FLTP
+        auto fltp_buf = std::make_shared<easymedia::SampleBuffer>(
+            MediaBuffer::Alloc2(buffer_size), sampleinfo);
+        conv_package_to_planar((uint8_t *)fltp_buf->GetPtr(),
+                               (uint8_t *)buffer->GetPtr(), sampleinfo);
+        buffer = fltp_buf;
+      }
+      buffer->SetSamples(avctx->frame_size);
+      buffer->SetUSTimeStamp(in->GetUSTimeStamp());
+      buffer->SetValidSize(buffer_size);
+      in = buffer;
+    }
     if (in->GetSamples() > 0) {
+      frame->nb_samples =
+          in->GetValidSize() /
+          (avctx->channels * av_get_bytes_per_sample(avctx->sample_fmt));
       ret = avcodec_fill_audio_frame(frame, avctx->channels, avctx->sample_fmt,
                                      (const uint8_t *)in->GetPtr(),
                                      in->GetValidSize(), 0);
@@ -207,12 +252,9 @@ std::shared_ptr<MediaBuffer> FFMPEGAudioEncoder::FetchOutput() {
   auto pkt = av_packet_alloc();
   if (!pkt)
     return nullptr;
-  MediaBuffer mb(pkt->data, 0, -1, pkt, __ffmpeg_packet_free);
-  auto buffer = std::make_shared<SampleBuffer>(mb, output_fmt);
-  if (!buffer) {
-    errno = ENOMEM;
-    return nullptr;
-  }
+  std::shared_ptr<MediaBuffer> buffer = std::make_shared<MediaBuffer>(
+      pkt->data, 0, -1, pkt, __ffmpeg_packet_free);
+
   int ret = avcodec_receive_packet(avctx, pkt);
   if (ret < 0) {
     if (ret == AVERROR(EAGAIN)) {
@@ -229,6 +271,7 @@ std::shared_ptr<MediaBuffer> FFMPEGAudioEncoder::FetchOutput() {
   buffer->SetPtr(pkt->data);
   buffer->SetValidSize(pkt->size);
   buffer->SetUSTimeStamp(pkt->pts);
+  buffer->SetType(Type::Audio);
   return buffer;
 }
 

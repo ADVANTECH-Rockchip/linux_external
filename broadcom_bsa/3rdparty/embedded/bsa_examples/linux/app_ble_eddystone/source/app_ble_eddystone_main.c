@@ -144,7 +144,7 @@ void app_ble_eddystone_menu(void)
             break;
 
         case APP_BLE_EDDYSTONE_DISCOVER_EDDYSTONE_SERVER:
-            app_disc_start_ble_regular(app_ble_eddystone_init_disc_cback);
+            app_disc_start_ble_regular(app_ble_eddystone_init_disc_cback, 0);
             break;
 
         case APP_BLE_EDDYSTONE_START_LE_CLIENT:

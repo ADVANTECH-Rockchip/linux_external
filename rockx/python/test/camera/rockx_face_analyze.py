@@ -57,7 +57,8 @@ if __name__ == '__main__':
                           (result.box.right, result.box.bottom),
                           (0, 255, 0), 2)
             if align_img is not None and index < 3:
-                show_frame[10+112*index:10+112*index+112, 10:112+10] = align_img
+                show_align_img = cv2.cvtColor(align_img, cv2.COLOR_RGB2BGR)
+                show_frame[10+112*index:10+112*index+112, 10:112+10] = show_align_img
             if face_attribute is not None:
                 cv2.putText(show_frame, "g:%d a:%d" % (face_attribute.gender, face_attribute.age), (result.box.left, result.box.top-10),
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0))

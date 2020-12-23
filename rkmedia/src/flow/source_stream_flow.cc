@@ -1,11 +1,17 @@
 // Copyright 2019 Fuzhou Rockchip Electronics Co., Ltd. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+#include <sys/prctl.h>
 
 #include "buffer.h"
 #include "flow.h"
 #include "stream.h"
 #include "utils.h"
+
+#ifdef MOD_TAG
+#undef MOD_TAG
+#endif
+#define MOD_TAG 9
 
 namespace easymedia {
 
@@ -29,6 +35,7 @@ private:
   bool loop;
   std::thread *read_thread;
   std::shared_ptr<Stream> stream;
+  std::string tag;
 };
 
 SourceStreamFlow::SourceStreamFlow(const char *param)
@@ -44,11 +51,13 @@ SourceStreamFlow::SourceStreamFlow(const char *param)
   const std::string &stream_param = separate_list.back();
   stream = REFLECTOR(Stream)::Create<Stream>(stream_name, stream_param.c_str());
   if (!stream) {
-    LOG("Create stream %s failed\n", stream_name);
+    RKMEDIA_LOGI("Create stream %s failed\n", stream_name);
     SetError(-EINVAL);
     return;
   }
-  if (!SetAsSource(std::vector<int>({0}), void_transaction00, name)) {
+  tag = "SourceFlow:";
+  tag.append(name);
+  if (!SetAsSource(std::vector<int>({0}), void_transaction00, tag)) {
     SetError(-EINVAL);
     return;
   }
@@ -59,6 +68,7 @@ SourceStreamFlow::SourceStreamFlow(const char *param)
     SetError(-EINVAL);
     return;
   }
+  SetFlowTag(tag);
 }
 
 SourceStreamFlow::~SourceStreamFlow() {
@@ -66,7 +76,8 @@ SourceStreamFlow::~SourceStreamFlow() {
   StopAllThread();
   int stop = 1;
   if (stream && Control(S_STREAM_OFF, &stop))
-    LOG("Fail to stop source stream\n");
+    RKMEDIA_LOGI("Fail to stop source stream\n");
+  RKMEDIA_LOGI("\n#SourceStreamFlow[%s]: stream off....\n", GetFlowTag());
   if (read_thread) {
     source_start_cond_mtx->lock();
     loop = false;
@@ -75,13 +86,21 @@ SourceStreamFlow::~SourceStreamFlow() {
     read_thread->join();
     delete read_thread;
   }
+  RKMEDIA_LOGI("\n#SourceStreamFlow[%s]: read thread exit sucessfully!\n",
+               GetFlowTag());
   stream.reset();
+  RKMEDIA_LOGI("\n#SourceStreamFlow[%s]: stream reset sucessfully!\n",
+               GetFlowTag());
 }
 
 void SourceStreamFlow::ReadThreadRun() {
+  prctl(PR_SET_NAME, this->tag.c_str());
   source_start_cond_mtx->lock();
-  if (down_flow_num == 0 && IsEnable())
-    source_start_cond_mtx->wait();
+  if (waite_down_flow) {
+    if (down_flow_num == 0 && IsEnable()) {
+      source_start_cond_mtx->wait();
+    }
+  }
   source_start_cond_mtx->unlock();
   while (loop) {
     if (stream->Eof()) {

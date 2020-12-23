@@ -85,7 +85,6 @@
 #define AVRC_SUPF_CT_CAT3               0x0004      /* Category 3 */
 #define AVRC_SUPF_CT_CAT4               0x0008      /* Category 4 */
 #define AVRC_SUPF_CT_BROWSE             0x0040      /* Browsing */
-#define AVRC_SUPF_CT_APP_SETTINGS       0x0010      /* Player Application Settings */
 #define AVRC_SUPF_CT_GET_IMG_PROP       0x0080      /* Cover Art get image properties */
 #define AVRC_SUPF_CT_GET_IMG            0x0100      /* Cover Art get image */
 #define AVRC_SUPF_CT_GET_THUMB          0x0200      /* Cover Art get linked thumbnail */

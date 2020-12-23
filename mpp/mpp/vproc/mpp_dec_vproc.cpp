@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 Rockchip Electronics Co. LTD
+ * Copyright 2020 Rockchip Electronics Co. LTD
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,8 +27,9 @@
 #include "mpp_frame_impl.h"
 #include "mpp_dec_vproc.h"
 #include "iep_api.h"
+#include "iep2_api.h"
 
-#define vproc_dbg(flag, fmt, ...) \
+#define dec_vproc_dbg(flag, fmt, ...) \
     do { \
         _mpp_dbg(vproc_debug, flag, fmt, ## __VA_ARGS__); \
     } while (0)
@@ -58,13 +59,17 @@ typedef struct MppDecVprocCtxImpl_t {
 
     MppThread           *thd;
     RK_U32              reset;
+    sem_t               reset_sem;
 
     IepCtx              iep_ctx;
+    iep_com_ctx         *com_ctx;
     IepCmdParamDeiCfg   dei_cfg;
 
     // slot index for previous frame and current frame
     RK_S32              prev_idx;
     MppFrame            prev_frm;
+    RK_S32              curr_idx;
+    MppFrame            curr_frm;
 } MppDecVprocCtxImpl;
 
 static void dec_vproc_put_frame(Mpp *mpp, MppFrame frame, MppBuffer buf, RK_S64 pts)
@@ -116,21 +121,6 @@ static void dec_vproc_clr_prev(MppDecVprocCtxImpl *ctx)
     ctx->prev_frm = NULL;
 }
 
-static void dec_vproc_reset_queue(MppDecVprocCtxImpl *ctx)
-{
-    MppThread *thd = ctx->thd;
-
-    vproc_dbg_reset("reset start\n");
-    dec_vproc_clr_prev(ctx);
-
-    thd->lock(THREAD_CONTROL);
-    ctx->reset = 0;
-    vproc_dbg_reset("reset signal\n");
-    thd->signal(THREAD_CONTROL);
-    thd->unlock(THREAD_CONTROL);
-    vproc_dbg_reset("reset done\n");
-}
-
 static void dec_vproc_set_img_fmt(IepImg *img, MppFrame frm)
 {
     memset(img, 0, sizeof(*img));
@@ -148,7 +138,7 @@ static void dec_vproc_set_img(MppDecVprocCtxImpl *ctx, IepImg *img, RK_S32 fd, I
     img->uv_addr = fd + (y_size << 10);
     img->v_addr = fd + ((y_size + y_size / 4) << 10);
 
-    MPP_RET ret = iep_control(ctx->iep_ctx, cmd, img);
+    MPP_RET ret = ctx->com_ctx->ops->control(ctx->iep_ctx, cmd, img);
     if (ret)
         mpp_log_f("control %08x failed %d\n", cmd, ret);
 }
@@ -171,18 +161,222 @@ static MppBuffer dec_vproc_get_buffer(MppBufferGroup group, size_t size)
 // start deinterlace hardware
 static void dec_vproc_start_dei(MppDecVprocCtxImpl *ctx, RK_U32 mode)
 {
-    ctx->dei_cfg.dei_field_order =
-        (mode & MPP_FRAME_FLAG_TOP_FIRST) ?
-        (IEP_DEI_FLD_ORDER_TOP_FIRST) :
-        (IEP_DEI_FLD_ORDER_BOT_FIRST);
+    MPP_RET ret;
 
-    MPP_RET ret = iep_control(ctx->iep_ctx, IEP_CMD_SET_DEI_CFG, &ctx->dei_cfg);
-    if (ret)
-        mpp_log_f("IEP_CMD_SET_DEI_CFG failed %d\n", ret);
+    if (ctx->com_ctx->ver == 1) {
+        ctx->dei_cfg.dei_field_order =
+            (mode & MPP_FRAME_FLAG_TOP_FIRST) ?
+            (IEP_DEI_FLD_ORDER_TOP_FIRST) :
+            (IEP_DEI_FLD_ORDER_BOT_FIRST);
 
-    ret = iep_control(ctx->iep_ctx, IEP_CMD_RUN_SYNC, NULL);
+        ret = ctx->com_ctx->ops->control(ctx->iep_ctx,
+                                         IEP_CMD_SET_DEI_CFG, &ctx->dei_cfg);
+        if (ret)
+            mpp_log_f("IEP_CMD_SET_DEI_CFG failed %d\n", ret);
+    }
+
+    ret = ctx->com_ctx->ops->control(ctx->iep_ctx, IEP_CMD_RUN_SYNC, NULL);
     if (ret)
         mpp_log_f("IEP_CMD_RUN_SYNC failed %d\n", ret);
+}
+
+static void dec_vproc_set_dei_v1(MppDecVprocCtxImpl *ctx, MppFrame frm)
+{
+    MPP_RET ret = MPP_OK;
+    IepImg img;
+
+    Mpp *mpp = ctx->mpp;
+    MppBufferGroup group = mpp->mFrameGroup;
+    RK_U32 mode = mpp_frame_get_mode(frm);
+    MppBuffer buf = mpp_frame_get_buffer(frm);
+    MppBuffer dst0 = NULL;
+    MppBuffer dst1 = NULL;
+    int fd = -1;
+    size_t buf_size = mpp_buffer_get_size(buf);
+
+    // setup source IepImg
+    dec_vproc_set_img_fmt(&img, frm);
+
+    ret = ctx->com_ctx->ops->control(ctx->iep_ctx, IEP_CMD_INIT, NULL);
+    if (ret)
+        mpp_log_f("IEP_CMD_INIT failed %d\n", ret);
+
+    IepCap_t *cap = NULL;
+    ret = ctx->com_ctx->ops->control(ctx->iep_ctx, IEP_CMD_QUERY_CAP, &cap);
+    if (ret)
+        mpp_log_f("IEP_CMD_QUERY_CAP failed %d\n", ret);
+
+    // setup destination IepImg with new buffer
+    // NOTE: when deinterlace is enabled parser thread will reserve
+    //       more buffer than normal case
+    if (ctx->prev_frm && cap && cap->i4_deinterlace_supported) {
+        // 4 in 2 out case
+        vproc_dbg_status("4 field in and 2 frame out\n");
+        RK_S64 prev_pts = mpp_frame_get_pts(ctx->prev_frm);
+        RK_S64 curr_pts = mpp_frame_get_pts(frm);
+        RK_S64 first_pts = (prev_pts + curr_pts) / 2;
+
+        buf = mpp_frame_get_buffer(ctx->prev_frm);
+        fd = mpp_buffer_get_fd(buf);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_SRC);
+
+        // setup dst 0
+        dst0 = dec_vproc_get_buffer(group, buf_size);
+        mpp_assert(dst0);
+        fd = mpp_buffer_get_fd(dst0);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DST);
+
+        buf = mpp_frame_get_buffer(frm);
+        fd = mpp_buffer_get_fd(buf);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DEI_SRC1);
+
+        // setup dst 1
+        dst1 = dec_vproc_get_buffer(group, buf_size);
+        mpp_assert(dst1);
+        fd = mpp_buffer_get_fd(dst1);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DEI_DST1);
+
+        ctx->dei_cfg.dei_mode = IEP_DEI_MODE_I4O2;
+
+        mode = mode | MPP_FRAME_FLAG_IEP_DEI_I4O2;
+        mpp_frame_set_mode(frm, mode);
+
+        // start hardware
+        dec_vproc_start_dei(ctx, mode);
+
+        // NOTE: we need to process pts here
+        if (mode & MPP_FRAME_FLAG_TOP_FIRST) {
+            dec_vproc_put_frame(mpp, frm, dst0, first_pts);
+            dec_vproc_put_frame(mpp, frm, dst1, curr_pts);
+        } else {
+            dec_vproc_put_frame(mpp, frm, dst1, first_pts);
+            dec_vproc_put_frame(mpp, frm, dst0, curr_pts);
+        }
+    } else {
+        // 2 in 1 out case
+        vproc_dbg_status("2 field in and 1 frame out\n");
+        buf = mpp_frame_get_buffer(frm);
+        fd = mpp_buffer_get_fd(buf);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_SRC);
+
+        // setup dst 0
+        dst0 = dec_vproc_get_buffer(group, buf_size);
+        mpp_assert(dst0);
+        fd = mpp_buffer_get_fd(dst0);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DST);
+
+        ctx->dei_cfg.dei_mode = IEP_DEI_MODE_I2O1;
+        mode = mode | MPP_FRAME_FLAG_IEP_DEI_I2O1;
+        mpp_frame_set_mode(frm, mode);
+
+        // start hardware
+        dec_vproc_start_dei(ctx, mode);
+        dec_vproc_put_frame(mpp, frm, dst0, -1);
+    }
+}
+
+static void dec_vproc_set_dei_v2(MppDecVprocCtxImpl *ctx, MppFrame frm)
+{
+    IepImg img;
+
+    Mpp *mpp = ctx->mpp;
+    MppBufferGroup group = mpp->mFrameGroup;
+    RK_U32 mode = mpp_frame_get_mode(frm);
+    MppBuffer buf = mpp_frame_get_buffer(frm);
+    MppBuffer dst0 = NULL;
+    MppBuffer dst1 = NULL;
+    int fd = -1;
+    size_t buf_size = mpp_buffer_get_size(buf);
+    iep_com_ops *ops = ctx->com_ctx->ops;
+
+    // setup source IepImg
+    dec_vproc_set_img_fmt(&img, frm);
+
+    if (ctx->prev_frm && ctx->curr_frm) {
+        struct iep2_api_params params;
+
+        // 5 in 2 out case
+        vproc_dbg_status("5 field in and 2 frame out\n");
+        RK_S64 prev_pts = mpp_frame_get_pts(ctx->prev_frm);
+        RK_S64 curr_pts = mpp_frame_get_pts(ctx->curr_frm);
+        RK_S64 first_pts = (prev_pts + curr_pts) / 2;
+
+        // setup source frames
+        buf = mpp_frame_get_buffer(ctx->curr_frm);
+        fd = mpp_buffer_get_fd(buf);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_SRC);
+
+        buf = mpp_frame_get_buffer(frm);
+        fd = mpp_buffer_get_fd(buf);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DEI_SRC1);
+
+        buf = mpp_frame_get_buffer(ctx->prev_frm);
+        fd = mpp_buffer_get_fd(buf);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DEI_SRC2);
+
+        // setup dst 0
+        dst0 = dec_vproc_get_buffer(group, buf_size);
+        mpp_assert(dst0);
+        fd = mpp_buffer_get_fd(dst0);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DST);
+
+        // setup dst 1
+        dst1 = dec_vproc_get_buffer(group, buf_size);
+        mpp_assert(dst1);
+        fd = mpp_buffer_get_fd(dst1);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DEI_DST1);
+
+        params.ptype = IEP2_PARAM_TYPE_MODE;
+        params.param.mode.dil_mode = IEP2_DIL_MODE_I5O2;
+        params.param.mode.out_mode = IEP2_OUT_MODE_LINE;
+        params.param.mode.dil_order = (mode & MPP_FRAME_FLAG_TOP_FIRST) ?
+                                      IEP2_FIELD_ORDER_TFF : IEP2_FIELD_ORDER_BFF;
+
+        ops->control(ctx->iep_ctx, IEP_CMD_SET_DEI_CFG, &params);
+
+        params.ptype = IEP2_PARAM_TYPE_COM;
+        params.param.com.sfmt = IEP2_FMT_YUV420;
+        params.param.com.dfmt = IEP2_FMT_YUV420;
+        params.param.com.sswap = IEP2_YUV_SWAP_SP_UV;
+        params.param.com.dswap = IEP2_YUV_SWAP_SP_UV;
+        params.param.com.width = img.act_w;
+        params.param.com.height = img.act_h;
+
+        ops->control(ctx->iep_ctx, IEP_CMD_SET_DEI_CFG, &params);
+
+        mode = mode | MPP_FRAME_FLAG_IEP_DEI_I4O2;
+        mpp_frame_set_mode(frm, mode);
+
+        // start hardware
+        dec_vproc_start_dei(ctx, mode);
+
+        // NOTE: we need to process pts here
+        dec_vproc_put_frame(mpp, frm, dst0, first_pts);
+        dec_vproc_put_frame(mpp, frm, dst1, curr_pts);
+    } else {
+        struct iep2_api_params params;
+
+        // 2 in 1 out case
+        vproc_dbg_status("2 field in and 1 frame out\n");
+        buf = mpp_frame_get_buffer(frm);
+        fd = mpp_buffer_get_fd(buf);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_SRC);
+
+        // setup dst 0
+        dst0 = dec_vproc_get_buffer(group, buf_size);
+        mpp_assert(dst0);
+        fd = mpp_buffer_get_fd(dst0);
+        dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DST);
+
+        params.ptype = IEP2_PARAM_TYPE_MODE;
+        params.param.mode.dil_mode = IEP2_DIL_MODE_I1O1T;
+        params.param.mode.out_mode = IEP2_OUT_MODE_LINE;
+        ops->control(ctx->iep_ctx, IEP_CMD_SET_DEI_CFG, &params);
+
+        // start hardware
+        dec_vproc_start_dei(ctx, mode);
+        dec_vproc_put_frame(mpp, frm, dst0, -1);
+    }
 }
 
 static void *dec_vproc_thread(void *data)
@@ -193,7 +387,6 @@ static void *dec_vproc_thread(void *data)
     Mpp *mpp = ctx->mpp;
     MppDecImpl *dec = (MppDecImpl *)mpp->mDec;
     MppBufSlots slots = dec->frame_slots;
-    IepImg img;
 
     HalTaskHnd task = NULL;
     HalTaskInfo task_info;
@@ -211,16 +404,26 @@ static void *dec_vproc_thread(void *data)
                 break;
 
             if (hal_task_get_hnd(tasks, TASK_PROCESSING, &task)) {
-                // process all task then do reset process
-                thd->lock(THREAD_CONTROL);
-                if (ctx->reset)
-                    dec_vproc_reset_queue(ctx);
-                thd->unlock(THREAD_CONTROL);
+                {
+                    AutoMutex autolock_reset(thd->mutex(THREAD_CONTROL));
+                    if (ctx->reset) {
+                        vproc_dbg_reset("reset start\n");
+                        dec_vproc_clr_prev(ctx);
+
+                        ctx->reset = 0;
+                        sem_post(&ctx->reset_sem);
+                        vproc_dbg_reset("reset done\n");
+                        continue;
+                    }
+                }
 
                 thd->wait();
                 continue;
             }
         }
+        // process all task then do reset process
+        thd->lock(THREAD_CONTROL);
+        thd->unlock(THREAD_CONTROL);
 
         if (task) {
             ret = hal_task_hnd_get_info(task, &task_info);
@@ -261,96 +464,33 @@ static void *dec_vproc_thread(void *data)
             mpp_assert(tmp == index);
 
             if (!dec->reset_flag && ctx->iep_ctx) {
-                MppBufferGroup group = mpp->mFrameGroup;
-                RK_U32 mode = mpp_frame_get_mode(frm);
-                MppBuffer buf = mpp_frame_get_buffer(frm);
-                MppBuffer dst0 = NULL;
-                MppBuffer dst1 = NULL;
-                int fd = -1;
-                size_t buf_size = mpp_buffer_get_size(buf);
-
-                // setup source IepImg
-                dec_vproc_set_img_fmt(&img, frm);
-
-                ret = iep_control(ctx->iep_ctx, IEP_CMD_INIT, NULL);
-                if (ret)
-                    mpp_log_f("IEP_CMD_INIT failed %d\n", ret);
-
-                IepCap_t *cap = NULL;
-                ret = iep_control(ctx->iep_ctx, IEP_CMD_QUERY_CAP, &cap);
-                if (ret)
-                    mpp_log_f("IEP_CMD_QUERY_CAP failed %d\n", ret);
-
-                // setup destination IepImg with new buffer
-                // NOTE: when deinterlace is enabled parser thread will reserve
-                //       more buffer than normal case
-                if (ctx->prev_frm && cap && cap->i4_deinterlace_supported) {
-                    // 4 in 2 out case
-                    vproc_dbg_status("4 field in and 2 frame out\n");
-                    RK_S64 prev_pts = mpp_frame_get_pts(ctx->prev_frm);
-                    RK_S64 curr_pts = mpp_frame_get_pts(frm);
-                    RK_S64 first_pts = (prev_pts + curr_pts) / 2;
-
-                    buf = mpp_frame_get_buffer(ctx->prev_frm);
-                    fd = mpp_buffer_get_fd(buf);
-                    dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_SRC);
-
-                    // setup dst 0
-                    dst0 = dec_vproc_get_buffer(group, buf_size);
-                    mpp_assert(dst0);
-                    fd = mpp_buffer_get_fd(dst0);
-                    dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DST);
-
-                    buf = mpp_frame_get_buffer(frm);
-                    fd = mpp_buffer_get_fd(buf);
-                    dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DEI_SRC1);
-
-                    // setup dst 1
-                    dst1 = dec_vproc_get_buffer(group, buf_size);
-                    mpp_assert(dst1);
-                    fd = mpp_buffer_get_fd(dst1);
-                    dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DEI_DST1);
-
-                    ctx->dei_cfg.dei_mode = IEP_DEI_MODE_I4O2;
-
-                    // start hardware
-                    dec_vproc_start_dei(ctx, mode);
-
-                    // NOTE: we need to process pts here
-                    if (mode & MPP_FRAME_FLAG_TOP_FIRST) {
-                        dec_vproc_put_frame(mpp, frm, dst0, first_pts);
-                        dec_vproc_put_frame(mpp, frm, dst1, curr_pts);
-                    } else {
-                        dec_vproc_put_frame(mpp, frm, dst1, first_pts);
-                        dec_vproc_put_frame(mpp, frm, dst0, curr_pts);
-                    }
+                if (ctx->com_ctx->ver == 1) {
+                    dec_vproc_set_dei_v1(ctx, frm);
                 } else {
-                    // 2 in 1 out case
-                    vproc_dbg_status("2 field in and 1 frame out\n");
-                    buf = mpp_frame_get_buffer(frm);
-                    fd = mpp_buffer_get_fd(buf);
-                    dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_SRC);
-
-                    // setup dst 0
-                    dst0 = dec_vproc_get_buffer(group, buf_size);
-                    mpp_assert(dst0);
-                    fd = mpp_buffer_get_fd(dst0);
-                    dec_vproc_set_img(ctx, &img, fd, IEP_CMD_SET_DST);
-
-                    ctx->dei_cfg.dei_mode = IEP_DEI_MODE_I2O1;
-
-                    // start hardware
-                    dec_vproc_start_dei(ctx, mode);
-                    dec_vproc_put_frame(mpp, frm, dst0, -1);
+                    dec_vproc_set_dei_v2(ctx, frm);
                 }
             }
 
             dec_vproc_clr_prev(ctx);
-            ctx->prev_idx = index;
-            ctx->prev_frm = frm;
 
-            if (eos)
+            if (ctx->com_ctx->ver == 1) {
+                ctx->prev_idx = index;
+                ctx->prev_frm = frm;
+            } else {
+                ctx->prev_idx = ctx->curr_idx;
+                ctx->curr_idx = index;
+                ctx->prev_frm = ctx->curr_frm;
+                ctx->curr_frm = frm;
+            }
+
+            if (eos) {
                 dec_vproc_clr_prev(ctx);
+                if (ctx->com_ctx->ver == 2) {
+                    ctx->prev_idx = ctx->curr_idx;
+                    ctx->curr_idx = index;
+                    dec_vproc_clr_prev(ctx);
+                }
+            }
 
             hal_task_hnd_set_status(task, TASK_IDLE);
         }
@@ -382,6 +522,7 @@ MPP_RET dec_vproc_init(MppDecVprocCtx *ctx, MppDecVprocCfg *cfg)
     p->mpp = (Mpp *)cfg->mpp;
     p->slots = ((MppDecImpl *)p->mpp->mDec)->frame_slots;
     p->thd = new MppThread(dec_vproc_thread, p, "mpp_dec_vproc");
+    sem_init(&p->reset_sem, 0, 0);
     ret = hal_task_group_init(&p->task_group, 4);
     if (ret) {
         mpp_err_f("create task group failed\n");
@@ -390,7 +531,25 @@ MPP_RET dec_vproc_init(MppDecVprocCtx *ctx, MppDecVprocCfg *cfg)
         return MPP_ERR_MALLOC;
     }
     cfg->task_group = p->task_group;
-    ret = iep_init(&p->iep_ctx);
+
+    /// TODO, seperate iep1/2 api
+    p->com_ctx = get_iep_ctx();
+    if (!p->com_ctx) {
+        mpp_err("failed to require context\n");
+        delete p->thd;
+
+        if (p->task_group) {
+            hal_task_group_deinit(p->task_group);
+            p->task_group = NULL;
+        }
+
+        MPP_FREE(p);
+
+        return MPP_ERR_MALLOC;
+    }
+
+    ret = p->com_ctx->ops->init(&p->com_ctx->priv);
+    p->iep_ctx = p->com_ctx->priv;
     if (!p->thd || ret) {
         mpp_err("failed to create context\n");
         if (p->thd) {
@@ -398,15 +557,15 @@ MPP_RET dec_vproc_init(MppDecVprocCtx *ctx, MppDecVprocCfg *cfg)
             p->thd = NULL;
         }
 
-        if (p->iep_ctx) {
-            iep_deinit(p->iep_ctx);
-            p->iep_ctx = NULL;
-        }
+        if (p->iep_ctx)
+            p->com_ctx->ops->deinit(p->iep_ctx);
 
         if (p->task_group) {
             hal_task_group_deinit(p->task_group);
             p->task_group = NULL;
         }
+
+        put_iep_ctx(p->com_ctx);
 
         MPP_FREE(p);
     } else {
@@ -425,6 +584,8 @@ MPP_RET dec_vproc_init(MppDecVprocCtx *ctx, MppDecVprocCfg *cfg)
 
         p->prev_idx = -1;
         p->prev_frm = NULL;
+        p->curr_idx = -1;
+        p->curr_frm = NULL;
     }
 
     *ctx = p;
@@ -448,16 +609,20 @@ MPP_RET dec_vproc_deinit(MppDecVprocCtx ctx)
         p->thd = NULL;
     }
 
-    if (p->iep_ctx) {
-        iep_deinit(p->iep_ctx);
-        p->iep_ctx = NULL;
-    }
+    if (p->iep_ctx)
+        p->com_ctx->ops->deinit(p->iep_ctx);
 
     if (p->task_group) {
         hal_task_group_deinit(p->task_group);
         p->task_group = NULL;
     }
 
+    if (p->com_ctx) {
+        put_iep_ctx(p->com_ctx);
+        p->com_ctx = NULL;
+    }
+
+    sem_destroy(&p->reset_sem);
     mpp_free(p);
 
     vproc_dbg_func("out\n");
@@ -531,18 +696,20 @@ MPP_RET dec_vproc_reset(MppDecVprocCtx ctx)
 
     MppDecVprocCtxImpl *p = (MppDecVprocCtxImpl *)ctx;
     if (p->thd) {
-        // wait reset finished
-        p->thd->lock(THREAD_CONTROL);
+        MppThread *thd = p->thd;
 
-        p->thd->lock();
+        vproc_dbg_reset("reset contorl start\n");
+        // wait reset finished
+        thd->lock();
+        thd->lock(THREAD_CONTROL);
         p->reset = 1;
-        p->thd->signal();
-        p->thd->unlock();
+        thd->unlock(THREAD_CONTROL);
+        thd->signal();
+        thd->unlock();
 
         vproc_dbg_reset("reset contorl wait\n");
-        p->thd->wait(THREAD_CONTROL);
+        sem_wait(&p->reset_sem);
         vproc_dbg_reset("reset contorl done\n");
-        p->thd->unlock(THREAD_CONTROL);
 
         mpp_assert(p->reset == 0);
     }

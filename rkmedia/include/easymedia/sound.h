@@ -18,9 +18,13 @@ typedef enum {
   SAMPLE_FMT_U8,
   SAMPLE_FMT_S16,
   SAMPLE_FMT_S32,
-  SAMPLE_FMT_VORBIS,
-  SAMPLE_FMT_AAC,
-  SAMPLE_FMT_MP2,
+  SAMPLE_FMT_FLT,
+  SAMPLE_FMT_U8P,
+  SAMPLE_FMT_S16P,
+  SAMPLE_FMT_S32P,
+  SAMPLE_FMT_FLTP,
+  SAMPLE_FMT_G711A,
+  SAMPLE_FMT_G711U,
   SAMPLE_FMT_NB
 } SampleFormat;
 
@@ -30,6 +34,51 @@ typedef struct {
   int sample_rate;
   int nb_samples;
 } SampleInfo;
+
+#ifndef MAX_FILE_PATH_LEN
+#define MAX_FILE_PATH_LEN 256
+#define AI_TALKVQE_MASK_AEC 0x1
+#define AI_TALKVQE_MASK_ANR 0x2
+#define AI_TALKVQE_MASK_AGC 0x4
+#define AI_RECORDVQE_MASK_ANR 0x1
+#define AO_VQE_MASK_ANR 0x1
+#define AO_VQE_MASK_AGC 0x2
+#endif
+
+typedef enum {
+  VQE_MODE_AI_TALK,
+  VQE_MODE_AI_RECORD,
+  VQE_MODE_AO,
+  VQE_MODE_BUTT
+} VQE_MODE_E;
+
+typedef struct rkVQE_CONFIG_S {
+  VQE_MODE_E u32VQEMode;
+  union {
+    struct {
+      uint32_t u32OpenMask;
+      int32_t s32WorkSampleRate;
+      int32_t s32FrameSample;
+      char aParamFilePath[MAX_FILE_PATH_LEN];
+    } stAiTalkConfig;
+    struct {
+      uint32_t u32OpenMask;
+      uint32_t s32WorkSampleRate;
+      uint32_t s32FrameSample;
+      struct {
+        float fPostAddGain; /* post-gain 0*/
+        float fGmin;        /* spectral gain floor,unit:(dB),default:-30dB */
+        float fNoiseFactor; /* noise suppression factor,default:0.98 */
+      } stAnrConfig;
+    } stAiRecordConfig;
+    struct {
+      uint32_t u32OpenMask;
+      uint32_t s32WorkSampleRate;
+      uint32_t s32FrameSample;
+      char aParamFilePath[MAX_FILE_PATH_LEN];
+    } stAoConfig;
+  };
+} VQE_CONFIG_S;
 
 #ifdef __cplusplus
 }

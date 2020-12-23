@@ -59,12 +59,12 @@ void calc_frm_crc(MppFrame frame, FrmCrc *crc);
 void write_frm_crc(FILE *fp, FrmCrc *crc);
 void read_frm_crc(FILE *fp, FrmCrc *crc);
 
-MPP_RET read_yuv_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
-                       RK_U32 hor_stride, RK_U32 ver_stride,
-                       MppFrameFormat fmt);
-MPP_RET fill_yuv_image(RK_U8 *buf, RK_U32 width, RK_U32 height,
-                       RK_U32 hor_stride, RK_U32 ver_stride, MppFrameFormat fmt,
-                       RK_U32 frame_count);
+MPP_RET read_image(RK_U8 *buf, FILE *fp, RK_U32 width, RK_U32 height,
+                   RK_U32 hor_stride, RK_U32 ver_stride,
+                   MppFrameFormat fmt);
+MPP_RET fill_image(RK_U8 *buf, RK_U32 width, RK_U32 height,
+                   RK_U32 hor_stride, RK_U32 ver_stride, MppFrameFormat fmt,
+                   RK_U32 frame_count);
 
 typedef struct OpsLine_t {
     RK_U32      index;
@@ -74,6 +74,9 @@ typedef struct OpsLine_t {
 } OpsLine;
 
 RK_S32 parse_config_line(const char *str, OpsLine *info);
+
+MPP_RET name_to_frame_format(const char *name, MppFrameFormat *fmt);
+MPP_RET name_to_coding_type(const char *name, MppCodingType *coding);
 
 #ifdef __cplusplus
 }

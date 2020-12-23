@@ -3,10 +3,10 @@
 // found in the LICENSE file.
 
 #include <sys/mman.h>
-
 #include <vector>
 
 #include "buffer.h"
+#include "utils.h"
 #include "v4l2_stream.h"
 
 namespace easymedia {
@@ -25,13 +25,13 @@ public:
 
 private:
   int BufferExport(enum v4l2_buf_type bt, int index, int *dmafd);
-
   enum v4l2_memory memory_type;
   std::string data_type;
   PixelFormat pix_fmt;
   int width, height;
   int colorspace;
   int loop_num;
+  int quantization;
   std::vector<MediaBuffer> buffer_vec;
   bool started;
 };
@@ -39,14 +39,14 @@ private:
 V4L2CaptureStream::V4L2CaptureStream(const char *param)
     : V4L2Stream(param), memory_type(V4L2_MEMORY_MMAP), data_type(IMAGE_NV12),
       pix_fmt(PIX_FMT_NONE), width(0), height(0), colorspace(-1), loop_num(2),
-      started(false) {
+      quantization(-1), started(false) {
   if (device.empty())
     return;
   std::map<std::string, std::string> params;
   std::list<std::pair<const std::string, std::string &>> req_list;
 
   std::string mem_type, str_loop_num;
-  std::string str_width, str_height, str_color_space;
+  std::string str_width, str_height, str_color_space, str_quantization;
   req_list.push_back(
       std::pair<const std::string, std::string &>(KEY_V4L2_MEM_TYPE, mem_type));
   req_list.push_back(
@@ -59,6 +59,8 @@ V4L2CaptureStream::V4L2CaptureStream(const char *param)
       KEY_BUFFER_HEIGHT, str_height));
   req_list.push_back(std::pair<const std::string, std::string &>(
       KEY_V4L2_COLORSPACE, str_color_space));
+  req_list.push_back(std::pair<const std::string, std::string &>(
+      KEY_V4L2_QUANTIZATION, str_quantization));
   int ret = parse_media_param_match(param, params, req_list);
   if (ret == 0)
     return;
@@ -73,6 +75,8 @@ V4L2CaptureStream::V4L2CaptureStream(const char *param)
     height = std::stoi(str_height);
   if (!str_color_space.empty())
     colorspace = std::stoi(str_color_space);
+  if (!str_quantization.empty())
+    quantization = std::stoi(str_quantization);
 }
 
 int V4L2CaptureStream::BufferExport(enum v4l2_buf_type bt, int index,
@@ -83,7 +87,7 @@ int V4L2CaptureStream::BufferExport(enum v4l2_buf_type bt, int index,
   expbuf.type = bt;
   expbuf.index = index;
   if (v4l2_ctx->IoCtrl(VIDIOC_EXPBUF, &expbuf) == -1) {
-    LOG("VIDIOC_EXPBUF  %d failed, %m", index);
+    RKMEDIA_LOGI("VIDIOC_EXPBUF  %d failed, %m\n", index);
     return -1;
   }
   *dmafd = expbuf.fd;
@@ -114,7 +118,8 @@ static int __free_v4l2buffer(void *arg) {
 int V4L2CaptureStream::Open() {
   const char *dev = device.c_str();
   if (width <= 0 || height <= 0) {
-    LOG("Invalid param, device=%s, width=%d, height=%d\n", dev, width, height);
+    RKMEDIA_LOGI("Invalid param, device=%s, width=%d, height=%d\n", dev, width,
+                 height);
     return -EINVAL;
   }
   int ret = V4L2Stream::Open();
@@ -124,58 +129,63 @@ int V4L2CaptureStream::Open() {
   struct v4l2_capability cap;
   memset(&cap, 0, sizeof(cap));
   if (v4l2_ctx->IoCtrl(VIDIOC_QUERYCAP, &cap) < 0) {
-    LOG("Failed to ioctl(VIDIOC_QUERYCAP): %m\n");
+    RKMEDIA_LOGI("Failed to ioctl(VIDIOC_QUERYCAP): %m\n");
     return -1;
   }
   if ((capture_type == V4L2_BUF_TYPE_VIDEO_CAPTURE) &&
       !(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
-    LOG("%s, Not a video capture device.\n", dev);
+    RKMEDIA_LOGI("%s, Not a video capture device.\n", dev);
     return -1;
   }
   if (!(cap.capabilities & V4L2_CAP_STREAMING)) {
-    LOG("%s does not support the streaming I/O method.\n", dev);
+    RKMEDIA_LOGI("%s does not support the streaming I/O method.\n", dev);
     return -1;
   }
   const char *data_type_str = data_type.c_str();
   struct v4l2_format fmt;
+  memset(&fmt, 0, sizeof(fmt));
   fmt.type = capture_type;
   fmt.fmt.pix.width = width;
   fmt.fmt.pix.height = height;
   fmt.fmt.pix.pixelformat = GetV4L2FmtByString(data_type_str);
   fmt.fmt.pix.field = V4L2_FIELD_ANY;
+  if (quantization >= 0) {
+    fmt.fmt.pix.priv = V4L2_PIX_FMT_PRIV_MAGIC;
+    fmt.fmt.pix.quantization = quantization;
+  }
   if (colorspace >= 0)
     fmt.fmt.pix.colorspace = colorspace;
   if (fmt.fmt.pix.pixelformat == 0) {
-    LOG("unsupport input format : %s\n", data_type_str);
+    RKMEDIA_LOGI("unsupport input format : %s\n", data_type_str);
     return -1;
   }
   if (v4l2_ctx->IoCtrl(VIDIOC_S_FMT, &fmt) < 0) {
-    LOG("%s, s fmt failed(cap type=%d, %c%c%c%c), %m\n", dev, capture_type,
-        DUMP_FOURCC(fmt.fmt.pix.pixelformat));
+    RKMEDIA_LOGI("%s, s fmt failed(cap type=%d, %c%c%c%c), %m\n", dev,
+                 capture_type, DUMP_FOURCC(fmt.fmt.pix.pixelformat));
     return -1;
   }
   if (GetV4L2FmtByString(data_type_str) != fmt.fmt.pix.pixelformat) {
-    LOG("%s, expect %s, return %c%c%c%c\n", dev, data_type_str,
-        DUMP_FOURCC(fmt.fmt.pix.pixelformat));
+    RKMEDIA_LOGI("%s, expect %s, return %c%c%c%c\n", dev, data_type_str,
+                 DUMP_FOURCC(fmt.fmt.pix.pixelformat));
     return -1;
   }
   pix_fmt = StringToPixFmt(data_type_str);
   if (width != (int)fmt.fmt.pix.width || height != (int)fmt.fmt.pix.height) {
-    LOG("%s change res from %dx%d to %dx%d\n", dev, width, height,
-        fmt.fmt.pix.width, fmt.fmt.pix.height);
+    RKMEDIA_LOGI("%s change res from %dx%d to %dx%d\n", dev, width, height,
+                 fmt.fmt.pix.width, fmt.fmt.pix.height);
     width = fmt.fmt.pix.width;
     height = fmt.fmt.pix.height;
     return -1;
   }
   if (fmt.fmt.pix.field == V4L2_FIELD_INTERLACED)
-    LOG("%s is using the interlaced mode\n", dev);
+    RKMEDIA_LOGI("%s is using the interlaced mode\n", dev);
 
   struct v4l2_requestbuffers req;
   req.type = capture_type;
   req.count = loop_num;
   req.memory = memory_type;
   if (v4l2_ctx->IoCtrl(VIDIOC_REQBUFS, &req) < 0) {
-    LOG("%s, count=%d, ioctl(VIDIOC_REQBUFS): %m\n", dev, loop_num);
+    RKMEDIA_LOGI("%s, count=%d, ioctl(VIDIOC_REQBUFS): %m\n", dev, loop_num);
     return -1;
   }
   int w = UPALIGNTO16(width);
@@ -183,7 +193,7 @@ int V4L2CaptureStream::Open() {
   if (memory_type == V4L2_MEMORY_DMABUF) {
     int size = 0;
     if (pix_fmt != PIX_FMT_NONE)
-      size = CalPixFmtSize(pix_fmt, w, h);
+      size = CalPixFmtSize(pix_fmt, w, h, 16);
     if (size == 0) // unknown pixel format
       size = w * h * 4;
     for (size_t i = 0; i < req.count; i++) {
@@ -203,7 +213,7 @@ int V4L2CaptureStream::Open() {
       buf.m.fd = buffer.GetFD();
       buf.length = buffer.GetSize();
       if (v4l2_ctx->IoCtrl(VIDIOC_QBUF, &buf) < 0) {
-        LOG("%s ioctl(VIDIOC_QBUF): %m\n", dev);
+        RKMEDIA_LOGI("%s ioctl(VIDIOC_QBUF): %m\n", dev);
         return -1;
       }
     }
@@ -224,13 +234,13 @@ int V4L2CaptureStream::Open() {
       buf.index = i;
       buf.memory = req.memory;
       if (v4l2_ctx->IoCtrl(VIDIOC_QUERYBUF, &buf) < 0) {
-        LOG("%s ioctl(VIDIOC_QUERYBUF): %m\n", dev);
+        RKMEDIA_LOGI("%s ioctl(VIDIOC_QUERYBUF): %m\n", dev);
         return -1;
       }
       ptr = v4l2_mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd,
                       buf.m.offset);
       if (ptr == MAP_FAILED) {
-        LOG("%s v4l2_mmap (%d): %m\n", dev, (int)i);
+        RKMEDIA_LOGI("%s v4l2_mmap (%d): %m\n", dev, (int)i);
         return -1;
       }
       MediaBuffer &mb = buffer_vec[i];
@@ -239,7 +249,7 @@ int V4L2CaptureStream::Open() {
       mb.SetPtr(ptr);
       buffer->length = buf.length;
       mb.SetSize(buf.length);
-      LOGD("query buf.length=%d\n", (int)buf.length);
+      RKMEDIA_LOGD("query buf.length=%d\n", (int)buf.length);
     }
     for (size_t i = 0; i < req.count; ++i) {
       struct v4l2_buffer buf;
@@ -250,10 +260,10 @@ int V4L2CaptureStream::Open() {
       buf.memory = req.memory;
       buf.index = i;
       if (v4l2_ctx->IoCtrl(VIDIOC_QBUF, &buf) < 0) {
-        LOG("%s, ioctl(VIDIOC_QBUF): %m\n", dev);
+        RKMEDIA_LOGI("%s, ioctl(VIDIOC_QBUF): %m\n", dev);
         return -1;
       }
-      if (!use_libv4l2 && !BufferExport(capture_type, i, &dmafd)) {
+      if (!BufferExport(capture_type, i, &dmafd)) {
         MediaBuffer &mb = buffer_vec[i];
         V4L2Buffer *buffer = static_cast<V4L2Buffer *>(mb.GetUserData().get());
         buffer->dmafd = dmafd;
@@ -265,7 +275,6 @@ int V4L2CaptureStream::Open() {
   SetReadable(true);
   return 0;
 }
-
 int V4L2CaptureStream::Close() {
   started = false;
   return V4L2Stream::Close();
@@ -277,7 +286,7 @@ public:
       : v4l2_ctx(ctx), v4l2_buf(buf) {}
   ~V4L2AutoQBUF() {
     if (v4l2_ctx->IoCtrl(VIDIOC_QBUF, &v4l2_buf) < 0)
-      LOG("index=%d, ioctl(VIDIOC_QBUF): %m\n", v4l2_buf.index);
+      RKMEDIA_LOGI("index=%d, ioctl(VIDIOC_QBUF): %m\n", v4l2_buf.index);
   }
 
 private:
@@ -309,13 +318,14 @@ std::shared_ptr<MediaBuffer> V4L2CaptureStream::Read() {
   const char *dev = device.c_str();
   if (!started && v4l2_ctx->SetStarted(true))
     started = true;
+
   struct v4l2_buffer buf;
   memset(&buf, 0, sizeof(buf));
   buf.type = capture_type;
   buf.memory = memory_type;
   int ret = v4l2_ctx->IoCtrl(VIDIOC_DQBUF, &buf);
   if (ret < 0) {
-    LOG("%s, ioctl(VIDIOC_DQBUF): %m\n", dev);
+    RKMEDIA_LOGI("%s, ioctl(VIDIOC_DQBUF): %m\n", dev);
     return nullptr;
   }
   struct timeval buf_ts = buf.timestamp;
@@ -334,11 +344,12 @@ std::shared_ptr<MediaBuffer> V4L2CaptureStream::Read() {
     if (buf.memory == V4L2_MEMORY_DMABUF) {
       assert(ret_buf->GetFD() == buf.m.fd);
     }
+    ret_buf->SetAtomicTimeVal(buf_ts);
     ret_buf->SetTimeVal(buf_ts);
     ret_buf->SetValidSize(buf.bytesused);
   } else {
     if (v4l2_ctx->IoCtrl(VIDIOC_QBUF, &buf) < 0)
-      LOG("%s, index=%d, ioctl(VIDIOC_QBUF): %m\n", dev, buf.index);
+      RKMEDIA_LOGI("%s, index=%d, ioctl(VIDIOC_QBUF): %m\n", dev, buf.index);
   }
 
   return ret_buf;

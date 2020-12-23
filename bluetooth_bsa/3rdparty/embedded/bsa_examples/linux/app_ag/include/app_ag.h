@@ -23,39 +23,27 @@ extern "C"
 #include "bsa_ag_api.h"
 #include "app_wav.h"
 
+
 #ifndef BSA_SCO_ROUTE_DEFAULT
 #define BSA_SCO_ROUTE_DEFAULT BSA_SCO_ROUTE_HCI
 #endif
 
-#if BSA_SCO_ROUTE_DEFAULT == BSA_SCO_ROUTE_HCI
 #define APP_AG_MAX_NUM_CONN    1
-#endif
-
-#ifndef APP_AG_MAX_NUM_CONN
-#define APP_AG_MAX_NUM_CONN    2
-#endif
-
 #define APP_AG_SCO_IN_SOUND_FILE    "./test_files/ag/sco_ag_in.wav"
 #define APP_AG_SCO_OUT_SOUND_FILE   "./test_files/ag/sco_ag_out.wav"
-
-typedef struct
-{
-    UINT16                  hndl;
-    BOOLEAN                 opened;
-    BOOLEAN                 voice_opened;
-    BOOLEAN                 call_active;
-    tUIPC_CH_ID             uipc_channel;
-    UINT8                   sco_route;
-} tAPP_AG_INST;
 
 /* control block (not needed to be stored in NVRAM) */
 typedef struct
 {
-    tAPP_AG_INST            inst[APP_AG_MAX_NUM_CONN];
+    UINT16                  hndl[APP_AG_MAX_NUM_CONN];
     int                     fd_sco_in_file;
     int                     fd_sco_out_file;
     tAPP_WAV_FILE_FORMAT    audio_format;
+    BOOLEAN                 opened;
+    BOOLEAN                 voice_opened;
+    BOOLEAN                 call_active;
     UINT8                   sco_route;
+    tUIPC_CH_ID             uipc_channel[APP_AG_MAX_NUM_CONN];
     UINT8                   pcmbuf[240*2];
     BOOLEAN                 stop_play;
 } tAPP_AG_CB;
@@ -241,20 +229,6 @@ void app_ag_close_playing_file(void);
 
 /*******************************************************************************
  **
- ** Function         app_ag_in_call
- **
- ** Description      Indicate a call
- **
- ** Parameters
- **         handle: connection handle
- **
-  ** Returns          void
- **
- *******************************************************************************/
-void app_ag_in_call(UINT16 handle);
-
-/*******************************************************************************
- **
  ** Function         app_ag_pickupcall
  **
  ** Description      Pickup a call
@@ -280,6 +254,22 @@ void app_ag_pickupcall(UINT16 handle);
  **
  *******************************************************************************/
 void app_ag_hangupcall(UINT16 handle);
+
+/*******************************************************************************
+ **
+ ** Function         app_ag_ind_change_state
+ **
+ ** Description     Change the enabled/disabled state of the HF Ind
+ **
+ ** Parameters
+ **         handle: connection handle
+ **         ind_id: Indicator Id
+ **         on_demand: Enabled/Disabled
+ **
+ ** Returns          void
+ **
+ *******************************************************************************/
+void app_ag_ind_change_state(UINT16 handle, UINT16 ind_id, BOOLEAN on_demand);
 
 /*******************************************************************************
  **
@@ -327,18 +317,5 @@ void app_ag_end(void);
  **
  *******************************************************************************/
 void app_ag_set_cback(tBSA_AG_CBACK pcb);
-
-/*******************************************************************************
- **
- ** Function         app_ag_display_available_handle
- **
- ** Description      This function is used to display available AG handles
- **
- ** Parameters
- **
- ** Returns          void
- **
- *******************************************************************************/
-void app_ag_display_available_handle(void);
 
 #endif /* APP_AG_H_ */

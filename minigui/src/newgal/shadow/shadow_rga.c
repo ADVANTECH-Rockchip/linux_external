@@ -6,6 +6,9 @@
 #include "shadow_rga.h"
 #include "../drmcon/drm_display.h"
 
+#define USER_BO_SEQ 2
+#define BO_NUM 3 // 0,1: for switch buffer, 2: for user rga process
+#define VIDEO_BPP 16
 static bo_t g_bo;
 static int g_src_fd;
 
@@ -14,13 +17,15 @@ typedef struct {
     int front_fb;
     int width;
     int height;
-    bo_t bo[2];
-    int fb[2];
+    bo_t bo[BO_NUM];
+    int fb[BO_NUM];
 } video_offscreen_fb;
 
 static video_offscreen_fb video_fb;
 
-void *shadow_rga_g_bo_ptr()
+extern int c_RkRgaFree(bo_t *bo_info);
+
+void *shadow_rga_g_bo_ptr(void)
 {
     return g_bo.ptr;
 }
@@ -30,7 +35,7 @@ void *shadow_rga_g_bo_ptr()
 int shadow_rga_init(int size)
 {
     int ret;
-    struct bo bo;
+    struct drm_bo bo;
     int width, height, bpp;
     int i;
 
@@ -64,10 +69,10 @@ int shadow_rga_init(int size)
         return ret;
     }
 
-    i = 2;
+    i = BO_NUM;
     while (i-- > 0) {
         bo_t *cur_bo = &video_fb.bo[i];
-        ret = c_RkRgaGetAllocBuffer(cur_bo, width, height, bpp);
+        ret = c_RkRgaGetAllocBuffer(cur_bo, width, height, VIDEO_BPP);
         if (ret) {
             printf("c_RkRgaGetAllocBuffer error : %s\n", strerror(errno));
             return ret;
@@ -85,6 +90,8 @@ int shadow_rga_init(int size)
         }
         video_fb.width = width;
         video_fb.height = height;
+        memset(cur_bo->ptr, 16, width * height);
+        memset((char*)cur_bo->ptr + width * height, 128, cur_bo->size - width * height);
     }
 
     return 0;
@@ -102,7 +109,7 @@ void shadow_rga_exit(void)
     if (ret)
         printf("c_RkRgaFree error : %s\n", strerror(errno));
 
-    i = 2;
+    i = BO_NUM;
     while (i-- > 0) {
         if (video_fb.fb[i] < 0)
             continue;
@@ -205,6 +212,48 @@ int yuv_draw(char *src_ptr, int src_fd, int format, int src_w, int src_h) {
         pthread_mutex_unlock(&video_fb.mtx);
     }
     return ret;
+}
+
+MG_EXPORT void GUIAPI shadow_rga_get_user_fd(int *fd, int *screen_w, int *screen_h)
+{
+    *fd = video_fb.fb[USER_BO_SEQ];
+    *screen_w = g_rcScr.right;
+    *screen_h = g_rcScr.bottom;
+}
+
+MG_EXPORT void GUIAPI shadow_rga_switch(void *src_ptr, int src_fd, int src_fmt, int src_w, int src_h)
+{
+    rga_info_t src;
+    rga_info_t dst;
+    int dst_w, dst_h;
+
+    memset(&src, 0, sizeof(rga_info_t));
+    if (src_ptr) {
+        src.fd = -1;
+        src.virAddr = src_ptr;
+    } else {
+        src.fd = src_fd;
+    }
+    src.mmuFlag = 1;
+    rga_set_rect(&src.rect, 0, 0, src_w, src_h, src_w, src_h, src_fmt);
+
+    memset(&dst, 0, sizeof(rga_info_t));
+    dst.fd = video_fb.fb[video_fb.front_fb ^ 1];
+    dst_w = g_rcScr.right;
+    dst_h = g_rcScr.bottom;
+    dst.mmuFlag = 1;
+    rga_set_rect(&dst.rect, 0, 0, src_w, src_h, dst_w, dst_h, RK_FORMAT_YCbCr_420_P);
+
+    if (c_RkRgaBlit(&src, &dst, NULL)) {
+        printf("%s: rga fail\n", __func__);
+        return;
+    }
+
+    pthread_mutex_lock(&video_fb.mtx);
+    video_fb.width = dst_w;
+    video_fb.height = dst_h;
+    video_fb.front_fb ^= 1;
+    pthread_mutex_unlock(&video_fb.mtx);
 }
 
 #endif

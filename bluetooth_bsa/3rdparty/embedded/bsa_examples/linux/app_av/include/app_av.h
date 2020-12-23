@@ -701,6 +701,16 @@ void app_av_make_no_track_selected(void);
  **
  *******************************************************************************/
 void app_av_cover_art_enable(void);
+/*******************************************************************************
+ **
+ ** Function         app_av_cover_art_disble
+ **
+ ** Description      disble cover art server
+ **
+ ** Returns          none
+ **
+ *******************************************************************************/
+void app_av_cover_art_disble(void);
 #endif
 
 #endif /* APP_AV_H_ */

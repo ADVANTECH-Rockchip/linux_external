@@ -26,8 +26,12 @@ int main(int argc, char** argv) {
 
     const char *img_path = argv[1];
 
+    // rockx_module_t pose_module = ROCKX_MODULE_POSE_BODY;
+    rockx_module_t pose_module = ROCKX_MODULE_POSE_BODY_V2;
+    // rockx_module_t pose_module = ROCKX_MODULE_POSE_BODY_V2_LARGE;
+
     // create a pose_body handle
-    ret = rockx_create(&pose_body_handle, ROCKX_MODULE_POSE_BODY, nullptr, 0);
+    ret = rockx_create(&pose_body_handle, pose_module, nullptr, 0);
     if (ret != ROCKX_RET_SUCCESS) {
         printf("init rockx module ROCKX_MODULE_POSE_BODY error %d\n", ret);
     }
@@ -47,11 +51,24 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    const std::vector<std::pair<int,int>> posePairs = {
+    const std::vector<std::pair<int,int>> posePairs_v1 = {
     	{1,2}, {1,5}, {2,3}, {3,4}, {5,6}, {6,7},
     	{1,8}, {8,9}, {9,10}, {1,11}, {11,12}, {12,13},
     	{1,0}, {0,14}, {14,16}, {0,15}, {15,17}
     };
+
+    const std::vector<std::pair<int,int>> posePairs_v2 = {
+        {2,3}, {3,4}, {5,6}, {6,7},
+        {8,9}, {9,10}, {11,12}, {12,13},
+        {1,0}, {0,14}, {14,16}, {0,15}, {15,17},
+        {2,5}, {8,11}, {2,8}, {5,11}
+    };
+
+    std::vector<std::pair<int,int>> posePairs;
+    if (pose_module == ROCKX_MODULE_POSE_BODY)
+        posePairs = posePairs_v1;
+    else if (pose_module == ROCKX_MODULE_POSE_BODY_V2)
+        posePairs = posePairs_v2;
 
     // process result
     for (int i = 0; i < body_array.count; i++) {
@@ -62,7 +79,8 @@ int main(int argc, char** argv) {
             int y = body_array.keypoints[i].points[j].y;
             float score = body_array.keypoints[i].score[j];
             printf("  %s [%d, %d] %f\n", ROCKX_POSE_BODY_KEYPOINTS_NAME[j], x, y, score);
-            rockx_image_draw_circle(&input_image, {x, y}, 3, {255, 0, 0}, -1);
+            if (x>0 && y>0)
+                rockx_image_draw_circle(&input_image, {x, y}, 3, {255, 0, 0}, -1);
         }
 
         for(int j = 0; j < posePairs.size(); j ++) {

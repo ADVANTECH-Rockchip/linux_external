@@ -1032,3 +1032,110 @@ int app_tm_write_rcv_only(void)
     return app_tm_vsc_write_rcv_only(freq_enc);
 }
 
+
+/*******************************************************************************
+ **
+ ** Function        app_tm_coex_set_ext_frame_config
+ **
+ ** Description
+ **
+ ** Parameters      None
+ **
+ ** Returns         status: 0 if success / -1 otherwise
+ **
+ *******************************************************************************/
+int app_tm_coex_set_ext_frame_config(void)
+{
+    tBSA_TM_COEXOP cmd;
+    UINT32 value;
+    UINT8 i;
+    tBSA_STATUS bsa_status;
+
+    bsa_status = BSA_TmCoexOpInit(&cmd);
+    if (bsa_status != BSA_SUCCESS)
+    {
+        APP_ERROR1("BSA_TmCoexOp failed status:%d", bsa_status);
+        return -1;
+    }
+
+    cmd.coex_op = BSA_DM_COEX_SET_EXT_FRAME_CFG;
+    value = app_get_choice("ext_frame_duration(eg. 0x2710)");
+    cmd.coex_op_params.set_ext_frame_cfg.ext_frame_duration = value;
+    value = app_get_choice("ext_frame_sync_assert_offset(eg. 100)");
+    cmd.coex_op_params.set_ext_frame_cfg.ext_frame_sync_assert_offset = value;
+    value = app_get_choice("ext_frame_sync_assert_jitter(eg. 3)");
+    cmd.coex_op_params.set_ext_frame_cfg.ext_frame_sync_assert_jitter = 0;
+    value = app_get_choice("ext_num_periods(eg. 1 ~ 32)");
+    if(value > HCI_MWS_NUM_PERIODS_SUPPORTED)
+    {
+        APP_ERROR1("invalid parameter:%d", value);
+        return -1;
+    }
+    cmd.coex_op_params.set_ext_frame_cfg.ext_num_periods = value;
+    for(i = 0; i < cmd.coex_op_params.set_ext_frame_cfg.ext_num_periods ; i++)
+    {
+        APP_INFO1("duration array[%d]", i);
+        value = app_get_choice("");
+        cmd.coex_op_params.set_ext_frame_cfg.duration_array[i] = value;
+        APP_INFO1("type array[%d]", i);
+        value = app_get_choice("");
+        cmd.coex_op_params.set_ext_frame_cfg.type_array[i] = value;
+    }
+
+    bsa_status = BSA_TmCoexOp(&cmd);
+    if (bsa_status != BSA_SUCCESS)
+    {
+        APP_ERROR1("BSA_TmCoexOp failed status:%d", bsa_status);
+        return -1;
+    }
+
+    return 0;
+}
+
+/*******************************************************************************
+ **
+ ** Function        app_tm_coex_set_mws_channel_param
+ **
+ ** Description
+ **
+ ** Parameters      None
+ **
+ ** Returns         status: 0 if success / -1 otherwise
+ **
+ *******************************************************************************/
+int app_tm_coex_set_mws_channel_param(void)
+{
+    tBSA_TM_COEXOP cmd;
+    UINT32 value;
+    tBSA_STATUS bsa_status;
+
+    bsa_status = BSA_TmCoexOpInit(&cmd);
+    if (bsa_status != BSA_SUCCESS)
+    {
+        APP_ERROR1("BSA_TmCoexOp failed status:%d", bsa_status);
+        return -1;
+    }
+
+    cmd.coex_op = BSA_DM_COEX_SET_MWS_CHAN;
+    value = app_get_choice("channel_enable(eg. 1)");
+    cmd.coex_op_params.set_mws_chan.channel_enable = value;
+    value = app_get_choice("rx_center_frequency(eg. 0)");
+    cmd.coex_op_params.set_mws_chan.rx_center_frequency = value;
+    value = app_get_choice("tx_center_frequency(eg. 0)");
+    cmd.coex_op_params.set_mws_chan.tx_center_frequency = value;
+    value = app_get_choice("rx_channel_bandwidth(eg. 0)");
+    cmd.coex_op_params.set_mws_chan.rx_channel_bandwidth = value;
+    value = app_get_choice("tx_channel_bandwidth(eg. 0)");
+    cmd.coex_op_params.set_mws_chan.tx_channel_bandwidth = value;
+    value = app_get_choice("channel_type(eg. 0)");
+    cmd.coex_op_params.set_mws_chan.channel_type = value;
+
+    bsa_status = BSA_TmCoexOp(&cmd);
+    if (bsa_status != BSA_SUCCESS)
+    {
+        APP_ERROR1("BSA_TmCoexOp failed status:%d", bsa_status);
+        return -1;
+    }
+
+    return 0;
+}

@@ -45,6 +45,8 @@ static const struct V4L2FmtStringEntry {
 } v4l2_fmt_string_map[] = {{V4L2_PIX_FMT_YUV420, IMAGE_YUV420P},
                            {V4L2_PIX_FMT_NV12, IMAGE_NV12},
                            {V4L2_PIX_FMT_NV21, IMAGE_NV21},
+                           {V4L2_PIX_FMT_FBC2, IMAGE_FBC2},
+                           {V4L2_PIX_FMT_FBC0, IMAGE_FBC0},
                            {V4L2_PIX_FMT_YUV422P, IMAGE_YUV422P},
                            {V4L2_PIX_FMT_NV16, IMAGE_NV16},
                            {V4L2_PIX_FMT_NV61, IMAGE_NV61},
@@ -52,10 +54,10 @@ static const struct V4L2FmtStringEntry {
                            {V4L2_PIX_FMT_UYVY, IMAGE_UYVY422},
                            {V4L2_PIX_FMT_SRGGB8, IMAGE_RGB332},
                            {V4L2_PIX_FMT_RGB565, IMAGE_RGB565},
-                           {V4L2_PIX_FMT_RGB24, IMAGE_RGB888},
-                           {V4L2_PIX_FMT_BGR24, IMAGE_BGR888},
-                           {V4L2_PIX_FMT_ARGB32, IMAGE_ARGB8888},
-                           {V4L2_PIX_FMT_ABGR32, IMAGE_ABGR8888},
+                           {V4L2_PIX_FMT_BGR24, IMAGE_RGB888},
+                           {V4L2_PIX_FMT_RGB24, IMAGE_BGR888},
+                           {V4L2_PIX_FMT_ABGR32, IMAGE_ARGB8888},
+                           {V4L2_PIX_FMT_ARGB32, IMAGE_ABGR8888},
                            {V4L2_PIX_FMT_MJPEG, IMAGE_JPEG},
                            {V4L2_PIX_FMT_H264, VIDEO_H264}};
 
@@ -114,7 +116,7 @@ bool SetV4L2IoFunction(v4l2_io *vio, bool use_libv4l2) {
 #ifdef HAVE_LIBV4L2
     SET_WRAPPERS(v4l2_);
 #else
-    LOG("libv4l2 is not configured.\n");
+    RKMEDIA_LOGI("libv4l2 is not configured.\n");
     return false;
 #endif
   } else {

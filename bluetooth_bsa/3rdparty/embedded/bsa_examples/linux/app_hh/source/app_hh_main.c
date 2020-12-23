@@ -273,7 +273,7 @@ int main(int argc, char **argv)
             break;
 
         case APP_HH_MENU_BLE_DISC:
-            app_disc_start_ble_regular(NULL);
+            app_disc_start_ble_regular(NULL, 0);
             break;
 
         case APP_HH_MENU_BLE_DISC_SKIP_NAME:

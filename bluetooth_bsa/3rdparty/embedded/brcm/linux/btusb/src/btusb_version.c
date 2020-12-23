@@ -27,4 +27,4 @@
 
 #include "btusb.h"
 
-const char bsa_version_string[] = "BSA0107_00.28.00";
+const char bsa_version_string[] = "BSA0107_00.58.00";

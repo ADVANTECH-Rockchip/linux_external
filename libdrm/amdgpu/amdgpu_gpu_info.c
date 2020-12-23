@@ -22,10 +22,6 @@
  *
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include <errno.h>
 #include <string.h>
 
@@ -34,8 +30,8 @@
 #include "amdgpu_internal.h"
 #include "xf86drm.h"
 
-int amdgpu_query_info(amdgpu_device_handle dev, unsigned info_id,
-		      unsigned size, void *value)
+drm_public int amdgpu_query_info(amdgpu_device_handle dev, unsigned info_id,
+				 unsigned size, void *value)
 {
 	struct drm_amdgpu_info request;
 
@@ -48,8 +44,8 @@ int amdgpu_query_info(amdgpu_device_handle dev, unsigned info_id,
 			       sizeof(struct drm_amdgpu_info));
 }
 
-int amdgpu_query_crtc_from_id(amdgpu_device_handle dev, unsigned id,
-			      int32_t *result)
+drm_public int amdgpu_query_crtc_from_id(amdgpu_device_handle dev, unsigned id,
+					 int32_t *result)
 {
 	struct drm_amdgpu_info request;
 
@@ -63,9 +59,9 @@ int amdgpu_query_crtc_from_id(amdgpu_device_handle dev, unsigned id,
 			       sizeof(struct drm_amdgpu_info));
 }
 
-int amdgpu_read_mm_registers(amdgpu_device_handle dev, unsigned dword_offset,
-			     unsigned count, uint32_t instance, uint32_t flags,
-			     uint32_t *values)
+drm_public int amdgpu_read_mm_registers(amdgpu_device_handle dev,
+		unsigned dword_offset, unsigned count, uint32_t instance,
+		uint32_t flags, uint32_t *values)
 {
 	struct drm_amdgpu_info request;
 
@@ -82,8 +78,9 @@ int amdgpu_read_mm_registers(amdgpu_device_handle dev, unsigned dword_offset,
 			       sizeof(struct drm_amdgpu_info));
 }
 
-int amdgpu_query_hw_ip_count(amdgpu_device_handle dev, unsigned type,
-			     uint32_t *count)
+drm_public int amdgpu_query_hw_ip_count(amdgpu_device_handle dev,
+					unsigned type,
+					uint32_t *count)
 {
 	struct drm_amdgpu_info request;
 
@@ -97,9 +94,9 @@ int amdgpu_query_hw_ip_count(amdgpu_device_handle dev, unsigned type,
 			       sizeof(struct drm_amdgpu_info));
 }
 
-int amdgpu_query_hw_ip_info(amdgpu_device_handle dev, unsigned type,
-			    unsigned ip_instance,
-			    struct drm_amdgpu_info_hw_ip *info)
+drm_public int amdgpu_query_hw_ip_info(amdgpu_device_handle dev, unsigned type,
+				       unsigned ip_instance,
+				       struct drm_amdgpu_info_hw_ip *info)
 {
 	struct drm_amdgpu_info request;
 
@@ -114,9 +111,9 @@ int amdgpu_query_hw_ip_info(amdgpu_device_handle dev, unsigned type,
 			       sizeof(struct drm_amdgpu_info));
 }
 
-int amdgpu_query_firmware_version(amdgpu_device_handle dev, unsigned fw_type,
-				  unsigned ip_instance, unsigned index,
-				  uint32_t *version, uint32_t *feature)
+drm_public int amdgpu_query_firmware_version(amdgpu_device_handle dev,
+		unsigned fw_type, unsigned ip_instance, unsigned index,
+		uint32_t *version, uint32_t *feature)
 {
 	struct drm_amdgpu_info request;
 	struct drm_amdgpu_info_firmware firmware = {};
@@ -169,53 +166,57 @@ drm_private int amdgpu_query_gpu_info_init(amdgpu_device_handle dev)
 	dev->info.vce_harvest_config = dev->dev_info.vce_harvest_config;
 	dev->info.pci_rev_id = dev->dev_info.pci_rev;
 
-	for (i = 0; i < (int)dev->info.num_shader_engines; i++) {
-		unsigned instance = (i << AMDGPU_INFO_MMR_SE_INDEX_SHIFT) |
-				    (AMDGPU_INFO_MMR_SH_INDEX_MASK <<
-				     AMDGPU_INFO_MMR_SH_INDEX_SHIFT);
+	if (dev->info.family_id < AMDGPU_FAMILY_AI) {
+		for (i = 0; i < (int)dev->info.num_shader_engines; i++) {
+			unsigned instance = (i << AMDGPU_INFO_MMR_SE_INDEX_SHIFT) |
+					    (AMDGPU_INFO_MMR_SH_INDEX_MASK <<
+					     AMDGPU_INFO_MMR_SH_INDEX_SHIFT);
 
-		r = amdgpu_read_mm_registers(dev, 0x263d, 1, instance, 0,
-					     &dev->info.backend_disable[i]);
-		if (r)
-			return r;
-		/* extract bitfield CC_RB_BACKEND_DISABLE.BACKEND_DISABLE */
-		dev->info.backend_disable[i] =
-			(dev->info.backend_disable[i] >> 16) & 0xff;
+			r = amdgpu_read_mm_registers(dev, 0x263d, 1, instance, 0,
+						     &dev->info.backend_disable[i]);
+			if (r)
+				return r;
+			/* extract bitfield CC_RB_BACKEND_DISABLE.BACKEND_DISABLE */
+			dev->info.backend_disable[i] =
+				(dev->info.backend_disable[i] >> 16) & 0xff;
 
-		r = amdgpu_read_mm_registers(dev, 0xa0d4, 1, instance, 0,
-					     &dev->info.pa_sc_raster_cfg[i]);
+			r = amdgpu_read_mm_registers(dev, 0xa0d4, 1, instance, 0,
+						     &dev->info.pa_sc_raster_cfg[i]);
+			if (r)
+				return r;
+
+			if (dev->info.family_id >= AMDGPU_FAMILY_CI) {
+				r = amdgpu_read_mm_registers(dev, 0xa0d5, 1, instance, 0,
+						     &dev->info.pa_sc_raster_cfg1[i]);
+				if (r)
+					return r;
+			}
+		}
+	}
+
+	r = amdgpu_read_mm_registers(dev, 0x263e, 1, 0xffffffff, 0,
+					     &dev->info.gb_addr_cfg);
+	if (r)
+		return r;
+
+	if (dev->info.family_id < AMDGPU_FAMILY_AI) {
+		r = amdgpu_read_mm_registers(dev, 0x2644, 32, 0xffffffff, 0,
+					     dev->info.gb_tile_mode);
 		if (r)
 			return r;
 
 		if (dev->info.family_id >= AMDGPU_FAMILY_CI) {
-			r = amdgpu_read_mm_registers(dev, 0xa0d5, 1, instance, 0,
-					     &dev->info.pa_sc_raster_cfg1[i]);
+			r = amdgpu_read_mm_registers(dev, 0x2664, 16, 0xffffffff, 0,
+						     dev->info.gb_macro_tile_mode);
 			if (r)
 				return r;
 		}
-	}
 
-	r = amdgpu_read_mm_registers(dev, 0x2644, 32, 0xffffffff, 0,
-				     dev->info.gb_tile_mode);
-	if (r)
-		return r;
-
-	if (dev->info.family_id >= AMDGPU_FAMILY_CI) {
-		r = amdgpu_read_mm_registers(dev, 0x2664, 16, 0xffffffff, 0,
-					     dev->info.gb_macro_tile_mode);
+		r = amdgpu_read_mm_registers(dev, 0x9d8, 1, 0xffffffff, 0,
+					     &dev->info.mc_arb_ramcfg);
 		if (r)
 			return r;
 	}
-
-	r = amdgpu_read_mm_registers(dev, 0x263e, 1, 0xffffffff, 0,
-				     &dev->info.gb_addr_cfg);
-	if (r)
-		return r;
-
-	r = amdgpu_read_mm_registers(dev, 0x9d8, 1, 0xffffffff, 0,
-				     &dev->info.mc_arb_ramcfg);
-	if (r)
-		return r;
 
 	dev->info.cu_active_number = dev->dev_info.cu_active_number;
 	dev->info.cu_ao_mask = dev->dev_info.cu_ao_mask;
@@ -227,21 +228,22 @@ drm_private int amdgpu_query_gpu_info_init(amdgpu_device_handle dev)
 	return 0;
 }
 
-int amdgpu_query_gpu_info(amdgpu_device_handle dev,
-			struct amdgpu_gpu_info *info)
+drm_public int amdgpu_query_gpu_info(amdgpu_device_handle dev,
+				     struct amdgpu_gpu_info *info)
 {
-	if ((dev == NULL) || (info == NULL))
+	if (!dev || !info)
 		return -EINVAL;
+
 	/* Get ASIC info*/
 	*info = dev->info;
 
 	return 0;
 }
 
-int amdgpu_query_heap_info(amdgpu_device_handle dev,
-			uint32_t heap,
-			uint32_t flags,
-			struct amdgpu_heap_info *info)
+drm_public int amdgpu_query_heap_info(amdgpu_device_handle dev,
+				      uint32_t heap,
+				      uint32_t flags,
+				      struct amdgpu_heap_info *info)
 {
 	struct drm_amdgpu_info_vram_gtt vram_gtt_info = {};
 	int r;
@@ -290,13 +292,13 @@ int amdgpu_query_heap_info(amdgpu_device_handle dev,
 	return 0;
 }
 
-int amdgpu_query_gds_info(amdgpu_device_handle dev,
-			struct amdgpu_gds_resource_info *gds_info)
+drm_public int amdgpu_query_gds_info(amdgpu_device_handle dev,
+				     struct amdgpu_gds_resource_info *gds_info)
 {
 	struct drm_amdgpu_info_gds gds_config = {};
         int r;
 
-	if (gds_info == NULL)
+	if (!gds_info)
 		return -EINVAL;
 
         r = amdgpu_query_info(dev, AMDGPU_INFO_GDS_CONFIG,
@@ -313,4 +315,19 @@ int amdgpu_query_gds_info(amdgpu_device_handle dev,
 	gds_info->oa_per_compute_partition = gds_config.oa_per_compute_partition;
 
 	return 0;
+}
+
+drm_public int amdgpu_query_sensor_info(amdgpu_device_handle dev, unsigned sensor_type,
+					unsigned size, void *value)
+{
+	struct drm_amdgpu_info request;
+
+	memset(&request, 0, sizeof(request));
+	request.return_pointer = (uintptr_t)value;
+	request.return_size = size;
+	request.query = AMDGPU_INFO_SENSOR;
+	request.sensor_info.type = sensor_type;
+
+	return drmCommandWrite(dev->fd, DRM_AMDGPU_INFO, &request,
+			       sizeof(struct drm_amdgpu_info));
 }

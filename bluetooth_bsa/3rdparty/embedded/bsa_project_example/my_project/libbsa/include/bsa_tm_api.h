@@ -18,6 +18,7 @@
 #include "bsa_status.h"
 /* for BSA_TM_VSC_DATA_LEN_MAX */
 #include "btm_api.h"
+#include "btm_coex_api.h"
 
 /* BSA TM callback events */
 #define BSA_TM_VSE_EVT          0 /* VSE (Vendor Specific Event) event */
@@ -215,9 +216,11 @@ typedef struct
     UINT16 conn_handle;     /* For Debug Purpose */
 } tBSA_TM_READRAWRSSI;
 
-#define BSA_LE_TX_TEST_CMD  0
-#define BSA_LE_RX_TEST_CMD  1
-#define BSA_LE_END_TEST_CMD  2
+#define BSA_LE_RX_TEST_CMD          0
+#define BSA_LE_TX_TEST_CMD          1
+#define BSA_LE_ENHANCED_RX_TEST_CMD 2
+#define BSA_LE_ENHANCED_TX_TEST_CMD 3
+#define BSA_LE_END_TEST_CMD         4
 
 typedef struct
 {
@@ -225,6 +228,8 @@ typedef struct
     UINT8 freq;
     UINT8 pattern;
     UINT8 payload_len;
+    UINT8 modulation;
+    UINT8 phy;
     UINT16 retcount;
 } tBSA_TM_LE_CMD;
 
@@ -233,6 +238,30 @@ typedef struct
     UINT8 status;
     UINT16 count;
 } tBSA_TM_LE_CMD_RESULT;
+
+
+typedef tBTM_SET_MWS_CHAN_OP_PARAMS tBSA_DM_SET_MWS_CHAN;
+typedef tBTM_SET_EXT_FRAME_CFG_OP_PARAMS    tBSA_DM_SET_EXT_FRAME_CFG;
+
+typedef union
+{
+    tBSA_DM_SET_MWS_CHAN                set_mws_chan;
+    tBSA_DM_SET_EXT_FRAME_CFG           set_ext_frame_cfg;
+} tBSA_DM_COEX_OP_PARAMS;
+
+/* coexistence operations */
+enum
+{
+    BSA_DM_COEX_SET_MWS_CHAN,
+    BSA_DM_COEX_SET_EXT_FRAME_CFG,
+};
+typedef UINT8 tBSA_DM_COEX_OP;
+
+typedef struct
+{
+    tBSA_DM_COEX_OP   coex_op;         /* operation id for coex commands */
+    tBSA_DM_COEX_OP_PARAMS  coex_op_params;
+} tBSA_TM_COEXOP;
 
 /* BSA Diag Stats commands */
 #define BSA_TM_DIAG_RESET_STATS_CMD   0
@@ -754,6 +783,32 @@ extern tBSA_STATUS BSA_TmDiagStats(tBSA_TM_DIAG_STATS *p_req);
  **
  *******************************************************************************/
 tBSA_STATUS BSA_TmLeTestCmd(tBSA_TM_LE_CMD *pCMD);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_TmCoexOpInit
+ **
+ ** Description      Initialize the tBSA_TM_COEXOP structure to default values.
+ **
+ ** Parameters       Pointer on structure containing API parameters
+ **
+ ** Returns          Status
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_TmCoexOpInit(tBSA_TM_COEXOP *p_req);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_TmCoexOp
+ **
+ ** Description      Function to send COEX command
+ **
+ ** Parameters       Pointer on structure containing API parameters
+ **
+ ** Returns          Status
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_TmCoexOp(tBSA_TM_COEXOP *p_req);
 
 #ifdef __cplusplus
 }

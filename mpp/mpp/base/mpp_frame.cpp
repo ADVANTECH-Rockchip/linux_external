@@ -20,6 +20,7 @@
 
 #include "mpp_log.h"
 #include "mpp_mem.h"
+#include "mpp_common.h"
 #include "mpp_frame_impl.h"
 #include "mpp_meta_impl.h"
 
@@ -123,6 +124,16 @@ void mpp_frame_set_buffer(MppFrame frame, MppBuffer buffer)
     }
 }
 
+RK_S32 mpp_frame_has_meta(const MppFrame frame)
+{
+    if (check_is_mpp_frame(frame))
+        return 0;
+
+    MppFrameImpl *p = (MppFrameImpl *)frame;
+
+    return (NULL != p->meta);
+}
+
 MppMeta mpp_frame_get_meta(MppFrame frame)
 {
     if (check_is_mpp_frame(frame))
@@ -185,6 +196,38 @@ MPP_RET mpp_frame_info_cmp(MppFrame frame0, MppFrame frame1)
     return MPP_NOK;
 }
 
+RK_U32 mpp_frame_get_fbc_offset(MppFrame frame)
+{
+    if (check_is_mpp_frame(frame))
+        return 0;
+
+    MppFrameImpl *p = (MppFrameImpl *)frame;
+
+    if (MPP_FRAME_FMT_IS_FBC(p->fmt)) {
+        RK_U32 fbc_version = p->fmt & MPP_FRAME_FBC_MASK;
+        RK_U32 fbc_offset = 0;
+
+        if (fbc_version == MPP_FRAME_FBC_AFBC_V1) {
+            fbc_offset = MPP_ALIGN(MPP_ALIGN(p->width, 16) *
+                                   MPP_ALIGN(p->height, 16) / 16, SZ_4K);
+        } else if (fbc_version == MPP_FRAME_FBC_AFBC_V2) {
+            fbc_offset = 0;
+        }
+        p->fbc_offset = fbc_offset;
+    }
+
+    return p->fbc_offset;
+}
+
+RK_U32 mpp_frame_get_fbc_stride(MppFrame frame)
+{
+    if (check_is_mpp_frame(frame))
+        return 0;
+
+    MppFrameImpl *p = (MppFrameImpl *)frame;
+    return MPP_ALIGN(p->width, 16);
+}
+
 /*
  * object access function macro
  */
@@ -204,6 +247,8 @@ MPP_FRAME_ACCESSORS(RK_U32, width)
 MPP_FRAME_ACCESSORS(RK_U32, height)
 MPP_FRAME_ACCESSORS(RK_U32, hor_stride)
 MPP_FRAME_ACCESSORS(RK_U32, ver_stride)
+MPP_FRAME_ACCESSORS(RK_U32, offset_x)
+MPP_FRAME_ACCESSORS(RK_U32, offset_y)
 MPP_FRAME_ACCESSORS(RK_U32, mode)
 MPP_FRAME_ACCESSORS(RK_U32, discard)
 MPP_FRAME_ACCESSORS(RK_U32, viewid)

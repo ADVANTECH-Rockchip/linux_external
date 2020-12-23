@@ -26,9 +26,9 @@ typedef enum {
   PIX_FMT_BGR888,
   PIX_FMT_ARGB8888,
   PIX_FMT_ABGR8888,
-  PIX_FMT_JPEG,
-  PIX_FMT_H264,
-  PIX_FMT_H265,
+  // Compound type
+  PIX_FMT_FBC0,
+  PIX_FMT_FBC2,
   PIX_FMT_NB
 } PixelFormat;
 
@@ -55,9 +55,9 @@ typedef struct {
 
 _API void GetPixFmtNumDen(const PixelFormat &fmt, int &num, int &den);
 _API int CalPixFmtSize(const PixelFormat &fmt, const int width,
-                       const int height, int align = 16);
-_API inline int CalPixFmtSize(const ImageInfo &ii, int align = 16) {
-  return CalPixFmtSize(ii.pix_fmt, ii.width, ii.height, align);
+                       const int height, int align = 0);
+_API inline int CalPixFmtSize(const ImageInfo &ii) {
+  return CalPixFmtSize(ii.pix_fmt, ii.vir_width, ii.vir_height, 0);
 }
 _API PixelFormat StringToPixFmt(const char *type);
 _API const char *PixFmtToString(PixelFormat fmt);
@@ -73,6 +73,9 @@ _API std::string to_param_string(const ImageInfo &ii, bool input = true);
 
 _API std::string TwoImageRectToString(const std::vector<ImageRect> &src_dst);
 std::vector<ImageRect> StringToTwoImageRect(const std::string &str_rect);
+
+_API std::string ImageRectToString(const ImageRect &src_dst);
+std::vector<ImageRect> StringToImageRect(const std::string &str_rect);
 
 } // namespace easymedia
 

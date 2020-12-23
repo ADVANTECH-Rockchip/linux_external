@@ -888,7 +888,7 @@ IspController::set_3a_config_sync ()
     XCamReturn ret = XCAM_RETURN_NO_ERROR;
     static bool delay_flash_strobe = false;
 
-    if (_effecting_ispparm_map.size() > 10)
+    while (_effecting_ispparm_map.size() > 10)
         _effecting_ispparm_map.erase(_effecting_ispparm_map.begin());
 
     if (_pending_ispparams_queue.empty()) {
@@ -1278,7 +1278,7 @@ IspController::set_3a_exposure (struct rkisp_exposure isp_exposure)
                 return XCAM_RETURN_ERROR_IOCTL;
             }
 
-            if (isp_exposure.analog_gain!= 0) {
+            if (isp_exposure.analog_gain >= 0) {
                 memset(&ctrl, 0, sizeof(ctrl));
                 ctrl.id = V4L2_CID_ANALOGUE_GAIN;
                 /* ctrl.value = isp_exposure.analog_gain; */

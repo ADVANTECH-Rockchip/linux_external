@@ -21,7 +21,14 @@ endif()
 
 set(EASY_MEDIA_LIVE555_SERVER_SOURCE_FILES
     ${EASY_MEDIA_LIVE555_SERVER_SOURCE_FILES}
-    live555/server/live555_media_input.cc live555/server/rtsp_server.cc)
+    live555/server/live555_media_input.cc
+    live555/server/rtsp_server.cc
+    live555/server/aac_server_media_subsession.cc
+    live555/server/simple_server_media_subsession.cc
+    live555/server/mp2_server_media_subsession.cc
+    live555/server/mjpeg_server_media_subsession.cc
+    live555/server/live555_server.cc
+    live555/server/mjpeg_video_source.cc)
 
 set(EASY_MEDIA_LIVE555_SOURCE_FILES
     ${EASY_MEDIA_LIVE555_SOURCE_FILES} ${EASY_MEDIA_LIVE555_SERVER_SOURCE_FILES}
@@ -30,7 +37,3 @@ set(EASY_MEDIA_LIVE555_LIBS
     ${EASY_MEDIA_LIVE555_LIBS}
     ${LIVEMEDIA_LIBRARIES}
     PARENT_SCOPE)
-option(RTSP_SERVER_TEST "compile: rtsp server test" ON)
-if(RTSP_SERVER_TEST)
-  add_subdirectory(test)
-endif()

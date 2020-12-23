@@ -66,9 +66,8 @@ static int mtd_write(char *src_path, long long offset, long long size, long long
     }
     char data_buf[MTD_SIZE];
     memset(data_buf, 0, MTD_SIZE);
-
     //ubi: erase before writing.
-    if (strcmp(dest_path, "rootfs") == 0 || strcmp(dest_path, "oem") == 0) {
+    if (strcmp(dest_path, "system_a") == 0 || strcmp(dest_path, "oem_a") == 0 || strcmp(dest_path, "system_b") == 0 || strcmp(dest_path, "oem_b") == 0) {
         LOGI("ubi: erase before writing.\n");
         if (mtd_erase_blocks(out, -1) == (off_t) -1 ) {
             LOGE("format_volume: can't erase MTD \"%s\"\n", dest_path);
@@ -142,7 +141,6 @@ static int block_write(char *src_path, long long offset, long long size, long lo
         LOGE("lseek64 failed (%s:%d).\n", __func__, __LINE__);
         return -2;
     }
-
     src_file_offset = src_offset;
     dest_offset = flash_offset;
 
@@ -151,12 +149,10 @@ static int block_write(char *src_path, long long offset, long long size, long lo
         LOGE("Can't open %s\n", dest_path);
         return -2;
     }
-
     if ( lseek64(fd_dest, dest_offset, SEEK_SET) == -1 ) {
         LOGE("lseek64 failed(%s): (%s:%d).\n", strerror(errno), __func__, __LINE__);
         return -2;
     }
-
     while (src_remain > 0 && dest_remain > 0) {
         memset(data_buf, 0, BLOCK_WRITE_LEN);
         read_count = src_remain>src_step?src_step:src_remain;
@@ -184,7 +180,6 @@ static int block_write(char *src_path, long long offset, long long size, long lo
     fsync(fd_dest);
     close(fd_dest);
     close(fd_src);
-
     return 0;
 }
 

@@ -98,6 +98,14 @@ format_part()
 		ubifs)
 			format_ubifs
 			;;
+		squashfs)
+			# check_tool mksquashfs BR2_PACKAGE_SQUASHFS && \
+			# mksquashfs $DEV
+			echo "It's pointness to format a squashfs partition..."
+			;;
+		auto)
+			echo "Unable to format a auto partition..."
+			;;
 		*)
 			echo Unsupported file system $FSTYPE for $DEV
 			false
@@ -292,6 +300,12 @@ prepare_part()
 			prepare_ubifs &&
 				LABEL=$PART_NAME
 			;;
+		squashfs|auto)
+			MOUNT="busybox mount"
+			MOUNT_OPTS=$(convert_mount_opts "$BUSYBOX_MOUNT_OPTS")
+
+			LABEL=$PART_NAME
+			;;
 		*)
 			echo Unsupported file system $FSTYPE for $DEV
 			return 1
@@ -300,6 +314,10 @@ prepare_part()
 
 	if [ $? -ne 0 ]; then
 		echo "Wrong fs type($FSTYPE) for $DEV"
+		if [ "$AUTO_MKFS" ]; then
+			echo "Auto formatting $DEV to $FSTYPE"
+			format_part && prepare_part && return
+		fi
 		return 1
 	fi
 
@@ -357,14 +375,15 @@ do_part()
 	# Unknown device
 	[ -b "$DEV" -o -c "$DEV" ] || return
 
-	echo "Handling $DEV $MOUNT_POINT $FSTYPE $OPTS $PASS"
-
 	SYS_PATH=$(echo /sys/class/*/${DEV##*/})
 	if [ -f "$SYS_PATH/name" ]; then
 		PART_NAME=$(cat $SYS_PATH/name)
 	else
 		PART_NAME=$(grep PARTNAME ${SYS_PATH}/uevent | cut -d '=' -f 2)
 	fi
+	PART_NAME=${PART_NAME:-${DEV##*/}}
+
+	echo "Handling $PART_NAME: $DEV $MOUNT_POINT $FSTYPE $OPTS $PASS"
 
 	case $FSTYPE in
 		ext[234])
@@ -382,6 +401,16 @@ do_part()
 		ubifs)
 			FSGROUP=ubifs
 			# No fsck for ubifs
+			unset FSCK_CONFIG
+			;;
+		squashfs)
+			FSGROUP=squashfs
+			# No fsck for squashfs
+			unset FSCK_CONFIG
+			;;
+		auto)
+			FSGROUP=auto
+			# Running fsck on a random fs is dangerous
 			unset FSCK_CONFIG
 			;;
 		*)
@@ -446,15 +475,6 @@ prepare_mountall()
 
 mountall()
 {
-	if mountpoint -d /|grep -q "^0:"; then
-		# Anon rootfs
-		if ! mount|grep -q " on / type ubifs "; then
-			# Not ubifs, could be ramfs
-			echo "Not a normal boot, only mount basic file systems"
-			return
-		fi
-	fi
-
 	echo "Will now mount all partitions in /etc/fstab"
 
 	# Set environments for mountall

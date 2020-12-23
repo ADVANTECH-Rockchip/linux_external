@@ -26,60 +26,76 @@
  *    Rob Clark <robclark@freedesktop.org>
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
-
 #include "freedreno_drmif.h"
 #include "freedreno_priv.h"
 
-struct fd_pipe *
-fd_pipe_new(struct fd_device *dev, enum fd_pipe_id id)
+/**
+ * priority of zero is highest priority, and higher numeric values are
+ * lower priorities
+ */
+drm_public struct fd_pipe *
+fd_pipe_new2(struct fd_device *dev, enum fd_pipe_id id, uint32_t prio)
 {
-	struct fd_pipe *pipe = NULL;
+	struct fd_pipe *pipe;
 	uint64_t val;
 
 	if (id > FD_PIPE_MAX) {
 		ERROR_MSG("invalid pipe id: %d", id);
-		goto fail;
+		return NULL;
 	}
 
-	pipe = dev->funcs->pipe_new(dev, id);
+	if ((prio != 1) && (fd_device_version(dev) < FD_VERSION_SUBMIT_QUEUES)) {
+		ERROR_MSG("invalid priority!");
+		return NULL;
+	}
+
+	pipe = dev->funcs->pipe_new(dev, id, prio);
 	if (!pipe) {
 		ERROR_MSG("allocation failed");
-		goto fail;
+		return NULL;
 	}
 
 	pipe->dev = dev;
 	pipe->id = id;
+	atomic_set(&pipe->refcnt, 1);
 
 	fd_pipe_get_param(pipe, FD_GPU_ID, &val);
 	pipe->gpu_id = val;
 
 	return pipe;
-fail:
-	if (pipe)
-		fd_pipe_del(pipe);
-	return NULL;
 }
 
-void fd_pipe_del(struct fd_pipe *pipe)
+drm_public struct fd_pipe *
+fd_pipe_new(struct fd_device *dev, enum fd_pipe_id id)
 {
+	return fd_pipe_new2(dev, id, 1);
+}
+
+drm_public struct fd_pipe * fd_pipe_ref(struct fd_pipe *pipe)
+{
+	atomic_inc(&pipe->refcnt);
+	return pipe;
+}
+
+drm_public void fd_pipe_del(struct fd_pipe *pipe)
+{
+	if (!atomic_dec_and_test(&pipe->refcnt))
+		return;
 	pipe->funcs->destroy(pipe);
 }
 
-int fd_pipe_get_param(struct fd_pipe *pipe,
+drm_public int fd_pipe_get_param(struct fd_pipe *pipe,
 				 enum fd_param_id param, uint64_t *value)
 {
 	return pipe->funcs->get_param(pipe, param, value);
 }
 
-int fd_pipe_wait(struct fd_pipe *pipe, uint32_t timestamp)
+drm_public int fd_pipe_wait(struct fd_pipe *pipe, uint32_t timestamp)
 {
 	return fd_pipe_wait_timeout(pipe, timestamp, ~0);
 }
 
-int fd_pipe_wait_timeout(struct fd_pipe *pipe, uint32_t timestamp,
+drm_public int fd_pipe_wait_timeout(struct fd_pipe *pipe, uint32_t timestamp,
 		uint64_t timeout)
 {
 	return pipe->funcs->wait(pipe, timestamp, timeout);

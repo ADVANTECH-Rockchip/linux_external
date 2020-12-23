@@ -329,6 +329,7 @@ typedef struct HEVCPPS {
     RK_U8 slice_header_extension_present_flag;
 
     RK_U8 pps_extension_flag;
+    RK_U8 pps_range_extensions_flag;
     RK_U8 pps_extension_data_flag;
     // Inferred parameters
     RK_U32 *column_width;  ///< ColumnWidth
@@ -471,7 +472,7 @@ typedef struct HEVCLocalContext {
 
 
 typedef struct REF_PIC_DEC_INFO {
-    RK_U8          dbp_index;
+    RK_U8          dpb_index;
     RK_U8          is_long_term;
 } REF_PIC_DEC_INFO;
 
@@ -560,17 +561,17 @@ typedef struct HEVCContext {
     RK_U8     sps_list_of_updated[MAX_SPS_COUNT];///< zrh add
     RK_U8     pps_list_of_updated[MAX_PPS_COUNT];///< zrh add
 
-    RK_S32         rps_used[16];
-    RK_S32         nb_rps_used;
+    RK_S32    rps_used[16];
+    RK_S32    nb_rps_used;
     REF_PIC_DEC_INFO rps_pic_info[600][2][15];      // zrh add
     RK_U8     lowdelay_flag[600];
     RK_U8     rps_bit_offset[600];
     RK_U8     rps_bit_offset_st[600];
     RK_U8     slice_nb_rps_poc[600];
 
-    RK_S32        frame_size;
+    RK_S32    frame_size;
 
-    RK_S32         framestrid;
+    RK_S32    framestrid;
 
     RK_U32    nb_frame;
 
@@ -593,7 +594,10 @@ typedef struct HEVCContext {
     RK_S64 pts;
     RK_U8  has_get_eos;
     RK_U8  miss_ref_flag;
-    IOInterruptCB notify_cb;
+
+    /*temporary storage for slice_cut_param*/
+    RK_U32  start_bit;
+    RK_U32  end_bit;
 } HEVCContext;
 
 RK_S32 mpp_hevc_decode_short_term_rps(HEVCContext *s, ShortTermRPS *rps,
