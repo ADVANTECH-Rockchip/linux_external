@@ -14,9 +14,11 @@ elseif(BSA)
 add_definitions(-DBSA_USE)
 endif()
 
+add_definitions("-fpermissive")
+
 add_executable(deviceio_test ${SRC_FILES})
 target_include_directories(deviceio_test PUBLIC
-	"${CMAKE_CURRENT_SOURCE_DIR}/../DeviceIO/include")
+        "${deviceio_test_SOURCE_DIR}/DeviceIO/include" )
 target_link_libraries(deviceio_test pthread DeviceIo asound)
 
 install(TARGETS deviceio_test DESTINATION bin)

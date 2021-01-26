@@ -50,6 +50,7 @@
 #define MPP_DEC_NOTIFY_TASK_HND_VALID       (0x00000100)
 #define MPP_DEC_NOTIFY_TASK_PREV_DONE       (0x00000200)
 #define MPP_DEC_NOTIFY_BUFFER_MATCH         (0x00000400)
+#define MPP_DEC_CONTROL                     (0x00010000)
 #define MPP_DEC_RESET                       (MPP_RESET)
 
 /* mpp enc event flags */
@@ -57,6 +58,7 @@
 #define MPP_ENC_NOTIFY_PACKET_DEQUEUE       (MPP_OUTPUT_DEQUEUE)
 #define MPP_ENC_NOTIFY_FRAME_DEQUEUE        (MPP_INPUT_DEQUEUE)
 #define MPP_ENC_NOTIFY_PACKET_ENQUEUE       (MPP_OUTPUT_ENQUEUE)
+#define MPP_ENC_CONTROL                     (0x00000010)
 #define MPP_ENC_RESET                       (MPP_RESET)
 
 /*
@@ -115,7 +117,7 @@ public:
 
     mpp_list        *mPackets;
     mpp_list        *mFrames;
-    MppQueue        *mTimeStamps;
+    mpp_list        *mTimeStamps;
     /* counters for debug */
     RK_U32          mPacketPutCount;
     RK_U32          mPacketGetCount;
@@ -151,6 +153,8 @@ public:
     MppDec          mDec;
     MppEnc          mEnc;
 
+    RK_U32          mEncVersion;
+
 private:
     void clear();
 
@@ -163,10 +167,11 @@ private:
     RK_U32          mStatus;
 
     /* decoder paramter before init */
+    MppDecCfgSet    mDecInitcfg;
     RK_U32          mParserFastMode;
     RK_U32          mParserNeedSplit;
     RK_U32          mParserInternalPts;     /* for MPEG2/MPEG4 */
-
+    RK_U32          mImmediateOut;
     /* backup extra packet for seek */
     MppPacket       mExtraPacket;
 

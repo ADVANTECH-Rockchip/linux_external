@@ -4,8 +4,8 @@
 **
 **  Description:    Bluetooth Manager menu application
 **
-**  Copyright (c) 2010-2014, Broadcom Corp., All Rights Reserved.
-**  Broadcom Bluetooth Core. Proprietary and confidential.
+**  Copyright (c) 2019, Cypress Semiconductor Corp., All Rights Reserved.
+**  Cypress Bluetooth Core. Proprietary and confidential.
 **
 *****************************************************************************/
 
@@ -51,8 +51,10 @@ enum
     APP_MGR_MENU_BOND,
     APP_MGR_MENU_BOND_CANCEL,
     APP_MGR_MENU_UNPAIR,
+    APP_MGR_MENU_USE_128BITS_UUID,
     APP_MGR_MENU_SVC_DISCOVERY,
     APP_MGR_MENU_DI_DISCOVERY,
+    APP_MGR_MENU_SET_LOCAL_NAME,
     APP_MGR_MENU_SET_LOCAL_DI,
     APP_MGR_MENU_GET_LOCAL_DI,
     APP_MGR_MENU_STOP_BT,
@@ -117,8 +119,10 @@ void app_mgr_display_main_menu(void)
     APP_INFO1("\t%d => Bonding", APP_MGR_MENU_BOND);
     APP_INFO1("\t%d => Cancel Bonding", APP_MGR_MENU_BOND_CANCEL);
     APP_INFO1("\t%d => Remove device from security database", APP_MGR_MENU_UNPAIR);
+    APP_INFO1("\t%d => Add or Remove 128bits UUID in EIR", APP_MGR_MENU_USE_128BITS_UUID);
     APP_INFO1("\t%d => Services Discovery (all services)", APP_MGR_MENU_SVC_DISCOVERY);
     APP_INFO1("\t%d => Device Id Discovery", APP_MGR_MENU_DI_DISCOVERY);
+    APP_INFO1("\t%d => Set local Name", APP_MGR_MENU_SET_LOCAL_NAME);
     APP_INFO1("\t%d => Set local Device Id", APP_MGR_MENU_SET_LOCAL_DI);
     APP_INFO1("\t%d => Get local Device Id", APP_MGR_MENU_GET_LOCAL_DI);
     APP_INFO1("\t%d => Stop Bluetooth", APP_MGR_MENU_STOP_BT);
@@ -208,6 +212,7 @@ int main(int argc, char **argv)
     int choice, bytes;
     int i;
     unsigned int afh_ch1,afh_ch2,passkey;
+    char name[10];
     BOOLEAN no_init = FALSE;
     int mode;
     BOOLEAN discoverable, connectable;
@@ -344,15 +349,41 @@ int main(int argc, char **argv)
             app_mgr_sec_unpair();
             break;
 
+        case APP_MGR_MENU_USE_128BITS_UUID:
+            /* Add or Remove 128bits UUID in EIR */
+            {
+               int isAdd;
+               UINT8 uuid_data[LEN_UUID_128];
+
+               APP_INFO0("Add or Remove 128bits UUID in EIR :");
+               APP_INFO0("   0 Remove");
+               APP_INFO0("   1 Add");
+               isAdd = app_get_choice("Select choice");
+
+               memset(uuid_data, 0, sizeof(uuid_data));
+               APP_INFO0("Reverse Order(e.g : AB...CD ---> DC...BA");
+               app_get_hex_data("Enter 128-bit UUID(32 hexa string): ", uuid_data, LEN_UUID_128);
+
+               app_mgr_use_128bits_uuid(isAdd,uuid_data);
+            }
+            break;
+
         case APP_MGR_MENU_SVC_DISCOVERY:
             /* Example to perform Device Services discovery */
-            app_disc_start_services(BSA_ALL_SERVICE_MASK);
+            app_disc_start_services(BSA_ALL_SERVICE_MASK, 0);
             break;
 
         case APP_MGR_MENU_DI_DISCOVERY:
             /* Example to perform Device Id discovery */
             /* Note that the synchronization (wait discovery complete) must be adapted to the application */
             app_mgr_di_discovery();
+            break;
+
+        case APP_MGR_MENU_SET_LOCAL_NAME:
+            /* Example to perform Set local Name */
+            APP_INFO0("Enter new name");
+            scanf("%s", name);
+            app_mgr_set_local_name(name, 10);
             break;
 
         case APP_MGR_MENU_SET_LOCAL_DI:

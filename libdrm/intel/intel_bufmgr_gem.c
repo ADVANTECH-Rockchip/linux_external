@@ -34,10 +34,6 @@
  *	    Dave Airlie <airlied@linux.ie>
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include <xf86drm.h>
 #include <xf86atomic.h>
 #include <fcntl.h>
@@ -66,7 +62,7 @@
 #include "i915_drm.h"
 #include "uthash.h"
 
-#ifdef HAVE_VALGRIND
+#if HAVE_VALGRIND
 #include <valgrind.h>
 #include <memcheck.h>
 #define VG(x) x
@@ -270,20 +266,6 @@ struct _drm_intel_bo_gem {
 	bool is_userptr;
 
 	/**
-	 * Boolean of whether this buffer can be placed in the full 48-bit
-	 * address range on gen8+.
-	 *
-	 * By default, buffers will be keep in a 32-bit range, unless this
-	 * flag is explicitly set.
-	 */
-	bool use_48b_address_range;
-
-	/**
-	 * Whether this buffer is softpinned at offset specified by the user
-	 */
-	bool is_softpin;
-
-	/**
 	 * Size in bytes of this buffer and its relocation descendents.
 	 *
 	 * Used to avoid costly tree walking in
@@ -438,7 +420,7 @@ drm_intel_gem_dump_validation_list(drm_intel_bufmgr_gem *bufmgr_gem)
 
 		if (bo_gem->relocs == NULL && bo_gem->softpin_target == NULL) {
 			DBG("%2d: %d %s(%s)\n", i, bo_gem->gem_handle,
-			    bo_gem->is_softpin ? "*" : "",
+			    bo_gem->kflags & EXEC_OBJECT_PINNED ? "*" : "",
 			    bo_gem->name);
 			continue;
 		}
@@ -452,7 +434,7 @@ drm_intel_gem_dump_validation_list(drm_intel_bufmgr_gem *bufmgr_gem)
 			    "%d (%s)@0x%08x %08x + 0x%08x\n",
 			    i,
 			    bo_gem->gem_handle,
-			    bo_gem->is_softpin ? "*" : "",
+			    bo_gem->kflags & EXEC_OBJECT_PINNED ? "*" : "",
 			    bo_gem->name,
 			    upper_32_bits(bo_gem->relocs[j].offset),
 			    lower_32_bits(bo_gem->relocs[j].offset),
@@ -471,7 +453,7 @@ drm_intel_gem_dump_validation_list(drm_intel_bufmgr_gem *bufmgr_gem)
 			    "%d *(%s)@0x%08x %08x\n",
 			    i,
 			    bo_gem->gem_handle,
-			    bo_gem->is_softpin ? "*" : "",
+			    bo_gem->kflags & EXEC_OBJECT_PINNED ? "*" : "",
 			    bo_gem->name,
 			    target_gem->gem_handle,
 			    target_gem->name,
@@ -541,14 +523,11 @@ drm_intel_add_validate_buffer2(drm_intel_bo *bo, int need_fence)
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *)bo->bufmgr;
 	drm_intel_bo_gem *bo_gem = (drm_intel_bo_gem *)bo;
 	int index;
-	int flags = 0;
+	unsigned long flags;
 
+	flags = 0;
 	if (need_fence)
 		flags |= EXEC_OBJECT_NEEDS_FENCE;
-	if (bo_gem->use_48b_address_range)
-		flags |= EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
-	if (bo_gem->is_softpin)
-		flags |= EXEC_OBJECT_PINNED;
 
 	if (bo_gem->validate_index != -1) {
 		bufmgr_gem->exec2_objects[bo_gem->validate_index].flags |= flags;
@@ -579,7 +558,7 @@ drm_intel_add_validate_buffer2(drm_intel_bo *bo, int need_fence)
 	bufmgr_gem->exec2_objects[index].relocs_ptr = (uintptr_t)bo_gem->relocs;
 	bufmgr_gem->exec2_objects[index].alignment = bo->align;
 	bufmgr_gem->exec2_objects[index].offset = bo->offset64;
-	bufmgr_gem->exec2_objects[index].flags = flags | bo_gem->kflags;
+	bufmgr_gem->exec2_objects[index].flags = bo_gem->kflags | flags;
 	bufmgr_gem->exec2_objects[index].rsvd1 = 0;
 	bufmgr_gem->exec2_objects[index].rsvd2 = 0;
 	bufmgr_gem->exec_bos[index] = bo;
@@ -676,7 +655,6 @@ drm_intel_gem_bo_busy(drm_intel_bo *bo)
 	} else {
 		return false;
 	}
-	return (ret == 0 && busy.busy);
 }
 
 static int
@@ -832,6 +810,10 @@ retry:
 		}
 
 		bo_gem->gem_handle = create.handle;
+		HASH_ADD(handle_hh, bufmgr_gem->handle_table,
+			 gem_handle, sizeof(bo_gem->gem_handle),
+			 bo_gem);
+
 		bo_gem->bo.handle = bo_gem->gem_handle;
 		bo_gem->bo.bufmgr = bufmgr;
 		bo_gem->bo.align = alignment;
@@ -844,10 +826,6 @@ retry:
 							 tiling_mode,
 							 stride))
 			goto err_free;
-
-		HASH_ADD(handle_hh, bufmgr_gem->handle_table,
-			 gem_handle, sizeof(bo_gem->gem_handle),
-			 bo_gem);
 	}
 
 	bo_gem->name = name;
@@ -857,7 +835,6 @@ retry:
 	bo_gem->used_as_reloc_target = false;
 	bo_gem->has_error = false;
 	bo_gem->reusable = true;
-	bo_gem->use_48b_address_range = false;
 
 	drm_intel_bo_gem_set_in_aperture_size(bufmgr_gem, bo_gem, alignment);
 	pthread_mutex_unlock(&bufmgr_gem->lock);
@@ -1016,7 +993,6 @@ drm_intel_gem_bo_alloc_userptr(drm_intel_bufmgr *bufmgr,
 	bo_gem->used_as_reloc_target = false;
 	bo_gem->has_error = false;
 	bo_gem->reusable = false;
-	bo_gem->use_48b_address_range = false;
 
 	drm_intel_bo_gem_set_in_aperture_size(bufmgr_gem, bo_gem, 0);
 	pthread_mutex_unlock(&bufmgr_gem->lock);
@@ -1099,7 +1075,7 @@ check_bo_alloc_userptr(drm_intel_bufmgr *bufmgr,
  * This can be used when one application needs to pass a buffer object
  * to another.
  */
-drm_intel_bo *
+drm_public drm_intel_bo *
 drm_intel_bo_gem_create_from_name(drm_intel_bufmgr *bufmgr,
 				  const char *name,
 				  unsigned int handle)
@@ -1164,7 +1140,6 @@ drm_intel_bo_gem_create_from_name(drm_intel_bufmgr *bufmgr,
 	bo_gem->bo.handle = open_arg.handle;
 	bo_gem->global_name = handle;
 	bo_gem->reusable = false;
-	bo_gem->use_48b_address_range = false;
 
 	HASH_ADD(handle_hh, bufmgr_gem->handle_table,
 		 gem_handle, sizeof(bo_gem->gem_handle), bo_gem);
@@ -1411,8 +1386,6 @@ drm_intel_gem_bo_unreference_final(drm_intel_bo *bo, time_t time)
 		bo_gem->name = NULL;
 		bo_gem->validate_index = -1;
 
-		bo_gem->kflags = 0;
-
 		DRMLISTADDTAIL(&bo_gem->head, &bucket->head);
 	} else {
 		drm_intel_gem_bo_free(bo);
@@ -1589,7 +1562,7 @@ map_gtt(drm_intel_bo *bo)
 	return 0;
 }
 
-int
+drm_public int
 drm_intel_gem_bo_map_gtt(drm_intel_bo *bo)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bo->bufmgr;
@@ -1648,11 +1621,11 @@ drm_intel_gem_bo_map_gtt(drm_intel_bo *bo)
  * undefined).
  */
 
-int
+drm_public int
 drm_intel_gem_bo_map_unsynchronized(drm_intel_bo *bo)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bo->bufmgr;
-#ifdef HAVE_VALGRIND
+#if HAVE_VALGRIND
 	drm_intel_bo_gem *bo_gem = (drm_intel_bo_gem *) bo;
 #endif
 	int ret;
@@ -1737,7 +1710,7 @@ static int drm_intel_gem_bo_unmap(drm_intel_bo *bo)
 	return ret;
 }
 
-int
+drm_public int
 drm_intel_gem_bo_unmap_gtt(drm_intel_bo *bo)
 {
 	return drm_intel_gem_bo_unmap(bo);
@@ -1862,7 +1835,7 @@ drm_intel_gem_bo_wait_rendering(drm_intel_bo *bo)
  * Note that some kernels have broken the inifite wait for negative values
  * promise, upgrade to latest stable kernels if this is the case.
  */
-int
+drm_public int
 drm_intel_gem_bo_wait(drm_intel_bo *bo, int64_t timeout_ns)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bo->bufmgr;
@@ -1898,7 +1871,7 @@ drm_intel_gem_bo_wait(drm_intel_bo *bo, int64_t timeout_ns)
  * In combination with drm_intel_gem_bo_pin() and manual fence management, we
  * can do tiled pixmaps this way.
  */
-void
+drm_public void
 drm_intel_gem_bo_start_gtt_access(drm_intel_bo *bo, int write_enable)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bo->bufmgr;
@@ -2054,7 +2027,11 @@ static void
 drm_intel_gem_bo_use_48b_address_range(drm_intel_bo *bo, uint32_t enable)
 {
 	drm_intel_bo_gem *bo_gem = (drm_intel_bo_gem *) bo;
-	bo_gem->use_48b_address_range = enable;
+
+	if (enable)
+		bo_gem->kflags |= EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
+	else
+		bo_gem->kflags &= ~EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
 }
 
 static int
@@ -2071,7 +2048,7 @@ drm_intel_gem_bo_add_softpin_target(drm_intel_bo *bo, drm_intel_bo *target_bo)
 		return -ENOMEM;
 	}
 
-	if (!target_bo_gem->is_softpin)
+	if (!(target_bo_gem->kflags & EXEC_OBJECT_PINNED))
 		return -EINVAL;
 	if (target_bo_gem == bo_gem)
 		return -EINVAL;
@@ -2103,7 +2080,7 @@ drm_intel_gem_bo_emit_reloc(drm_intel_bo *bo, uint32_t offset,
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *)bo->bufmgr;
 	drm_intel_bo_gem *target_bo_gem = (drm_intel_bo_gem *)target_bo;
 
-	if (target_bo_gem->is_softpin)
+	if (target_bo_gem->kflags & EXEC_OBJECT_PINNED)
 		return drm_intel_gem_bo_add_softpin_target(bo, target_bo);
 	else
 		return do_bo_emit_reloc(bo, offset, target_bo, target_offset,
@@ -2121,7 +2098,7 @@ drm_intel_gem_bo_emit_reloc_fence(drm_intel_bo *bo, uint32_t offset,
 				read_domains, write_domain, true);
 }
 
-int
+drm_public int
 drm_intel_gem_bo_get_reloc_count(drm_intel_bo *bo)
 {
 	drm_intel_bo_gem *bo_gem = (drm_intel_bo_gem *) bo;
@@ -2144,7 +2121,7 @@ drm_intel_gem_bo_get_reloc_count(drm_intel_bo *bo)
  *
  * This also removes all softpinned targets being referenced by the BO.
  */
-void
+drm_public void
 drm_intel_gem_bo_clear_relocs(drm_intel_bo *bo, int start)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bo->bufmgr;
@@ -2287,7 +2264,7 @@ drm_intel_update_buffer_offsets2 (drm_intel_bufmgr_gem *bufmgr_gem)
 			/* If we're seeing softpinned object here it means that the kernel
 			 * has relocated our object... Indicating a programming error
 			 */
-			assert(!bo_gem->is_softpin);
+			assert(!(bo_gem->kflags & EXEC_OBJECT_PINNED));
 			DBG("BO %d (%s) migrated: 0x%08x %08x -> 0x%08x %08x\n",
 			    bo_gem->gem_handle, bo_gem->name,
 			    upper_32_bits(bo->offset64),
@@ -2300,7 +2277,7 @@ drm_intel_update_buffer_offsets2 (drm_intel_bufmgr_gem *bufmgr_gem)
 	}
 }
 
-void
+drm_public void
 drm_intel_gem_bo_aub_dump_bmp(drm_intel_bo *bo,
 			      int x1, int y1, int width, int height,
 			      enum aub_dump_bmp_format format,
@@ -2502,14 +2479,14 @@ drm_intel_gem_bo_mrb_exec2(drm_intel_bo *bo, int used,
 			-1, NULL, flags);
 }
 
-int
+drm_public int
 drm_intel_gem_bo_context_exec(drm_intel_bo *bo, drm_intel_context *ctx,
 			      int used, unsigned int flags)
 {
 	return do_exec2(bo, used, ctx, NULL, 0, 0, -1, NULL, flags);
 }
 
-int
+drm_public int
 drm_intel_gem_bo_fence_exec(drm_intel_bo *bo,
 			    drm_intel_context *ctx,
 			    int used,
@@ -2643,13 +2620,14 @@ drm_intel_gem_bo_set_softpin_offset(drm_intel_bo *bo, uint64_t offset)
 {
 	drm_intel_bo_gem *bo_gem = (drm_intel_bo_gem *) bo;
 
-	bo_gem->is_softpin = true;
 	bo->offset64 = offset;
 	bo->offset = offset;
+	bo_gem->kflags |= EXEC_OBJECT_PINNED;
+
 	return 0;
 }
 
-drm_intel_bo *
+drm_public drm_intel_bo *
 drm_intel_bo_gem_create_from_prime(drm_intel_bufmgr *bufmgr, int prime_fd, int size)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bufmgr;
@@ -2709,7 +2687,6 @@ drm_intel_bo_gem_create_from_prime(drm_intel_bufmgr *bufmgr, int prime_fd, int s
 	bo_gem->used_as_reloc_target = false;
 	bo_gem->has_error = false;
 	bo_gem->reusable = false;
-	bo_gem->use_48b_address_range = false;
 
 	memclear(get_tiling);
 	get_tiling.handle = bo_gem->gem_handle;
@@ -2733,7 +2710,7 @@ err:
 	return NULL;
 }
 
-int
+drm_public int
 drm_intel_bo_gem_export_to_prime(drm_intel_bo *bo, int *prime_fd)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bo->bufmgr;
@@ -2785,7 +2762,7 @@ drm_intel_gem_bo_flink(drm_intel_bo *bo, uint32_t * name)
  * size is only bounded by how many buffers of that size we've managed to have
  * in flight at once.
  */
-void
+drm_public void
 drm_intel_bufmgr_gem_enable_reuse(drm_intel_bufmgr *bufmgr)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bufmgr;
@@ -2807,7 +2784,7 @@ drm_intel_bufmgr_gem_enable_reuse(drm_intel_bufmgr *bufmgr)
  * which can be checked using drm_intel_bufmgr_can_disable_implicit_sync,
  * or subsequent execbufs involving the bo will generate EINVAL.
  */
-void
+drm_public void
 drm_intel_gem_bo_disable_implicit_sync(drm_intel_bo *bo)
 {
 	drm_intel_bo_gem *bo_gem = (drm_intel_bo_gem *) bo;
@@ -2826,7 +2803,7 @@ drm_intel_gem_bo_disable_implicit_sync(drm_intel_bo *bo)
  * function can be used to restore the implicit sync before subsequent
  * rendering.
  */
-void
+drm_public void
 drm_intel_gem_bo_enable_implicit_sync(drm_intel_bo *bo)
 {
 	drm_intel_bo_gem *bo_gem = (drm_intel_bo_gem *) bo;
@@ -2838,7 +2815,7 @@ drm_intel_gem_bo_enable_implicit_sync(drm_intel_bo *bo)
  * Query whether the kernel supports disabling of its implicit synchronisation
  * before execbuf. See drm_intel_gem_bo_disable_implicit_sync()
  */
-int
+drm_public int
 drm_intel_bufmgr_gem_can_disable_implicit_sync(drm_intel_bufmgr *bufmgr)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bufmgr;
@@ -2853,7 +2830,7 @@ drm_intel_bufmgr_gem_can_disable_implicit_sync(drm_intel_bufmgr *bufmgr)
  * allocation.  If this option is not enabled, all relocs will have fence
  * register allocated.
  */
-void
+drm_public void
 drm_intel_bufmgr_gem_enable_fenced_relocs(drm_intel_bufmgr *bufmgr)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *)bufmgr;
@@ -3132,7 +3109,7 @@ init_cache_buckets(drm_intel_bufmgr_gem *bufmgr_gem)
 	}
 }
 
-void
+drm_public void
 drm_intel_bufmgr_gem_set_vma_cache_size(drm_intel_bufmgr *bufmgr, int limit)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *)bufmgr;
@@ -3201,7 +3178,7 @@ get_pci_device_id(drm_intel_bufmgr_gem *bufmgr_gem)
 	return devid;
 }
 
-int
+drm_public int
 drm_intel_bufmgr_gem_get_devid(drm_intel_bufmgr *bufmgr)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *)bufmgr;
@@ -3215,7 +3192,7 @@ drm_intel_bufmgr_gem_get_devid(drm_intel_bufmgr *bufmgr)
  * This function has to be called before drm_intel_bufmgr_gem_set_aub_dump()
  * for it to have any effect.
  */
-void
+drm_public void
 drm_intel_bufmgr_gem_set_aub_filename(drm_intel_bufmgr *bufmgr,
 				      const char *filename)
 {
@@ -3229,7 +3206,7 @@ drm_intel_bufmgr_gem_set_aub_filename(drm_intel_bufmgr *bufmgr,
  * You can set up a GTT and upload your objects into the referenced
  * space, then send off batchbuffers and get BMPs out the other end.
  */
-void
+drm_public void
 drm_intel_bufmgr_gem_set_aub_dump(drm_intel_bufmgr *bufmgr, int enable)
 {
 	fprintf(stderr, "libdrm aub dumping is deprecated.\n\n"
@@ -3239,7 +3216,7 @@ drm_intel_bufmgr_gem_set_aub_dump(drm_intel_bufmgr *bufmgr, int enable)
 		"See the intel_aubdump man page for more details.\n");
 }
 
-drm_intel_context *
+drm_public drm_intel_context *
 drm_intel_gem_context_create(drm_intel_bufmgr *bufmgr)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *)bufmgr;
@@ -3266,7 +3243,7 @@ drm_intel_gem_context_create(drm_intel_bufmgr *bufmgr)
 	return context;
 }
 
-int
+drm_public int
 drm_intel_gem_context_get_id(drm_intel_context *ctx, uint32_t *ctx_id)
 {
 	if (ctx == NULL)
@@ -3277,7 +3254,7 @@ drm_intel_gem_context_get_id(drm_intel_context *ctx, uint32_t *ctx_id)
 	return 0;
 }
 
-void
+drm_public void
 drm_intel_gem_context_destroy(drm_intel_context *ctx)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem;
@@ -3300,7 +3277,7 @@ drm_intel_gem_context_destroy(drm_intel_context *ctx)
 	free(ctx);
 }
 
-int
+drm_public int
 drm_intel_get_reset_stats(drm_intel_context *ctx,
 			  uint32_t *reset_count,
 			  uint32_t *active,
@@ -3334,7 +3311,7 @@ drm_intel_get_reset_stats(drm_intel_context *ctx,
 	return ret;
 }
 
-int
+drm_public int
 drm_intel_reg_read(drm_intel_bufmgr *bufmgr,
 		   uint32_t offset,
 		   uint64_t *result)
@@ -3352,7 +3329,7 @@ drm_intel_reg_read(drm_intel_bufmgr *bufmgr,
 	return ret;
 }
 
-int
+drm_public int
 drm_intel_get_subslice_total(int fd, unsigned int *subslice_total)
 {
 	drm_i915_getparam_t gp;
@@ -3368,7 +3345,7 @@ drm_intel_get_subslice_total(int fd, unsigned int *subslice_total)
 	return 0;
 }
 
-int
+drm_public int
 drm_intel_get_eu_total(int fd, unsigned int *eu_total)
 {
 	drm_i915_getparam_t gp;
@@ -3384,7 +3361,7 @@ drm_intel_get_eu_total(int fd, unsigned int *eu_total)
 	return 0;
 }
 
-int
+drm_public int
 drm_intel_get_pooled_eu(int fd)
 {
 	drm_i915_getparam_t gp;
@@ -3399,7 +3376,7 @@ drm_intel_get_pooled_eu(int fd)
 	return ret;
 }
 
-int
+drm_public int
 drm_intel_get_min_eu_in_pool(int fd)
 {
 	drm_i915_getparam_t gp;
@@ -3435,8 +3412,7 @@ drm_intel_get_min_eu_in_pool(int fd)
  * default state (no annotations), call this function with a \c count
  * of zero.
  */
-void
-drm_intel_bufmgr_gem_set_aub_annotations(drm_intel_bo *bo,
+drm_public void drm_intel_bufmgr_gem_set_aub_annotations(drm_intel_bo *bo,
 					 drm_intel_aub_annotation *annotations,
 					 unsigned count)
 {
@@ -3477,7 +3453,7 @@ drm_intel_bufmgr_gem_unref(drm_intel_bufmgr *bufmgr)
 	}
 }
 
-void *drm_intel_gem_bo_map__gtt(drm_intel_bo *bo)
+drm_public void *drm_intel_gem_bo_map__gtt(drm_intel_bo *bo)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bo->bufmgr;
 	drm_intel_bo_gem *bo_gem = (drm_intel_bo_gem *) bo;
@@ -3525,7 +3501,7 @@ void *drm_intel_gem_bo_map__gtt(drm_intel_bo *bo)
 	return bo_gem->gtt_virtual;
 }
 
-void *drm_intel_gem_bo_map__cpu(drm_intel_bo *bo)
+drm_public void *drm_intel_gem_bo_map__cpu(drm_intel_bo *bo)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bo->bufmgr;
 	drm_intel_bo_gem *bo_gem = (drm_intel_bo_gem *) bo;
@@ -3569,7 +3545,7 @@ void *drm_intel_gem_bo_map__cpu(drm_intel_bo *bo)
 	return bo_gem->mem_virtual;
 }
 
-void *drm_intel_gem_bo_map__wc(drm_intel_bo *bo)
+drm_public void *drm_intel_gem_bo_map__wc(drm_intel_bo *bo)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem = (drm_intel_bufmgr_gem *) bo->bufmgr;
 	drm_intel_bo_gem *bo_gem = (drm_intel_bo_gem *) bo;
@@ -3618,7 +3594,7 @@ void *drm_intel_gem_bo_map__wc(drm_intel_bo *bo)
  *
  * \param fd File descriptor of the opened DRM device.
  */
-drm_intel_bufmgr *
+drm_public drm_intel_bufmgr *
 drm_intel_bufmgr_gem_init(int fd, int batch_size)
 {
 	drm_intel_bufmgr_gem *bufmgr_gem;
@@ -3679,9 +3655,7 @@ drm_intel_bufmgr_gem_init(int fd, int batch_size)
 		bufmgr_gem->gen = 7;
 	else if (IS_GEN8(bufmgr_gem->pci_device))
 		bufmgr_gem->gen = 8;
-	else if (IS_GEN9(bufmgr_gem->pci_device))
-		bufmgr_gem->gen = 9;
-	else {
+	else if (!intel_get_genx(bufmgr_gem->pci_device, &bufmgr_gem->gen)) {
 		free(bufmgr_gem);
 		bufmgr_gem = NULL;
 		goto exit;

@@ -86,6 +86,10 @@ typedef UINT8 tBTA_BIS_EVT;
 #define BTA_BIC_RESOURCES           2   /* Resources not available */
 #define BTA_BIC_NO_PERMISSION       3   /* Operation not authorized. */
 #define BTA_BIC_NOT_SUPPORTED       4   /* Image Format/encoding not supported. */
+#if defined(CAC_OPEN_EVENT_STATUS_CHANGE) && (CAC_OPEN_EVENT_STATUS_CHANGE == TRUE)
+#define BTA_BIC_SERVICE_NOT_SUPPORTED       5   /* Remote device does not support CoverArt service. */
+#endif
+
 
 typedef UINT8 tBTA_BIC_STATUS;
 
@@ -94,6 +98,10 @@ typedef UINT8 tBTA_BIC_STATUS;
 #define BTA_BIS_RESOURCES           BTA_BIC_RESOURCES
 #define BTA_BIS_NO_PERMISSION       BTA_BIC_NO_PERMISSION
 #define BTA_BIS_NOT_SUPPORTED       BTA_BIC_NOT_SUPPORTED
+#if defined(CAC_OPEN_EVENT_STATUS_CHANGE) && (CAC_OPEN_EVENT_STATUS_CHANGE == TRUE)
+#define BTA_BIS_SERVICE_NOT_SUPPORTED       BTA_BIC_SERVICE_NOT_SUPPORTED
+#endif
+
 
 typedef UINT8 tBTA_BIS_STATUS;
 

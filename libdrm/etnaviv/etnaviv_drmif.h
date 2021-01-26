@@ -35,6 +35,9 @@ struct etna_pipe;
 struct etna_gpu;
 struct etna_device;
 struct etna_cmd_stream;
+struct etna_perfmon;
+struct etna_perfmon_domain;
+struct etna_perfmon_signal;
 
 enum etna_pipe_id {
 	ETNA_PIPE_3D = 0,
@@ -112,8 +115,6 @@ int etna_pipe_wait_ns(struct etna_pipe *pipe, uint32_t timestamp, uint64_t ns);
 
 struct etna_bo *etna_bo_new(struct etna_device *dev,
 		uint32_t size, uint32_t flags);
-struct etna_bo *etna_bo_from_handle(struct etna_device *dev,
-		uint32_t handle, uint32_t size);
 struct etna_bo *etna_bo_from_name(struct etna_device *dev, uint32_t name);
 struct etna_bo *etna_bo_from_dmabuf(struct etna_device *dev, int fd);
 struct etna_bo *etna_bo_ref(struct etna_bo *bo);
@@ -142,6 +143,8 @@ struct etna_cmd_stream *etna_cmd_stream_new(struct etna_pipe *pipe, uint32_t siz
 void etna_cmd_stream_del(struct etna_cmd_stream *stream);
 uint32_t etna_cmd_stream_timestamp(struct etna_cmd_stream *stream);
 void etna_cmd_stream_flush(struct etna_cmd_stream *stream);
+void etna_cmd_stream_flush2(struct etna_cmd_stream *stream, int in_fence_fd,
+			    int *out_fence_fd);
 void etna_cmd_stream_finish(struct etna_cmd_stream *stream);
 
 static inline uint32_t etna_cmd_stream_avail(struct etna_cmd_stream *stream)
@@ -187,5 +190,25 @@ struct etna_reloc {
 };
 
 void etna_cmd_stream_reloc(struct etna_cmd_stream *stream, const struct etna_reloc *r);
+
+/* performance monitoring functions:
+ */
+
+struct etna_perfmon *etna_perfmon_create(struct etna_pipe *pipe);
+void etna_perfmon_del(struct etna_perfmon *perfmon);
+struct etna_perfmon_domain *etna_perfmon_get_dom_by_name(struct etna_perfmon *pm, const char *name);
+struct etna_perfmon_signal *etna_perfmon_get_sig_by_name(struct etna_perfmon_domain *dom, const char *name);
+
+struct etna_perf {
+#define ETNA_PM_PROCESS_PRE             0x0001
+#define ETNA_PM_PROCESS_POST            0x0002
+	uint32_t flags;
+	uint32_t sequence;
+	struct etna_perfmon_signal *signal;
+	struct etna_bo *bo;
+	uint32_t offset;
+};
+
+void etna_cmd_stream_perf(struct etna_cmd_stream *stream, const struct etna_perf *p);
 
 #endif /* ETNAVIV_DRMIF_H_ */

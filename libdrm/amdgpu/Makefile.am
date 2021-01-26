@@ -26,9 +26,13 @@ include Makefile.sources
 
 AM_CFLAGS = \
 	$(WARN_CFLAGS) \
+	-fvisibility=hidden \
 	-I$(top_srcdir) \
 	$(PTHREADSTUBS_CFLAGS) \
 	-I$(top_srcdir)/include/drm
+
+libdrmdatadir = @libdrmdatadir@
+AM_CPPFLAGS = -DAMDGPU_ASIC_ID_TABLE=\"${libdrmdatadir}/amdgpu.ids\"
 
 libdrm_amdgpu_la_LTLIBRARIES = libdrm_amdgpu.la
 libdrm_amdgpu_ladir = $(libdir)
@@ -36,6 +40,7 @@ libdrm_amdgpu_la_LDFLAGS = -version-number 1:0:0 -no-undefined
 libdrm_amdgpu_la_LIBADD = ../libdrm.la @PTHREADSTUBS_LIBS@
 
 libdrm_amdgpu_la_SOURCES = $(LIBDRM_AMDGPU_FILES)
+amdgpu_asic_id.lo: $(top_srcdir)/data/amdgpu.ids
 
 libdrm_amdgpuincludedir = ${includedir}/libdrm
 libdrm_amdgpuinclude_HEADERS = $(LIBDRM_AMDGPU_H_FILES)
@@ -43,5 +48,6 @@ libdrm_amdgpuinclude_HEADERS = $(LIBDRM_AMDGPU_H_FILES)
 pkgconfigdir = @pkgconfigdir@
 pkgconfig_DATA = libdrm_amdgpu.pc
 
+AM_TESTS_ENVIRONMENT = NM='$(NM)'
 TESTS = amdgpu-symbol-check
 EXTRA_DIST = $(TESTS)

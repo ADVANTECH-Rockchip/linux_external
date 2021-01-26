@@ -4,8 +4,8 @@
 **
 **  Description:    This is the public interface file for BTA GATT.
 **
-**  Copyright (c) 2003-2013, Broadcom Corp., All Rights Reserved.
-**  Broadcom Bluetooth Core. Proprietary and confidential.
+**  Copyright (c) 2018, Cypress Semi., All Rights Reserved.
+**  Proprietary and confidential.
 **
 *****************************************************************************/
 #ifndef BTA_GATT_API_H
@@ -115,7 +115,7 @@ typedef UINT8 tBTA_GATT_STATUS;
 #define BTA_GATTC_PREP_WRITE_EVT    11  /* GATT prepare write  event */
 #define BTA_GATTC_EXEC_EVT          12  /* execute write complete event */
 #define BTA_GATTC_ACL_EVT           13  /* ACL up event */
-#define BTA_GATTC_CANCEL_OPEN_EVT   14   /*  cancel open event */
+#define BTA_GATTC_CANCEL_OPEN_EVT   14  /* cancel open event */
 #define BTA_GATTC_SRVC_CHG_EVT      15  /* service change event */
 #define BTA_GATTC_LISTEN_EVT        16  /* listen event */
 #define BTA_GATTC_CFG_MTU_EVT       17  /* configure MTU complete event */
@@ -129,11 +129,11 @@ typedef tGATT_IF tBTA_GATTC_IF;
 
 typedef struct
 {
-    UINT16              unit;       /* as UUID defined by SIG */
-    UINT16              descr;       /* as UUID as defined by SIG */
+    UINT16              unit;           /* as UUID defined by SIG */
+    UINT16              descr;          /* as UUID as defined by SIG */
     tGATT_FORMAT        format;
     INT8                exp;
-    UINT8               name_spc;   /* The name space of the description */
+    UINT8               name_spc;       /* The name space of the description */
 }tBTA_GATT_CHAR_PRES;
 
 #define BTA_GATT_CLT_CONFIG_NONE               GATT_CLT_CONFIG_NONE         /* 0x0000    */
@@ -544,6 +544,7 @@ typedef struct
 {
     UINT16              conn_id;    /* connection ID */
     tBTA_GATT_STATUS    status;     /* notification/indication status */
+    UINT16              handle;     /* attribute handle */
 }tBTA_GATTS_CONF;
 
 /* GATTS callback data */
@@ -868,6 +869,7 @@ BTA_API extern void BTA_GATTC_ReadCharDescr (UINT16 conn_id,
 **                    write_type - type of write.
 **                  len: length of the data to be written.
 **                  p_value - the value to be written.
+**                  auth_req - required authentication.
 **
 ** Returns          None
 **
@@ -889,6 +891,7 @@ BTA_API extern void BTA_GATTC_WriteCharValue (UINT16 conn_id,
 **                    p_char_descr_id - characteristic descriptor ID to write.
 **                    write_type - type of write.
 **                  p_value - the value to be written.
+**                  auth_req - required authentication.
 **
 ** Returns          None
 **
@@ -969,6 +972,27 @@ BTA_API extern void BTA_GATTC_PrepareWrite  (UINT16 conn_id,
                                              UINT16 len,
                                              UINT8 *p_value,
                                              tBTA_GATT_AUTH_REQ auth_req);
+
+/*******************************************************************************
+**
+** Function         BTA_GATTC_PrepareWriteDescr
+**
+** Description      This function is called to prepare write a characteristic
+**                  descriptor value.
+**
+** Parameters       conn_id - connection ID.
+**                  p_char_descr_id - characteristic descriptor ID to write
+**                  offset - offset of the write value.
+**                  len: length of the data to be written.
+**                  p_value - the value to be written.
+**
+** Returns          None
+**
+*******************************************************************************/
+BTA_API extern void BTA_GATTC_PrepareWriteDescr(UINT16 conn_id,
+                                tBTA_GATTC_CHAR_DESCR_ID *p_char_descr_id,
+                                UINT16 offset, UINT16 len, UINT8 *p_value,
+                                tBTA_GATT_AUTH_REQ auth_req);
 
 /*******************************************************************************
 **

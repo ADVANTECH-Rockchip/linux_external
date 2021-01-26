@@ -1940,6 +1940,7 @@ int app_xml_display_devices(const tAPP_XML_REM_DEVICE *p_stored_device_db,
                     p_stored_device_db[index].bd_addr[3],
                     p_stored_device_db[index].bd_addr[4],
                     p_stored_device_db[index].bd_addr[5]);
+#if (defined(BLE_INCLUDED) && BLE_INCLUDED == TRUE)
             printf("\tIdentity Bdaddr:%02x:%02x:%02x:%02x:%02x:%02x\n",
                     p_stored_device_db[index].pid_static_addr[0],
                     p_stored_device_db[index].pid_static_addr[1],
@@ -1947,6 +1948,7 @@ int app_xml_display_devices(const tAPP_XML_REM_DEVICE *p_stored_device_db,
                     p_stored_device_db[index].pid_static_addr[3],
                     p_stored_device_db[index].pid_static_addr[4],
                     p_stored_device_db[index].pid_static_addr[5]);
+#endif
             printf("\tName:%s\n", p_stored_device_db[index].name);
             printf("\tClassOfDevice:%02x:%02x:%02x => %s\n",
                     p_stored_device_db[index].class_of_device[0],

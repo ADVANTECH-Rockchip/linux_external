@@ -66,9 +66,8 @@ static int mtd_write(char *src_path, long long offset, long long size, long long
     }
     char data_buf[MTD_SIZE];
     memset(data_buf, 0, MTD_SIZE);
-
     //ubi: erase before writing.
-    if (strcmp(dest_path, "rootfs") == 0 || strcmp(dest_path, "oem") == 0) {
+    if (strcmp(dest_path, "system_a") == 0 || strcmp(dest_path, "oem_a") == 0 || strcmp(dest_path, "system_b") == 0 || strcmp(dest_path, "oem_b") == 0) {
         LOGI("ubi: erase before writing.\n");
         if (mtd_erase_blocks(out, -1) == (off_t) -1 ) {
             LOGE("format_volume: can't erase MTD \"%s\"\n", dest_path);
@@ -78,8 +77,8 @@ static int mtd_write(char *src_path, long long offset, long long size, long long
         }
     }
 
-    int src_remain, dest_remain;
-    int read_count, write_count;
+    long long src_remain, dest_remain;
+    long long read_count, write_count;
     int src_step, dest_step;
     dest_remain = src_remain = size;
     dest_step = src_step = MTD_SIZE;
@@ -122,11 +121,11 @@ static void block_read() {
 static int block_write(char *src_path, long long offset, long long size, long long flash_offset, char *dest_path) {
     LOGI("block_write  %s.\n", dest_path);
     int fd_dest = 0, fd_src = 0;
-    int src_offset = 0, dest_offset = 0;
-    int src_remain, dest_remain;
+    long long src_offset = 0, dest_offset = 0;
+    long long src_remain, dest_remain;
     int src_step, dest_step;
-    int src_file_offset = 0;
-    int read_count, write_count;
+    long long src_file_offset = 0;
+    long long read_count, write_count;
     char data_buf[BLOCK_WRITE_LEN] = {0};
 
     fd_src = open(src_path, O_RDONLY);
@@ -142,7 +141,6 @@ static int block_write(char *src_path, long long offset, long long size, long lo
         LOGE("lseek64 failed (%s:%d).\n", __func__, __LINE__);
         return -2;
     }
-
     src_file_offset = src_offset;
     dest_offset = flash_offset;
 
@@ -151,12 +149,10 @@ static int block_write(char *src_path, long long offset, long long size, long lo
         LOGE("Can't open %s\n", dest_path);
         return -2;
     }
-
     if ( lseek64(fd_dest, dest_offset, SEEK_SET) == -1 ) {
         LOGE("lseek64 failed(%s): (%s:%d).\n", strerror(errno), __func__, __LINE__);
         return -2;
     }
-
     while (src_remain > 0 && dest_remain > 0) {
         memset(data_buf, 0, BLOCK_WRITE_LEN);
         read_count = src_remain>src_step?src_step:src_remain;
@@ -170,9 +166,9 @@ static int block_write(char *src_path, long long offset, long long size, long lo
 
         src_remain -= read_count;
         src_file_offset += read_count;
-        write_count = (src_remain == 0)?dest_remain:dest_step;
+        write_count = dest_remain>dest_step?dest_step:dest_remain;
 
-        if (write(fd_dest, data_buf, dest_step) != dest_step) {
+        if (write(fd_dest, data_buf, write_count) != write_count) {
             close(fd_dest);
             close(fd_src);
             LOGE("Write failed(%s):(%s:%d)\n", strerror(errno), __func__, __LINE__);
@@ -184,7 +180,6 @@ static int block_write(char *src_path, long long offset, long long size, long lo
     fsync(fd_dest);
     close(fd_dest);
     close(fd_src);
-
     return 0;
 }
 
@@ -192,15 +187,16 @@ extern bool is_sdboot;
 int flash_normal(char *src_path, void *pupdate_cmd) {
     LOGI("%s:%d start.\n", __func__, __LINE__);
     PUPDATE_CMD pcmd = (PUPDATE_CMD)pupdate_cmd;
-
+    int ret;
     if (is_sdboot || !isMtdDevice()) {
         //block
-        block_write(src_path, pcmd->offset, pcmd->size, pcmd->flash_offset, pcmd->dest_path);
+        ret = block_write(src_path, pcmd->offset, pcmd->size, pcmd->flash_offset, pcmd->dest_path);
     } else {
         //mtd
         printf("pcmd->flash_offset = %lld.\n", pcmd->flash_offset);
-        mtd_write(src_path, pcmd->offset, pcmd->size, pcmd->flash_offset, pcmd->dest_path);
+        ret = mtd_write(src_path, pcmd->offset, pcmd->size, pcmd->flash_offset, pcmd->dest_path);
     }
+    return ret;
 }
 
 static void string_to_uuid(char* strUUid, char *uuid)

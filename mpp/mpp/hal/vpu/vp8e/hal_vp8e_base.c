@@ -979,10 +979,7 @@ static MPP_RET set_parameter(void *hal)
 
     ctx->mb_per_frame = width / 16 * height / 16;
     ctx->mb_per_row = width / 16;
-    ctx->mb_per_col = width / 16;
-
-    ctx->gop_len = ctx->cfg->rc.gop;
-    ctx->bit_rate = ctx->cfg->rc.bps_target;
+    ctx->mb_per_col = height / 16;
 
     sps->pic_width_in_pixel    = width;
     sps->pic_height_in_pixel   = height;
@@ -1261,7 +1258,7 @@ static MPP_RET alloc_buffer(void *hal)
 
     //add 128 bytes to avoid kernel crash
     ret = mpp_buffer_get(buffers->hw_buf_grp, &buffers->hw_luma_buf,
-                         mb_total * (16 * 16) + 128);
+                         MPP_ALIGN(mb_total * (16 * 16), SZ_4K) + SZ_4K);
     if (ret) {
         mpp_err("hw_luma_buf get failed ret %d\n", ret);
         goto __ERR_RET;
@@ -1271,7 +1268,7 @@ static MPP_RET alloc_buffer(void *hal)
         for (i = 0; i < 2; i++) {
             //add 128 bytes to avoid kernel crash
             ret = mpp_buffer_get(buffers->hw_buf_grp, &buffers->hw_cbcr_buf[i],
-                                 mb_total * (2 * 8 * 8) + 128);
+                                 MPP_ALIGN(mb_total * (2 * 8 * 8), SZ_4K) + SZ_4K);
             if (ret) {
                 mpp_err("hw_cbcr_buf[%d] get failed ret %d\n", i, ret);
                 goto __ERR_RET;
@@ -1392,7 +1389,7 @@ __ERR_RET:
     return ret;
 }
 
-MPP_RET hal_vp8e_enc_strm_code(void *hal, HalTaskInfo *task)
+MPP_RET hal_vp8e_enc_strm_code(void *hal, HalEncTask *task)
 {
     HalVp8eCtx  *ctx  = (HalVp8eCtx *)hal;
     Vp8eHwCfg *hw_cfg = &ctx->hw_cfg;
@@ -1409,7 +1406,7 @@ MPP_RET hal_vp8e_enc_strm_code(void *hal, HalTaskInfo *task)
     }
 
     {
-        HalEncTask *enc_task = &task->enc;
+        HalEncTask *enc_task = task;
         RK_U32 hor_stride = MPP_ALIGN(prep->width, 16);
         RK_U32 ver_stride = MPP_ALIGN(prep->height, 16);
         RK_U32 offset_uv  = hor_stride * ver_stride;
@@ -1549,7 +1546,7 @@ MPP_RET hal_vp8e_init_qp_table(void *hal)
     return MPP_OK;
 }
 
-MPP_RET hal_vp8e_update_buffers(void *hal, HalTaskInfo *task)
+MPP_RET hal_vp8e_update_buffers(void *hal, HalEncTask *task)
 {
     HalVp8eCtx *ctx = (HalVp8eCtx *)hal;
 
@@ -1590,21 +1587,24 @@ MPP_RET hal_vp8e_update_buffers(void *hal, HalTaskInfo *task)
 
     update_picbuf(&ctx->picbuf);
     {
-        HalEncTask *enc_task = &task->enc;
+        HalEncTask *enc_task = task;
         RK_U8 *p_out = mpp_buffer_get_ptr(enc_task->output);
+        RK_S32 disable_ivf = ctx->cfg->codec.vp8.disable_ivf;
 
-        if (ctx->frame_cnt == 0) {
-            write_ivf_header(hal, p_out);
+        if (!disable_ivf) {
+            if (ctx->frame_cnt == 0) {
+                write_ivf_header(hal, p_out);
 
-            p_out += IVF_HDR_BYTES;
-            enc_task->length += IVF_HDR_BYTES;
-        }
+                p_out += IVF_HDR_BYTES;
+                enc_task->length += IVF_HDR_BYTES;
+            }
 
-        if (ctx->frame_size) {
-            write_ivf_frame(ctx, p_out);
+            if (ctx->frame_size) {
+                write_ivf_frame(ctx, p_out);
 
-            p_out += IVF_FRM_BYTES;
-            enc_task->length += IVF_FRM_BYTES;
+                p_out += IVF_FRM_BYTES;
+                enc_task->length += IVF_FRM_BYTES;
+            }
         }
 
         memcpy(p_out, ctx->p_out_buf[0], ctx->stream_size[0]);

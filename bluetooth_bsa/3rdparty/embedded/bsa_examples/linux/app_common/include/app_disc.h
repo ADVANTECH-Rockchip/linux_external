@@ -73,6 +73,17 @@ int app_disc_start_regular(tBSA_DISC_CBACK *p_custom_disc_cback, int duration);
 
 /*******************************************************************************
  **
+ ** Function         app_disc_start_bredr_regular
+ **
+ ** Description      Start ER/EDR Device discovery
+ **
+ ** Returns          int
+ **
+ *******************************************************************************/
+int app_disc_start_bredr_regular(tBSA_DISC_CBACK *p_custom_disc_cback, int duration);
+
+/*******************************************************************************
+ **
  ** Function         app_disc_start_ble_regular
  **
  ** Description      Start BLE Device discovery
@@ -80,7 +91,7 @@ int app_disc_start_regular(tBSA_DISC_CBACK *p_custom_disc_cback, int duration);
  ** Returns          int
  **
  *******************************************************************************/
-int app_disc_start_ble_regular(tBSA_DISC_CBACK *p_custom_disc_cback);
+int app_disc_start_ble_regular(tBSA_DISC_CBACK *p_custom_disc_cback, int duration);
 
 /*******************************************************************************
  **
@@ -103,7 +114,7 @@ int app_disc_start_ble_skip_name(tBSA_DISC_CBACK *p_custom_disc_cback);
  ** Returns          int
  **
  *******************************************************************************/
-int app_disc_start_services(tBSA_SERVICE_MASK services);
+int app_disc_start_services(tBSA_SERVICE_MASK services, int duration);
 
 /*******************************************************************************
  **
@@ -270,5 +281,7 @@ int app_disc_read_remote_device_name(BD_ADDR bd_addr,tBSA_TRANSPORT transport);
  **
  *******************************************************************************/
 int app_disc_complete(void);
+
+void app_disc_clean();
 
 #endif

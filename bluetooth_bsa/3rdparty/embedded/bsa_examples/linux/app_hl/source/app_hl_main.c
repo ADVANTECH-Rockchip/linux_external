@@ -180,7 +180,7 @@ int main (int argc, char **argv)
 
         case APP_HL_MENU_SDP_DISC:
             /* Example to perform Health SDP discovery */
-            app_disc_start_services(BTA_HL_SERVICE_MASK);
+            app_disc_start_services(BTA_HL_SERVICE_MASK, 0);
             break;
 
         case APP_HL_MENU_SDP_QUERY:

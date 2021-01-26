@@ -116,7 +116,7 @@ void app_ble_wifi_menu(void)
             break;
 
         case APP_BLE_WIFI_MENU_SEARCH_RESPONDER:
-            app_disc_start_ble_regular(app_ble_wifi_init_disc_cback);
+            app_disc_start_ble_regular(app_ble_wifi_init_disc_cback, 0);
             break;
 
         case APP_BLE_WIFI_MENU_STOP_INITIATOR:

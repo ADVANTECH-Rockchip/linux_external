@@ -32,6 +32,31 @@ GST_DEBUG_CATEGORY (mppvideoenc_debug);
 G_DEFINE_ABSTRACT_TYPE (GstMppVideoEnc, gst_mpp_video_enc,
     GST_TYPE_VIDEO_ENCODER);
 
+#define DEFAULT_PROP_HEADER_MODE MPP_ENC_HEADER_MODE_DEFAULT    /* First frame */
+#define DEFAULT_PROP_SEI_MODE MPP_ENC_SEI_MODE_DISABLE
+#define DEFAULT_PROP_RC_MODE MPP_ENC_RC_MODE_CBR
+#define DEFAULT_PROP_ROTATION MPP_ENC_ROT_0
+#define DEFAULT_PROP_GOP -1     /* Same as FPS */
+#define DEFAULT_PROP_MAX_REENC 1
+#define DEFAULT_PROP_BPS 0      /* Auto */
+#define DEFAULT_PROP_BPS_MIN 0  /* Auto */
+#define DEFAULT_PROP_BPS_MAX 0  /* Auto */
+
+enum
+{
+  PROP_0,
+  PROP_HEADER_MODE,
+  PROP_RC_MODE,
+  PROP_ROTATION,
+  PROP_SEI_MODE,
+  PROP_GOP,
+  PROP_MAX_REENC,
+  PROP_BPS,
+  PROP_BPS_MIN,
+  PROP_BPS_MAX,
+  PROP_LAST,
+};
+
 static GstStaticPadTemplate gst_mpp_video_enc_sink_template =
     GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
@@ -60,6 +85,135 @@ static GstStaticPadTemplate gst_mpp_video_enc_sink_template =
         "height = (int) [ 32, 1088 ], "
         "framerate = (fraction) [0/1, 60/1]" ";"));
 
+static void
+gst_mpp_video_enc_set_property (GObject * object,
+    guint prop_id, const GValue * value, GParamSpec * pspec)
+{
+  GstVideoEncoder *encoder = GST_VIDEO_ENCODER (object);
+  GstMppVideoEnc *self = GST_MPP_VIDEO_ENC (encoder);
+
+  switch (prop_id) {
+    case PROP_HEADER_MODE:{
+      MppEncHeaderMode header_mode = g_value_get_enum (value);
+      if (self->header_mode == header_mode)
+        return;
+
+      self->header_mode = header_mode;
+      break;
+    }
+    case PROP_SEI_MODE:{
+      MppEncSeiMode sei_mode = g_value_get_enum (value);
+      if (self->sei_mode == sei_mode)
+        return;
+
+      self->sei_mode = sei_mode;
+      break;
+    }
+    case PROP_RC_MODE:{
+      MppEncRcMode rc_mode = g_value_get_enum (value);
+      if (self->rc_mode == rc_mode)
+        return;
+
+      self->rc_mode = rc_mode;
+      break;
+    }
+    case PROP_ROTATION:{
+      MppEncRotationCfg rotation = g_value_get_enum (value);
+      if (self->rotation == rotation)
+        return;
+
+      self->rotation = rotation;
+      break;
+    }
+    case PROP_GOP:{
+      gint gop = g_value_get_int (value);
+      if (self->gop == gop)
+        return;
+
+      self->gop = gop;
+      break;
+    }
+    case PROP_MAX_REENC:{
+      guint max_reenc = g_value_get_uint (value);
+      if (self->max_reenc == max_reenc)
+        return;
+
+      self->max_reenc = max_reenc;
+      break;
+    }
+    case PROP_BPS:{
+      gint bps = g_value_get_uint (value);
+      if (self->bps == bps)
+        return;
+
+      self->bps = bps;
+      break;
+    }
+    case PROP_BPS_MIN:{
+      gint bps_min = g_value_get_uint (value);
+      if (self->bps_min == bps_min)
+        return;
+
+      self->bps_min = bps_min;
+      break;
+    }
+    case PROP_BPS_MAX:{
+      gint bps_max = g_value_get_uint (value);
+      if (self->bps_max == bps_max)
+        return;
+
+      self->bps_max = bps_max;
+      break;
+    }
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      return;
+  }
+
+  self->prop_dirty = TRUE;
+}
+
+static void
+gst_mpp_video_enc_get_property (GObject * object,
+    guint prop_id, GValue * value, GParamSpec * pspec)
+{
+  GstVideoEncoder *encoder = GST_VIDEO_ENCODER (object);
+  GstMppVideoEnc *self = GST_MPP_VIDEO_ENC (encoder);
+
+  switch (prop_id) {
+    case PROP_HEADER_MODE:
+      g_value_set_enum (value, self->header_mode);
+      break;
+    case PROP_SEI_MODE:
+      g_value_set_enum (value, self->sei_mode);
+      break;
+    case PROP_RC_MODE:
+      g_value_set_enum (value, self->rc_mode);
+      break;
+    case PROP_ROTATION:
+      g_value_set_enum (value, self->rotation);
+      break;
+    case PROP_GOP:
+      g_value_set_int (value, self->gop);
+      break;
+    case PROP_MAX_REENC:
+      g_value_set_uint (value, self->max_reenc);
+      break;
+    case PROP_BPS:
+      g_value_set_uint (value, self->bps);
+      break;
+    case PROP_BPS_MIN:
+      g_value_set_uint (value, self->bps_min);
+      break;
+    case PROP_BPS_MAX:
+      g_value_set_uint (value, self->bps_max);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      return;
+  }
+}
+
 static gboolean
 gst_mpp_video_enc_close (GstVideoEncoder * encoder)
 {
@@ -71,6 +225,74 @@ gst_mpp_video_enc_close (GstVideoEncoder * encoder)
   return TRUE;
 }
 
+static void
+gst_mpp_video_enc_update_properties (GstVideoEncoder * encoder)
+{
+  GstMppVideoEnc *self = GST_MPP_VIDEO_ENC (encoder);
+  MppEncCfg cfg;
+  gint fps_num = GST_VIDEO_INFO_FPS_N (&self->input_state->info);
+  gint fps_denorm = GST_VIDEO_INFO_FPS_D (&self->input_state->info);
+  gint fps = fps_num / fps_denorm;
+
+  if (!self->prop_dirty)
+    return;
+
+  if (mpp_enc_cfg_init (&cfg)) {
+    GST_WARNING_OBJECT (self, "Init enc cfg failed");
+    goto out;
+  }
+
+  if (self->mpi->control (self->mpp_ctx, MPP_ENC_GET_CFG, cfg)) {
+    GST_WARNING_OBJECT (self, "Get enc cfg failed");
+    mpp_enc_cfg_deinit (cfg);
+    goto out;
+  }
+
+  mpp_enc_cfg_set_s32 (cfg, "prep:rotation", self->rotation);
+  mpp_enc_cfg_set_s32 (cfg, "rc:gop", self->gop < 0 ? fps : self->gop);
+  mpp_enc_cfg_set_u32 (cfg, "rc:max_reenc_times", self->max_reenc);
+  mpp_enc_cfg_set_s32 (cfg, "rc:mode", self->rc_mode);
+
+  if (!self->bps)
+    self->bps = self->info.width * self->info.height / 8 * fps;
+
+  if (self->rc_mode == MPP_ENC_RC_MODE_CBR) {
+    /* CBR mode has narrow bound */
+    mpp_enc_cfg_set_s32 (cfg, "rc:bps_target", self->bps);
+    mpp_enc_cfg_set_s32 (cfg, "rc:bps_max",
+        self->bps_max ? self->bps_max : self->bps * 17 / 16);
+    mpp_enc_cfg_set_s32 (cfg, "rc:bps_min",
+        self->bps_min ? self->bps_min : self->bps * 15 / 16);
+  } else if (self->rc_mode == MPP_ENC_RC_MODE_VBR) {
+    /* VBR mode has wide bound */
+    mpp_enc_cfg_set_s32 (cfg, "rc:bps_target", self->bps);
+    mpp_enc_cfg_set_s32 (cfg, "rc:bps_max",
+        self->bps_max ? self->bps_max : self->bps * 17 / 16);
+    mpp_enc_cfg_set_s32 (cfg, "rc:bps_min",
+        self->bps_min ? self->bps_min : self->bps * 1 / 16);
+  } else {
+    /* BPS settings are ignored in FIXQP mode */
+    mpp_enc_cfg_set_s32 (cfg, "rc:bps_target", -1);
+    mpp_enc_cfg_set_s32 (cfg, "rc:bps_max", -1);
+    mpp_enc_cfg_set_s32 (cfg, "rc:bps_min", -1);
+  }
+
+  if (self->mpi->control (self->mpp_ctx, MPP_ENC_SET_CFG, cfg))
+    GST_WARNING_OBJECT (self, "Set enc cfg failed");
+
+  mpp_enc_cfg_deinit (cfg);
+
+out:
+  if (self->mpi->control (self->mpp_ctx, MPP_ENC_SET_SEI_CFG, &self->sei_mode))
+    GST_WARNING_OBJECT (self, "Set sei mode failed");
+
+  if (self->mpi->control (self->mpp_ctx, MPP_ENC_SET_HEADER_MODE,
+          &self->header_mode))
+    GST_WARNING_OBJECT (self, "Set header mode failed");
+
+  self->prop_dirty = FALSE;
+}
+
 static gboolean
 gst_mpp_video_enc_start (GstVideoEncoder * encoder)
 {
@@ -79,7 +301,7 @@ gst_mpp_video_enc_start (GstVideoEncoder * encoder)
   GST_DEBUG_OBJECT (self, "Starting");
   g_atomic_int_set (&self->active, TRUE);
   self->output_flow = GST_FLOW_OK;
-  self->outcaps = NULL;
+  self->negotiated = FALSE;
 
   return TRUE;
 }
@@ -115,8 +337,7 @@ gst_mpp_video_enc_stop (GstVideoEncoder * encoder)
   g_assert (g_atomic_int_get (&self->active) == FALSE);
   g_assert (g_atomic_int_get (&self->processing) == FALSE);
 
-  if (self->outcaps)
-    gst_caps_unref (self->outcaps);
+  self->negotiated = FALSE;
 
   if (self->input_state) {
     gst_video_codec_state_unref (self->input_state);
@@ -127,10 +348,6 @@ gst_mpp_video_enc_stop (GstVideoEncoder * encoder)
     if (self->input_buffer[i]) {
       mpp_buffer_put (self->input_buffer[i]);
       self->input_buffer[i] = NULL;
-    }
-    if (self->output_buffer[i]) {
-      mpp_buffer_put (self->output_buffer[i]);
-      self->output_buffer[i] = NULL;
     }
   }
 
@@ -191,7 +408,7 @@ gst_mpp_video_enc_set_format (GstVideoEncoder * encoder,
   GstVideoInfo *info;
   gsize ver_stride, cr_h;
   GstVideoFormat format;
-  MppEncPrepCfg prep_cfg;
+  MppEncCfg cfg;
 
   GST_DEBUG_OBJECT (self, "Setting format: %" GST_PTR_FORMAT, state->caps);
 
@@ -229,25 +446,47 @@ gst_mpp_video_enc_set_format (GstVideoEncoder * encoder,
       return FALSE;
   }
 
-  memset (&prep_cfg, 0, sizeof (prep_cfg));
-  prep_cfg.change = MPP_ENC_PREP_CFG_CHANGE_INPUT |
-      MPP_ENC_PREP_CFG_CHANGE_FORMAT;
-  prep_cfg.width = GST_VIDEO_INFO_WIDTH (&state->info);
-  prep_cfg.height = GST_VIDEO_INFO_HEIGHT (&state->info);
-  prep_cfg.format = to_mpp_pixel (state->caps, &state->info);
-  prep_cfg.hor_stride = info->stride[0];
-  prep_cfg.ver_stride = ver_stride;
-
-  if (self->mpi->control (self->mpp_ctx, MPP_ENC_SET_PREP_CFG, &prep_cfg)) {
-    GST_DEBUG_OBJECT (self, "Setting input format for rockchip mpp failed");
+  if (mpp_enc_cfg_init (&cfg)) {
+    GST_WARNING_OBJECT (self, "Init enc cfg failed");
     return FALSE;
   }
 
-  if (self->mpi->control
-      (self->mpp_ctx, MPP_ENC_GET_EXTRA_INFO, &self->sps_packet))
-    self->sps_packet = NULL;
+  if (self->mpi->control (self->mpp_ctx, MPP_ENC_GET_CFG, cfg)) {
+    GST_WARNING_OBJECT (self, "Get enc cfg failed");
+    mpp_enc_cfg_deinit (cfg);
+    return FALSE;
+  }
+
+  mpp_enc_cfg_set_s32 (cfg, "prep:format",
+      to_mpp_pixel (state->caps, &state->info));
+  mpp_enc_cfg_set_s32 (cfg, "prep:width", GST_VIDEO_INFO_WIDTH (&state->info));
+  mpp_enc_cfg_set_s32 (cfg, "prep:height",
+      GST_VIDEO_INFO_HEIGHT (&state->info));
+  mpp_enc_cfg_set_s32 (cfg, "prep:hor_stride", info->stride[0]);
+  mpp_enc_cfg_set_s32 (cfg, "prep:ver_stride", ver_stride);
+
+  mpp_enc_cfg_set_s32 (cfg, "rc:fps_in_flex", 0);
+  mpp_enc_cfg_set_s32 (cfg, "rc:fps_in_num",
+      GST_VIDEO_INFO_FPS_N (&state->info));
+  mpp_enc_cfg_set_s32 (cfg, "rc:fps_in_denorm",
+      GST_VIDEO_INFO_FPS_D (&state->info));
+  mpp_enc_cfg_set_s32 (cfg, "rc:fps_out_flex", 0);
+  mpp_enc_cfg_set_s32 (cfg, "rc:fps_out_num",
+      GST_VIDEO_INFO_FPS_N (&state->info));
+  mpp_enc_cfg_set_s32 (cfg, "rc:fps_out_denorm",
+      GST_VIDEO_INFO_FPS_D (&state->info));
+
+  if (self->mpi->control (self->mpp_ctx, MPP_ENC_SET_CFG, cfg)) {
+    GST_WARNING_OBJECT (self, "Set enc cfg failed");
+    mpp_enc_cfg_deinit (cfg);
+    return FALSE;
+  }
+
+  mpp_enc_cfg_deinit (cfg);
 
   self->input_state = gst_video_codec_state_ref (state);
+
+  gst_mpp_video_enc_update_properties (encoder);
 
 done:
   return TRUE;
@@ -312,111 +551,87 @@ gst_mpp_video_enc_process_buffer (GstMppVideoEnc * self, GstBuffer ** buffer)
   GstBuffer *new_buffer = NULL;
   static gint8 current_index = 0;
   GstVideoCodecFrame *frame;
-  gpointer ptr = NULL;
   MppFrame mpp_frame = self->mpp_frame;
-  MppTask task = NULL;
   MppBuffer frame_in = self->input_buffer[current_index];
-  MppBuffer pkt_buf_out = self->output_buffer[current_index];
   MppPacket packet = NULL;
-  GstFlowReturn ret;
+  GstFlowReturn ret = GST_FLOW_OK;
 
   mpp_frame_set_buffer (mpp_frame, frame_in);
   /* Eos buffer */
   if (0 == gst_buffer_get_size (*buffer)) {
     mpp_frame_set_eos (mpp_frame, 1);
   } else {
-    ptr = mpp_buffer_get_ptr (frame_in);
+    /* Convert input buffer to mpp frame */
+    /* TODO: Use RGA */
 
-    gst_buffer_ref (*buffer);
-    gst_buffer_extract (*buffer, 0, ptr, gst_buffer_get_size (*buffer));
-    gst_buffer_unref (*buffer);
+    GstVideoMeta *meta = gst_buffer_get_video_meta (*buffer);
+    GstVideoInfo *info = &self->info;
+    GstMapInfo mapinfo = { 0, };
+    gconstpointer *ptr = mpp_buffer_get_ptr (frame_in);
+    guint8 *src, *dst;
+    gint i, j, src_stride, dst_stride, cr_h;
+
+    cr_h = GST_VIDEO_INFO_HEIGHT (info);
+    if (info->finfo->format == GST_VIDEO_FORMAT_NV12 ||
+        info->finfo->format == GST_VIDEO_FORMAT_I420)
+      cr_h /= 2;
+
+    gst_buffer_map (*buffer, &mapinfo, GST_MAP_READ);
+    for (i = 0, src = mapinfo.data; i < GST_VIDEO_INFO_N_PLANES (info); i++) {
+      gint height = i ? cr_h : GST_VIDEO_INFO_HEIGHT (info);
+      dst = (guint8 *) ptr + GST_VIDEO_INFO_PLANE_OFFSET (info, i);
+
+      src_stride = dst_stride = GST_VIDEO_INFO_PLANE_STRIDE (info, i);
+      if (meta) {
+        src = mapinfo.data + meta->offset[i];
+        src_stride = meta->stride[i];
+      }
+
+      for (j = 0; j < height; j++) {
+        memcpy (dst, src, src_stride > dst_stride ? dst_stride : src_stride);
+        src += src_stride;
+        dst += dst_stride;
+      }
+    }
+    gst_buffer_unmap (*buffer, &mapinfo);
 
     mpp_frame_set_eos (mpp_frame, 0);
   }
 
-  do {
-    if (self->mpi->dequeue (self->mpp_ctx, MPP_PORT_INPUT, &task)) {
-      GST_ERROR_OBJECT (self, "mpp task input dequeue failed");
-      return GST_FLOW_ERROR;
-    }
-    if (NULL == task) {
-      GST_LOG_OBJECT (self, "mpp input failed, try again");
-      g_usleep (2);
-    } else {
-      break;
-    }
-  } while (1);
-  mpp_task_meta_set_frame (task, KEY_INPUT_FRAME, mpp_frame);
-
-  mpp_packet_init_with_buffer (&packet, pkt_buf_out);
-  mpp_task_meta_set_packet (task, KEY_OUTPUT_PACKET, packet);
-
-  if (self->mpi->enqueue (self->mpp_ctx, MPP_PORT_INPUT, task)) {
-    GST_ERROR_OBJECT (self, "mpp task input enqueu failed");
+  if (self->mpi->encode_put_frame (self->mpp_ctx, mpp_frame)) {
+    GST_ERROR_OBJECT (self, "mpp put frame failed");
+    return GST_FLOW_ERROR;
   }
 
   GST_LOG_OBJECT (self, "Process output buffer");
 
-  do {
-    MppFrame packet_out = NULL;
-    ret = GST_FLOW_OK;
+  if (self->mpi->encode_get_packet (self->mpp_ctx, &packet)) {
+    GST_ERROR_OBJECT (self, "mpp get packet failed");
+    return GST_FLOW_ERROR;
+  }
 
-    if (self->mpi->dequeue (self->mpp_ctx, MPP_PORT_OUTPUT, &task)) {
-      g_usleep (2);
-      continue;
+  /* Get result */
+  if (packet) {
+    gconstpointer *ptr = mpp_packet_get_pos (packet);
+    gsize len = mpp_packet_get_length (packet);
+
+    if (mpp_packet_get_eos (packet))
+      ret = GST_FLOW_EOS;
+
+    GST_LOG_OBJECT (self, "Allocate output buffer");
+    new_buffer = gst_video_encoder_allocate_output_buffer (encoder, len);
+    if (NULL == new_buffer) {
+      ret = GST_FLOW_FLUSHING;
+      goto beach;
     }
 
-    if (task) {
-      mpp_task_meta_get_packet (task, KEY_OUTPUT_PACKET, &packet_out);
-      g_assert (packet_out == packet);
+    gst_buffer_fill (new_buffer, 0, ptr, len);
+    mpp_packet_deinit (&packet);
+  }
 
-      /* Get result */
-      if (packet) {
-        gconstpointer *ptr = mpp_packet_get_pos (packet);
-        gsize len = mpp_packet_get_length (packet);
-        gint intra_flag = 0;
-
-        if (mpp_packet_get_eos (packet))
-          ret = GST_FLOW_EOS;
-
-        mpp_task_meta_get_s32 (task, KEY_OUTPUT_INTRA, &intra_flag, 0);
-
-        GST_LOG_OBJECT (self, "Allocate output buffer");
-        if (intra_flag)
-          new_buffer = gst_video_encoder_allocate_output_buffer (encoder,
-              MAX_EXTRA_DATA + len);
-        else
-          new_buffer = gst_video_encoder_allocate_output_buffer (encoder, len);
-        if (NULL == new_buffer) {
-          ret = GST_FLOW_FLUSHING;
-          goto beach;
-        }
-
-        /* Fill the buffer */
-        if (intra_flag && self->sps_packet) {
-          const gpointer *sps_ptr = mpp_packet_get_pos (self->sps_packet);
-          gsize sps_len = mpp_packet_get_length (self->sps_packet);
-
-          gst_buffer_fill (new_buffer, 0, sps_ptr, sps_len);
-
-          gst_buffer_fill (new_buffer, sps_len, ptr, len);
-        } else {
-          gst_buffer_fill (new_buffer, 0, ptr, len);
-        }
-
-        mpp_packet_deinit (&packet);
-      }
-
-      if (self->mpi->enqueue (self->mpp_ctx, MPP_PORT_OUTPUT, task)) {
-        GST_ERROR_OBJECT (self, "mpp task output enqueue failed");
-        ret = GST_FLOW_ERROR;
-      }
-      current_index++;
-      if (current_index >= MPP_MAX_BUFFERS)
-        current_index = 0;
-      break;
-    }
-  } while (1);
+  current_index++;
+  if (current_index >= MPP_MAX_BUFFERS)
+    current_index = 0;
   if (ret != GST_FLOW_OK)
     goto beach;
 
@@ -450,24 +665,21 @@ gst_mpp_video_enc_handle_frame (GstVideoEncoder * encoder,
 {
 
   GstMppVideoEnc *self = GST_MPP_VIDEO_ENC (encoder);
+  GstVideoCodecState *output;
   GstFlowReturn ret = GST_FLOW_OK;
 
   GST_DEBUG_OBJECT (self, "Handling frame %d", frame->system_frame_number);
 
+  gst_mpp_video_enc_update_properties (encoder);
+
   if (G_UNLIKELY (!g_atomic_int_get (&self->active)))
     goto flushing;
 
-  /* FIXME don't use this as a flag */
-  if (self->outcaps == NULL) {
+  if (!self->negotiated) {
     gint i = 0;
-    gsize packet_size;
 
     GST_DEBUG_OBJECT (self, "Filling src caps with output dimensions %ux%u",
         self->info.width, self->info.height);
-    /* In most cases, the packet size will be smaller than the frame size.
-     * In the case of YUV422, the packet size has the opportunity to reach
-     * the upper limit: 2 * width * height + JpegDefaultHeadSize(608) */
-    packet_size = self->info.width * self->info.height * 2 + 608;
 
     if (!outcaps)
       goto not_negotiated;
@@ -477,18 +689,15 @@ gst_mpp_video_enc_handle_frame (GstVideoEncoder * encoder,
         "height", G_TYPE_INT, self->input_state->info.height, NULL);
 
     /* Allocator buffers */
-    if (mpp_buffer_group_get_internal (&self->input_group, MPP_BUFFER_TYPE_ION))
+    if (mpp_buffer_group_get_internal (&self->input_group, MPP_BUFFER_TYPE_DRM))
       goto activate_failed;
     if (mpp_buffer_group_get_internal (&self->output_group,
-            MPP_BUFFER_TYPE_ION))
+            MPP_BUFFER_TYPE_DRM))
       goto activate_failed;
 
     for (i = 0; i < MPP_MAX_BUFFERS; i++) {
       if (mpp_buffer_get (self->input_group, &self->input_buffer[i],
               self->info.size))
-        goto activate_failed;
-      if (mpp_buffer_get (self->output_group, &self->output_buffer[i],
-              packet_size))
         goto activate_failed;
     }
 
@@ -507,8 +716,9 @@ gst_mpp_video_enc_handle_frame (GstVideoEncoder * encoder,
     if (self->mpi->poll (self->mpp_ctx, MPP_PORT_INPUT, MPP_POLL_BLOCK))
       GST_ERROR_OBJECT (self, "mpp input poll failed");
 
-    gst_video_encoder_set_output_state (encoder, outcaps, self->input_state);
-    self->outcaps = gst_caps_ref (outcaps);
+    output = gst_video_encoder_set_output_state (encoder,
+        gst_caps_ref (outcaps), self->input_state);
+    gst_video_codec_state_unref (output);
 
     if (!gst_video_encoder_negotiate (encoder)) {
       if (GST_PAD_IS_FLUSHING (GST_VIDEO_ENCODER_SRC_PAD (encoder)))
@@ -517,6 +727,7 @@ gst_mpp_video_enc_handle_frame (GstVideoEncoder * encoder,
         goto not_negotiated;
     }
 
+    self->negotiated = TRUE;
   }
   if (g_atomic_int_get (&self->processing) == FALSE) {
     g_atomic_int_set (&self->processing, TRUE);
@@ -639,19 +850,109 @@ done:
 static void
 gst_mpp_video_enc_init (GstMppVideoEnc * self)
 {
+  self->header_mode = DEFAULT_PROP_HEADER_MODE;
+  self->sei_mode = DEFAULT_PROP_SEI_MODE;
+  self->rc_mode = DEFAULT_PROP_RC_MODE;
+  self->rotation = DEFAULT_PROP_ROTATION;
+  self->gop = DEFAULT_PROP_GOP;
+  self->max_reenc = DEFAULT_PROP_MAX_REENC;
+  self->bps = DEFAULT_PROP_BPS;
+  self->bps_min = DEFAULT_PROP_BPS_MIN;
+  self->bps_max = DEFAULT_PROP_BPS_MAX;
+  self->prop_dirty = TRUE;
+}
+
+#define GST_TYPE_MPP_ENC_HEADER_MODE (gst_mpp_enc_header_mode_get_type ())
+static GType
+gst_mpp_enc_header_mode_get_type (void)
+{
+  static GType header_mode = 0;
+
+  if (!header_mode) {
+    static const GEnumValue modes[] = {
+      {MPP_ENC_HEADER_MODE_DEFAULT, "Only in the first frame", "first-frame"},
+      {MPP_ENC_HEADER_MODE_EACH_IDR, "In every IDR frames", "each-idr"},
+      {0, NULL, NULL}
+    };
+    header_mode = g_enum_register_static ("MppEncHeaderMode", modes);
+  }
+  return header_mode;
+}
+
+#define GST_TYPE_MPP_ENC_SEI_MODE (gst_mpp_enc_sei_mode_get_type ())
+static GType
+gst_mpp_enc_sei_mode_get_type (void)
+{
+  static GType sei_mode = 0;
+
+  if (!sei_mode) {
+    static const GEnumValue modes[] = {
+      {MPP_ENC_SEI_MODE_DISABLE, "SEI disabled", "disable"},
+      {MPP_ENC_SEI_MODE_ONE_SEQ, "One SEI per sequence", "one-seq"},
+      {MPP_ENC_SEI_MODE_ONE_FRAME, "One SEI per frame(if changed)",
+          "one-frame"},
+      {0, NULL, NULL}
+    };
+    sei_mode = g_enum_register_static ("GstMppEncSeiMode", modes);
+  }
+  return sei_mode;
+}
+
+#define GST_TYPE_MPP_ENC_RC_MODE (gst_mpp_enc_rc_mode_get_type ())
+static GType
+gst_mpp_enc_rc_mode_get_type (void)
+{
+  static GType rc_mode = 0;
+
+  if (!rc_mode) {
+    static const GEnumValue modes[] = {
+      {MPP_ENC_RC_MODE_VBR, "Variable bitrate", "vbr"},
+      {MPP_ENC_RC_MODE_CBR, "Constant bitrate", "cbr"},
+      {MPP_ENC_RC_MODE_FIXQP, "Fixed QP", "fixqp"},
+      {0, NULL, NULL}
+    };
+    rc_mode = g_enum_register_static ("GstMppEncRcMode", modes);
+  }
+  return rc_mode;
+}
+
+#define GST_TYPE_MPP_ENC_ROTATION (gst_mpp_enc_rotation_get_type ())
+static GType
+gst_mpp_enc_rotation_get_type (void)
+{
+  static GType rotation = 0;
+
+  if (!rotation) {
+    static const GEnumValue rotations[] = {
+      {MPP_ENC_ROT_0, "Rotate 0", "0"},
+      {MPP_ENC_ROT_90, "Rotate 90", "90"},
+      {MPP_ENC_ROT_180, "Rotate 180", "180"},
+      {MPP_ENC_ROT_270, "Rotate 270", "270"},
+      {0, NULL, NULL}
+    };
+    rotation = g_enum_register_static ("GstMppEncRotation", rotations);
+  }
+  return rotation;
 }
 
 static void
 gst_mpp_video_enc_class_init (GstMppVideoEncClass * klass)
 {
   GstElementClass *element_class;
+  GObjectClass *gobject_class;
   GstVideoEncoderClass *video_encoder_class;
 
   element_class = (GstElementClass *) klass;
+  gobject_class = (GObjectClass *) klass;
   video_encoder_class = (GstVideoEncoderClass *) klass;
 
   GST_DEBUG_CATEGORY_INIT (mppvideoenc_debug, "mppvideoenc", 0,
       "Rockchip MPP Video Encoder");
+
+  gobject_class->set_property =
+      GST_DEBUG_FUNCPTR (gst_mpp_video_enc_set_property);
+  gobject_class->get_property =
+      GST_DEBUG_FUNCPTR (gst_mpp_video_enc_get_property);
 
   video_encoder_class->close = GST_DEBUG_FUNCPTR (gst_mpp_video_enc_close);
   video_encoder_class->start = GST_DEBUG_FUNCPTR (gst_mpp_video_enc_start);
@@ -665,4 +966,58 @@ gst_mpp_video_enc_class_init (GstMppVideoEncClass * klass)
 
   gst_element_class_add_pad_template (element_class,
       gst_static_pad_template_get (&gst_mpp_video_enc_sink_template));
+
+  g_object_class_install_property (gobject_class, PROP_HEADER_MODE,
+      g_param_spec_enum ("header-mode", "Header mode",
+          "Header mode",
+          GST_TYPE_MPP_ENC_HEADER_MODE, DEFAULT_PROP_HEADER_MODE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_SEI_MODE,
+      g_param_spec_enum ("sei-mode", "SEI mode",
+          "SEI mode",
+          GST_TYPE_MPP_ENC_SEI_MODE, DEFAULT_PROP_SEI_MODE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_RC_MODE,
+      g_param_spec_enum ("rc-mode", "RC mode",
+          "RC mode",
+          GST_TYPE_MPP_ENC_RC_MODE, DEFAULT_PROP_RC_MODE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_ROTATION,
+      g_param_spec_enum ("rotation", "Rotation",
+          "Rotation",
+          GST_TYPE_MPP_ENC_ROTATION, DEFAULT_PROP_ROTATION,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_GOP,
+      g_param_spec_int ("gop", "Group of pictures",
+          "Group of pictures starting with I frame (-1 = FPS, 1 = all I frames)",
+          -1, G_MAXINT, DEFAULT_PROP_GOP,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_MAX_REENC,
+      g_param_spec_uint ("max-reenc", "Max re-encode times",
+          "Max re-encode times for one frame",
+          0, 3, DEFAULT_PROP_MAX_REENC,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_BPS,
+      g_param_spec_uint ("bps", "Target BPS",
+          "Target BPS (0 = auto calculate)",
+          0, G_MAXINT, DEFAULT_PROP_BPS,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_BPS_MIN,
+      g_param_spec_uint ("bps-min", "Min BPS",
+          "Min BPS (0 = auto calculate)",
+          0, G_MAXINT, DEFAULT_PROP_BPS_MIN,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_BPS_MAX,
+      g_param_spec_uint ("bps-max", "Max BPS",
+          "Max BPS (0 = auto calculate)",
+          0, G_MAXINT, DEFAULT_PROP_BPS_MAX,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 }

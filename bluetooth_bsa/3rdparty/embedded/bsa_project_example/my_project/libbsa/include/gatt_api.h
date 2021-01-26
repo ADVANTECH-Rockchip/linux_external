@@ -583,28 +583,28 @@ typedef UINT8 tGATT_IF;
 
 
 /* discover result callback function */
-typedef void (tGATT_DISC_RES_CB) (UINT16 conn_id, tGATT_DISC_TYPE disc_type,
-                                  tGATT_DISC_RES *p_data);
+typedef void (tGATT_DISC_RES_CB)(UINT16 conn_id, tGATT_DISC_TYPE disc_type,
+    tGATT_DISC_RES *p_data);
 
 /* discover complete callback function */
-typedef void (tGATT_DISC_CMPL_CB) (UINT16 conn_id, tGATT_DISC_TYPE disc_type,
-                                   tGATT_STATUS status);
+typedef void (tGATT_DISC_CMPL_CB)(UINT16 conn_id, tGATT_DISC_TYPE disc_type,
+    tGATT_STATUS status);
 
 /* Define a callback function for when read/write/disc/config operation is completed. */
-typedef void (tGATT_CMPL_CBACK) (UINT16 conn_id, tGATTC_OPTYPE op, tGATT_STATUS status,
-                                 tGATT_CL_COMPLETE *p_data);
+typedef void (tGATT_CMPL_CBACK)(UINT16 conn_id, tGATTC_OPTYPE op, tGATT_STATUS status,
+    tGATT_CL_COMPLETE *p_data);
 
 /* Define a callback function when an initialized connection is established. */
-typedef void (tGATT_CONN_CBACK) (tGATT_IF gatt_if, BD_ADDR bda, UINT16 conn_id,
-                                 BOOLEAN connected, tGATT_DISCONN_REASON reason,
-                                 tBT_TRANSPORT transport);
+typedef void (tGATT_CONN_CBACK)(tGATT_IF gatt_if, BD_ADDR bda, UINT16 conn_id,
+    BOOLEAN connected, tGATT_DISCONN_REASON reason,
+    tBT_TRANSPORT transport);
 
 /* attribute request callback for ATT server */
-typedef void  (tGATT_REQ_CBACK )(UINT16 conn_id, UINT32 trans_id, tGATTS_REQ_TYPE type,
-                                 tGATTS_DATA *p_data);
-/* channel congestion/uncongestion callback */
-typedef void  (tGATT_CONGESTION_CBACK )(UINT16 conn_id, BOOLEAN congested);
+typedef void (tGATT_REQ_CBACK)(UINT16 conn_id, UINT32 trans_id, tGATTS_REQ_TYPE type,
+    tGATTS_DATA *p_data);
 
+/* channel congestion/uncongestion callback */
+typedef void (tGATT_CONGESTION_CBACK)(UINT16 conn_id, BOOLEAN congested);
 
 /* Define the structure that applications use to register with
 ** GATT. This structure includes callback functions. All functions
@@ -671,11 +671,10 @@ typedef struct
 
 /* Attibute server handle ranges NV storage callback functions
 */
-typedef void  (tGATTS_NV_SAVE_CBACK)(BOOLEAN is_saved, tGATTS_HNDL_RANGE *p_hndl_range);
+typedef void (tGATTS_NV_SAVE_CBACK)(BOOLEAN is_saved, tGATTS_HNDL_RANGE *p_hndl_range);
 
-typedef BOOLEAN  (tGATTS_NV_SRV_CHG_CBACK)(tGATTS_SRV_CHG_CMD cmd,
-                                           tGATTS_SRV_CHG_REQ *p_req,
-                                           tGATTS_SRV_CHG_RSP *p_rsp);
+typedef BOOLEAN (tGATTS_NV_SRV_CHG_CBACK)(tGATTS_SRV_CHG_CMD cmd,
+    tGATTS_SRV_CHG_REQ *p_req, tGATTS_SRV_CHG_RSP *p_rsp);
 
 typedef struct
 {

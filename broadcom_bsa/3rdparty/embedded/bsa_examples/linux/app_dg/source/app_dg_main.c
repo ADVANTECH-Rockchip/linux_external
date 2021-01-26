@@ -185,7 +185,7 @@ int main(int argc, char **argv)
             break;
 
         case APP_DG_MENU_DISC:
-            app_disc_start_services(BSA_SPP_SERVICE_MASK);
+            app_disc_start_services(BSA_SPP_SERVICE_MASK, 0);
             break;
 
         case APP_DG_MENU_OPEN:

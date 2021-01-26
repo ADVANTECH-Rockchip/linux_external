@@ -31,6 +31,8 @@ struct MppFrameImpl_t {
     RK_U32  height;
     RK_U32  hor_stride;
     RK_U32  ver_stride;
+    RK_U32  offset_x;
+    RK_U32  offset_y;
 
     /*
      * interlaced related mode status
@@ -105,16 +107,40 @@ struct MppFrameImpl_t {
     MppMeta         meta;
 
     /*
+     * frame buffer compression (FBC) information
+     *
+     * NOTE: some constraint on fbc data
+     * 1. FBC config need two addresses but only one buffer.
+     *    The second address should be represented by base + offset form.
+     * 2. FBC has header address and payload address
+     *    Both addresses should be 4K aligned.
+     * 3. The header section size is default defined by:
+     *    header size = aligned(aligned(width, 16) * aligned(height, 16) / 16, 4096)
+     * 4. The stride in header section is defined by:
+     *    stride = aligned(width, 16)
+     */
+    RK_U32          fbc_offset;
+
+    /*
      * pointer for multiple frame output at one time
      */
     MppFrameImpl    *next;
 };
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 MPP_RET mpp_frame_set_next(MppFrame frame, MppFrame next);
 MPP_RET mpp_frame_copy(MppFrame frame, MppFrame next);
 MPP_RET mpp_frame_info_cmp(MppFrame frame0, MppFrame frame1);
+RK_U32  mpp_frame_get_fbc_offset(MppFrame frame);
+RK_U32  mpp_frame_get_fbc_stride(MppFrame frame);
 
 MPP_RET check_is_mpp_frame(void *pointer);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /*__MPP_FRAME_IMPL_H__*/

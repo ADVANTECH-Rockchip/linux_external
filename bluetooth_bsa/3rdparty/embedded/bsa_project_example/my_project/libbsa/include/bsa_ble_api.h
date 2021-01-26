@@ -25,6 +25,45 @@
 #define BSA_BLE_DEBUG FALSE
 #endif
 
+/* Success code and error codes */
+#define  BSA_GATT_OK                       BTA_GATT_OK
+#define  BSA_GATT_INVALID_HANDLE           BTA_GATT_INVALID_HANDLE                /* 0x01 */
+#define  BSA_GATT_READ_NOT_PERMIT          BTA_GATT_READ_NOT_PERMIT               /* 0x02 */
+#define  BSA_GATT_WRITE_NOT_PERMIT         BTA_GATT_WRITE_NOT_PERMIT              /* 0x03 */
+#define  BSA_GATT_INVALID_PDU              BTA_GATT_INVALID_PDU                   /* 0x04 */
+#define  BSA_GATT_INSUF_AUTHENTICATION     BTA_GATT_INSUF_AUTHENTICATION          /* 0x05 */
+#define  BSA_GATT_REQ_NOT_SUPPORTED        BTA_GATT_REQ_NOT_SUPPORTED             /* 0x06 */
+#define  BSA_GATT_INVALID_OFFSET           BTA_GATT_INVALID_OFFSET                /* 0x07 */
+#define  BSA_GATT_INSUF_AUTHORIZATION      BTA_GATT_INSUF_AUTHORIZATION           /* 0x08 */
+#define  BSA_GATT_PREPARE_Q_FULL           BTA_GATT_PREPARE_Q_FULL                /* 0x09 */
+#define  BSA_GATT_NOT_FOUND                BTA_GATT_NOT_FOUND                     /* 0x0a */
+#define  BSA_GATT_NOT_LONG                 BTA_GATT_NOT_LONG                      /* 0x0b */
+#define  BSA_GATT_INSUF_KEY_SIZE           BTA_GATT_INSUF_KEY_SIZE                /* 0x0c */
+#define  BSA_GATT_INVALID_ATTR_LEN         BTA_GATT_INVALID_ATTR_LEN              /* 0x0d */
+#define  BSA_GATT_ERR_UNLIKELY             BTA_GATT_ERR_UNLIKELY                  /* 0x0e */
+#define  BSA_GATT_INSUF_ENCRYPTION         BTA_GATT_INSUF_ENCRYPTION              /* 0x0f */
+#define  BSA_GATT_UNSUPPORT_GRP_TYPE       BTA_GATT_UNSUPPORT_GRP_TYPE            /* 0x10 */
+#define  BSA_GATT_INSUF_RESOURCE           BTA_GATT_INSUF_RESOURCE                /* 0x11 */
+
+
+#define  BSA_GATT_NO_RESOURCES             BTA_GATT_NO_RESOURCES                  /* 0x80 */
+#define  BSA_GATT_INTERNAL_ERROR           BTA_GATT_INTERNAL_ERROR                /* 0x81 */
+#define  BSA_GATT_WRONG_STATE              BTA_GATT_WRONG_STATE                   /* 0x82 */
+#define  BSA_GATT_DB_FULL                  BTA_GATT_DB_FULL                       /* 0x83 */
+#define  BSA_GATT_BUSY                     BTA_GATT_BUSY                          /* 0x84 */
+#define  BSA_GATT_ERROR                    BTA_GATT_ERROR                         /* 0x85 */
+#define  BSA_GATT_CMD_STARTED              BTA_GATT_CMD_STARTED                   /* 0x86 */
+#define  BSA_GATT_ILLEGAL_PARAMETER        BTA_GATT_ILLEGAL_PARAMETER             /* 0x87 */
+#define  BSA_GATT_PENDING                  BTA_GATT_PENDING                       /* 0x88 */
+#define  BSA_GATT_AUTH_FAIL                BTA_GATT_AUTH_FAIL                     /* 0x89 */
+#define  BSA_GATT_MORE                     BTA_GATT_MORE                          /* 0x8a */
+#define  BSA_GATT_INVALID_CFG              BTA_GATT_INVALID_CFG                   /* 0x8b */
+#define  BSA_GATT_SERVICE_STARTED          BTA_GATT_SERVICE_STARTED               /* 0x8c */
+#define  BSA_GATT_ENCRYPED_MITM            BTA_GATT_ENCRYPED_MITM                 /*BTA_GATT_SUCCESS */
+#define  BSA_GATT_ENCRYPED_NO_MITM         BTA_GATT_ENCRYPED_NO_MITM              /* 0x8d */
+#define  BSA_GATT_NOT_ENCRYPTED            BTA_GATT_NOT_ENCRYPTED                 /* 0x8e */
+#define  BSA_GATT_CONGESTED                BTA_GATT_CONGESTED                     /* 0x8f */
+
 typedef tGATT_IF                   tBSA_BLE_IF;
 typedef tBTA_GATTC_CHAR_ID         tBSA_BLE_CL_CHAR_ID;
 typedef tBTA_GATTC_CHAR_DESCR_ID   tBSA_BLE_CL_CHAR_DESCR_ID;
@@ -57,8 +96,7 @@ typedef tBTA_GATTC_WRITE_TYPE      tBSA_BLE_WRITE_TYPE;
 #define BSA_GATT_CHAR_PROP_BIT_AUTH         BTA_GATT_CHAR_PROP_BIT_AUTH        /* 0x40 */
 #define BSA_GATT_CHAR_PROP_BIT_EXT_PROP     BTA_GATT_CHAR_PROP_BIT_EXT_PROP    /* 0x80 */
 
-#define BSA_BLE_MAX_ATTR_LEN  GATT_MAX_ATTR_LEN
-
+#define BSA_BLE_MAX_ATTR_LEN    GATT_MAX_ATTR_LEN
 
 #define BSA_GATTC_ATTR_TYPE_INCL_SRVC   BTA_GATTC_ATTR_TYPE_INCL_SRVC
 #define BSA_GATTC_ATTR_TYPE_CHAR        BTA_GATTC_ATTR_TYPE_CHAR
@@ -223,6 +261,7 @@ typedef enum
     BSA_BLE_SE_STOP_EVT,          /* Service is stopped */
     BSA_BLE_SE_WRITE_EVT,         /* Write request from client */
     BSA_BLE_SE_EXEC_WRITE_EVT,    /* Execute Write request from client */
+    BSA_BLE_SE_MTU_EVT,           /* MTU event */
     BSA_BLE_SE_CONGEST_EVT,       /* Congestion event */
     BSA_BLE_SE_READ_EVT,          /* Read request from client */
     BSA_BLE_SE_OPEN_EVT,          /* Connect request from client */
@@ -231,6 +270,9 @@ typedef enum
 
     BSA_BLE_APCF_ENABLE_EVT,      /* APCF Enable/Disable */
     BSA_BLE_APCF_CFG_EVT,         /* APCF Config */
+    BSA_BLE_PHY_INFO_EVT,         /* Read PHY event */
+    BSA_BLE_PHY_UPDATE_EVT,       /* PHY update event */
+    BSA_BLE_CONN_PARAM_UPDATE_EVT,/* Connection parameter update event */
 } tBSA_BLE_EVT;
 
 /* BSA BLE Client Host callback events */
@@ -276,7 +318,6 @@ typedef struct
     UINT16              conn_id;
 } tBSA_BLE_CL_SEARCH_CMPL_MSG;
 
-#define MAX_READ_LEN 100
 /* callback event data for BSA_BLE_CL_READ_EVT event */
 typedef struct
 {
@@ -286,7 +327,7 @@ typedef struct
     tBSA_BLE_ID         char_id;
     tBTA_GATT_ID        descr_type;
     UINT16              len;
-    UINT8               value[MAX_READ_LEN];
+    UINT8               value[BSA_BLE_MAX_ATTR_LEN];
 } tBSA_BLE_CL_READ_MSG;
 
 /* callback event data for BSA_BLE_CL_WRITE_EVT event */
@@ -353,7 +394,6 @@ typedef struct
     tBSA_STATUS         status;
     UINT16              conn_id;
 } tBSA_BLE_CL_EXEC_CMPL_MSG;
-
 
 /* BSA BLE Server Host callback events */
 /* Server callback function events */
@@ -437,6 +477,12 @@ typedef tBSA_BLE_SE_OPEN_MSG tBSA_BLE_SE_CLOSE_MSG;
 typedef struct
 {
     UINT16              conn_id;
+    UINT16              att_mtu;
+}tBSA_BLE_SE_MTU_MSG;
+
+typedef struct
+{
+    UINT16              conn_id;
     BOOLEAN             congested; /* congestion indicator */
 }tBSA_BLE_SE_CONGEST_MSG;
 
@@ -444,6 +490,7 @@ typedef struct
 {
     UINT16              conn_id;
     tBSA_STATUS         status;
+    UINT16              attr_id;
 }tBSA_BLE_SE_CONFIRM_MSG;
 
 typedef struct
@@ -451,8 +498,6 @@ typedef struct
     BD_ADDR       remote_bda;
     UINT32        trans_id;
     UINT16        conn_id;
-    UINT16        handle;
-    tBSA_STATUS   status;
     UINT8         flag;
 }tBSA_BLE_SE_EXEC_WRITE_MSG;
 
@@ -549,7 +594,25 @@ typedef struct
     BOOLEAN   enable;
 }tBSA_BLE_APCF_ENABLE_MSG;
 
-/* Union of data associated with HD callback */
+typedef struct
+{
+    tBSA_STATUS         status;
+    BD_ADDR             bd_addr;
+    UINT8               tx_phy;
+    UINT8               rx_phy;
+    BOOLEAN             is_preference;
+} tBSA_BLE_PHY_INFO_MSG;
+
+typedef struct
+{
+    tBSA_STATUS         status;
+    BD_ADDR             bd_addr;
+    UINT16              conn_interval;
+    UINT16              conn_latency;
+    UINT16              conn_timeout;
+} tBSA_BLE_CONN_UPD_MSG;
+
+/* Union of data associated with BLE callback */
 typedef union
 {
     tBSA_BLE_CL_OPEN_MSG         cli_open;          /* BSA_BLE_CL_OPEN_EVT */
@@ -576,11 +639,14 @@ typedef union
     tBSA_BLE_SE_EXEC_WRITE_MSG   ser_exec_write;    /* BSA_BLE_SE_EXEC_WRITE_EVT */
     tBSA_BLE_SE_OPEN_MSG         ser_open;          /* BSA_BLE_SE_OPEN_EVT */
     tBSA_BLE_SE_CLOSE_MSG        ser_close;         /* BSA_BLE_SE_CLOSE_EVT */
-    tBSA_BLE_SE_CONGEST_MSG      ser_congest;       /* BSA_BLE_CL_CONGEST_EVT */
+    tBSA_BLE_SE_MTU_MSG          ser_mtu;           /* BSA_BLE_SE_MTU_EVT */
+    tBSA_BLE_SE_CONGEST_MSG      ser_congest;       /* BSA_BLE_SE_CONGEST_EVT */
     tBSA_BLE_SE_CONFIRM_MSG      ser_confirm;       /* BSA_BLE_SE_CONFIRM_EVT */
 
     tBSA_BLE_APCF_CFG_MSG        apcf_cfg;          /* BSA_BLE_MSGID_APCF_CFG_EVT */
     tBSA_BLE_APCF_ENABLE_MSG     apcf_enable;       /* BSA_BLE_MSGID_APCF_ENABLE_EVT */
+    tBSA_BLE_PHY_INFO_MSG        phy_info;          /* BSA_BLE_PHY_INFO_EVT/BSA_BLE_PHY_UPDATE_EVT */
+    tBSA_BLE_CONN_UPD_MSG        conn_update;       /* BSA_BLE_CONN_PARAM_UPDATE_EVT */
 } tBSA_BLE_MSG;
 
 /* BSA BLE Client callback function */
@@ -591,7 +657,7 @@ typedef void (tBSA_BLE_CBACK)(tBSA_BLE_EVT event, tBSA_BLE_MSG *p_data);
  */
 typedef struct
 {
-    int                 dummy; /* May be needed for some compilers */
+    tBSA_BLE_CBACK      *p_cback;
 } tBSA_BLE_ENABLE;
 
 typedef struct
@@ -631,6 +697,42 @@ typedef struct
     UINT16              conn_id;
     tBT_UUID            uuid;
 } tBSA_BLE_CL_SEARCH;
+
+typedef struct
+{
+    UINT16               conn_id;        // connection ID which identify the server.
+    tBTA_GATT_SRVC_ID    service_uuid;   // the service ID of which the characteristic is belonged to.
+    tBT_UUID             char_uuid_cond; // Characteristic UUID, if len=0 find the first available characteristic.
+    tBTA_GATTC_CHAR_ID   char_result;    // output parameter which will store the GATT characteristic ID.
+    tBTA_GATT_CHAR_PROP  property;       // output parameter to carry the characteristic property.
+} tBSA_BLE_CL_GET_FIRST_CHAR;
+
+typedef struct
+{
+    UINT16               conn_id;        // connection ID which identify the server.
+    tBTA_GATTC_CHAR_ID   start_char_id;  // start the characteristic search from the next record
+                                         // after the one identified by char_id.
+    tBT_UUID             char_uuid_cond; // Characteristic UUID, if len=0 find the first available characteristic.
+    tBTA_GATTC_CHAR_ID   char_result;    // output parameter which will store the GATT characteristic ID.
+    tBTA_GATT_CHAR_PROP  property;       // output parameter to carry the characteristic property.
+} tBSA_BLE_CL_GET_NEXT_CHAR;
+
+typedef struct
+{
+    UINT16               conn_id;        // connection ID which identify the server.
+    tBTA_GATTC_CHAR_ID   char_id;        // the characteristic ID of which the descriptor is belonged to.
+    tBT_UUID             descr_uuid_cond; // Descriptor UUID, if len=0 find the first available descriptor.
+    tBTA_GATTC_CHAR_DESCR_ID descr_result; // output parameter which will store the GATT decriptor ID.
+} tBSA_BLE_CL_GET_FIRST_CHAR_DESCR;
+
+typedef struct
+{
+    UINT16               conn_id;        // connection ID which identify the server.
+    tBTA_GATTC_CHAR_DESCR_ID start_descr_id; // start the characteristic descriptor search from the next record
+                                             // after the one identified by descr_id.
+    tBT_UUID             descr_uuid_cond; // Descriptor UUID, if len=0 find the first available descriptor.
+    tBTA_GATTC_CHAR_DESCR_ID descr_result; // output parameter which will store the GATT decriptor ID.
+} tBSA_BLE_CL_GET_NEXT_CHAR_DESCR;
 
 typedef struct
 {
@@ -803,6 +905,20 @@ typedef struct
     BOOLEAN enable;
 } tBSA_BLE_APCF_ENABLE;
 
+typedef struct
+{
+    BD_ADDR         bd_addr;
+}tBSA_BLE_READ_PHY;
+
+typedef struct
+{
+    BOOLEAN         preference;
+    BD_ADDR         bd_addr;
+    UINT8           tx_phy;
+    UINT8           rx_phy;
+    UINT16          phy_opt;
+}tBSA_BLE_SET_PHY;
+
 /*****************************************************************************
 **  External Function Declarations
 *****************************************************************************/
@@ -933,6 +1049,106 @@ tBSA_STATUS BSA_BleClSearchInit(tBSA_BLE_CL_SEARCH *p_search);
  **
  *******************************************************************************/
 tBSA_STATUS BSA_BleClSearch(tBSA_BLE_CL_SEARCH *p_search);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleClGetFirstCharInit
+ **
+ ** Description      Initialize structure containing API parameters with default values
+ **
+ ** Parameters       Pointer on structure containing API parameters
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleClGetFirstCharInit(tBSA_BLE_CL_GET_FIRST_CHAR *p_get_first_char);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleClGetFirstChar
+ **
+ ** Description      This function is called to find the first characteristic of the
+ **                      service on the given server from cache.
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleClGetFirstChar(tBSA_BLE_CL_GET_FIRST_CHAR *p_get_first_char);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleClGetNextCharInit
+ **
+ ** Description      Initialize structure containing API parameters with default values
+ **
+ ** Parameters       Pointer on structure containing API parameters
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleClGetNextCharInit(tBSA_BLE_CL_GET_NEXT_CHAR *p_get_next_char);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleClGetNextChar
+ **
+ ** Description      This function is called to find the next characteristic of the
+ **                      service on the given server from cache.
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleClGetNextChar(tBSA_BLE_CL_GET_NEXT_CHAR *p_get_next_char);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleClGetFirstCharDescrInit
+ **
+ ** Description      Initialize structure containing API parameters with default values
+ **
+ ** Parameters       Pointer on structure containing API parameters
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleClGetFirstCharDescrInit(tBSA_BLE_CL_GET_FIRST_CHAR_DESCR *p_get_first_char_descr);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleClGetFirstCharDescr
+ **
+ ** Description      This function is called to find the first descriptor of the
+ **                      characteristic on the given server from cache.
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleClGetFirstCharDescr(tBSA_BLE_CL_GET_FIRST_CHAR_DESCR *p_get_first_char_descr);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleClGetNextCharDescrInit
+ **
+ ** Description      Initialize structure containing API parameters with default values
+ **
+ ** Parameters       Pointer on structure containing API parameters
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleClGetNextCharDescrInit(tBSA_BLE_CL_GET_NEXT_CHAR_DESCR *p_get_next_char_descr);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleClGetNextCharDescr
+ **
+ ** Description      This function is called to find the next descriptor of the
+ **                      characteristic on the given server from cache.
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleClGetNextCharDescr(tBSA_BLE_CL_GET_NEXT_CHAR_DESCR *p_get_next_char_descr);
 
 /*******************************************************************************
  **
@@ -1525,6 +1741,54 @@ tBSA_STATUS BSA_BleApcfCfgInit(tBSA_BLE_APCF_CFG *p_req);
  **
  *******************************************************************************/
 tBSA_STATUS BSA_BleApcfCfg(tBSA_BLE_APCF_CFG *p_req);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleReadPhyInit
+ **
+ ** Description      Initialize structure containing API parameters with default values
+ **
+ ** Parameters       Pointer on structure containing API parameters
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleReadPhyInit(tBSA_BLE_READ_PHY *p_read_phy);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleReadPhy
+ **
+ ** Description      Read BLE PHY status for current active connection
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleReadPhy(tBSA_BLE_READ_PHY *p_read_phy);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleSetPhyInit
+ **
+ ** Description      Initialize structure containing API parameters with default values
+ **
+ ** Parameters       Pointer on structure containing API parameters
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleSetPhyInit(tBSA_BLE_SET_PHY *p_set_phy);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_BleSetPhy
+ **
+ ** Description      Set BLE PHY preference by default or active connection
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_BleSetPhy(tBSA_BLE_SET_PHY *p_set_phy);
 
 #ifdef __cplusplus
 }

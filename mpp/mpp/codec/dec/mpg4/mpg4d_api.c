@@ -25,6 +25,7 @@
 
 #include "mpg4d_api.h"
 #include "mpg4d_parser.h"
+#include "mpp_packet_impl.h"
 
 #define MPG4D_INIT_STREAM_SIZE      SZ_64K
 
@@ -88,9 +89,9 @@ static MPP_RET mpg4d_init(void *dec, ParserCfg *cfg)
     p = (Mpg4dCtx *)dec;
     p->frame_slots  = cfg->frame_slots;
     p->packet_slots = cfg->packet_slots;
-    p->task_count   = cfg->task_count = 2;
+    p->task_count   = 2;
     p->need_split   = 1;//cfg->need_split;
-    p->internal_pts = cfg->internal_pts;
+    p->internal_pts = cfg->cfg->base.internal_pts;
     p->stream       = stream;
     p->stream_size  = stream_size;
     p->task_pkt     = task_pkt;
@@ -226,7 +227,8 @@ static MPP_RET mpg4d_prepare(void *dec, MppPacket pkt, HalDecTask *task)
         mpp_packet_set_size(p->task_pkt, p->stream_size);
     }
 
-    if (!p->need_split) {
+    if (!p->need_split ||
+        (mpp_packet_get_flag(pkt) & MPP_PACKET_FLAG_EXTRA_DATA)) {
         p->got_eos = eos;
         // NOTE: empty eos packet
         if (eos && !length) {
@@ -234,10 +236,10 @@ static MPP_RET mpg4d_prepare(void *dec, MppPacket pkt, HalDecTask *task)
             return MPP_OK;
         }
         /*
-                * Copy packet mode:
-                * Decoder's user will insure each packet is one frame for process
-                * Parser will just copy packet to the beginning of stream buffer
-             */
+         * Copy packet mode:
+         * Decoder's user will insure each packet is one frame for process
+         * Parser will just copy packet to the beginning of stream buffer
+         */
         memcpy(p->stream, pos, length);
         mpp_packet_set_pos(p->task_pkt, p->stream);
         mpp_packet_set_length(p->task_pkt, length);
@@ -307,8 +309,27 @@ static MPP_RET mpg4d_parse(void *dec, HalDecTask *task)
 
 static MPP_RET mpg4d_callback(void *dec, void *err_info)
 {
-    (void)dec;
-    (void)err_info;
+    Mpg4dCtx *p_Dec = (Mpg4dCtx *)dec;
+    DecCbHalDone *ctx = (DecCbHalDone *)err_info;
+
+    if (NULL == dec || NULL == err_info) {
+        mpp_err_f("found NULL input dec %p err_info %p\n", dec, err_info);
+        return MPP_ERR_NULL_PTR;
+    }
+
+    MppFrame mframe = NULL;
+    HalDecTask *task_dec = (HalDecTask *)ctx->task;
+
+    mpp_buf_slot_get_prop(p_Dec->frame_slots, task_dec->output, SLOT_FRAME_PTR, &mframe);
+    if (mframe) {
+        RK_U32 task_err = task_dec->flags.parse_err || task_dec->flags.ref_err;
+        if (ctx->hard_err || task_err) {
+            mpp_frame_set_errinfo(mframe, MPP_FRAME_ERR_UNKNOW);
+            mpp_log_f("[CALLBACK] g_no=%d, out_idx=%d, dpberr=%d, harderr=%d, ref_flag=%d, errinfo=%d, discard=%d\n",
+                      p_Dec->frame_count, task_dec->output, task_err, ctx->hard_err, task_dec->flags.used_for_ref,
+                      mpp_frame_get_errinfo(mframe), mpp_frame_get_discard(mframe));
+        }
+    }
     return MPP_OK;
 }
 

@@ -117,7 +117,7 @@ void app_ble_htp_menu(void)
             break;
 
         case APP_BLE_HTP_MENU_DISCOVERY:
-            app_disc_start_ble_regular(NULL);
+            app_disc_start_ble_regular(NULL, 0);
             break;
 
         case APP_BLE_MENU_CONFIG_BLE_BG_CONN:

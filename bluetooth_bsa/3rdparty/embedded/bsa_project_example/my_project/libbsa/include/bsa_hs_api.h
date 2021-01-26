@@ -37,6 +37,7 @@
 #define BSA_HS_FEAT_CODEC BTA_HS_FEAT_CODEC  /* Codec negotiation */
 #define BSA_HS_FEAT_VOIP  BTA_HS_FEAT_VOIP   /* VoIP call */
 #define BSA_HS_FEAT_UNAT  BTA_HS_FEAT_UNAT   /* Pass unknown AT command responses to application */
+#define BSA_HS_FEAT_HF_IND BTA_HS_FEAT_HF_IND /* HF Indicators */
 
 typedef UINT16  tBSA_HS_FEAT;
 
@@ -95,6 +96,7 @@ typedef tBTA_HS_CMD_DATA tBSA_HS_CMD_DATA;
 #define BSA_HS_BCC_CMD   BTA_HS_BCC_CMD   /* Bluetooth Codec Connection  */
 #define BSA_HS_BCS_CMD   BTA_HS_BCS_CMD   /* Bluetooth Codec Selection  */
 #define BSA_HS_BAC_CMD   BTA_HS_BAC_CMD   /* Bluetooth Available Codecs */
+#define BSA_HS_BIEV_CMD  BTA_HS_BIEV_CMD   /* Send HF indicator value to peer */
 #define BSA_HS_UNAT_CMD  BTA_HS_UNAT_CMD  /* Transmit AT command not in the spec  */
 #define BSA_HS_MAX_CMD   BTA_HS_MAX_CMD   /* For command validataion */
 
@@ -132,6 +134,7 @@ typedef enum
     BSA_HS_OK_EVT    = BTA_HS_OK_EVT,   /* OK response */
     BSA_HS_ERROR_EVT = BTA_HS_ERROR_EVT,/* ERROR response */
     BSA_HS_BCS_EVT   = BTA_HS_BCS_EVT,  /* Codec selection from AG */
+    BSA_HS_BIND_EVT  = BTA_HS_BIND_EVT, /* HF indicator from AG */
 } tBSA_HS_EVT;
 
 #define BSA_HS_CLOSE_CLOSED        1
