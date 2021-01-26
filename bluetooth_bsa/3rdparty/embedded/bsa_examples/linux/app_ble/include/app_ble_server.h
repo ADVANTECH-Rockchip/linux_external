@@ -14,6 +14,14 @@
 #include "bsa_api.h"
 #include "app_ble.h"
 
+typedef UINT8 ATTR_VALUE[BSA_BLE_MAX_ATTR_LEN];
+#ifndef DEFAULT_ATTRIBUTE_VALUE
+#define DEFAULT_ATTRIBUTE_VALUE {0x11, 0x22, 0x33, 0x44}
+#endif
+#ifndef DEFAULT_ATTRIBUTE_VALUE_LENGTH
+#define DEFAULT_ATTRIBUTE_VALUE_LENGTH 4
+#endif
+
 /*******************************************************************************
  **
  ** Function         app_ble_server_find_free_space

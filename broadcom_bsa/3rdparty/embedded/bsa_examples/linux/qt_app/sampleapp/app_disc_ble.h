@@ -74,7 +74,7 @@ int app_disc_start_regular(tBSA_DISC_CBACK *p_custom_disc_cback, int duraiton);
  ** Returns          int
  **
  *******************************************************************************/
-int app_disc_start_ble_regular(tBSA_DISC_CBACK *p_custom_disc_cback);
+int app_disc_start_ble_regular(tBSA_DISC_CBACK *p_custom_disc_cback, int duration);
 
 
 /*******************************************************************************

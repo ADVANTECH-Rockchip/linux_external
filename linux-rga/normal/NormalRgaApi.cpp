@@ -37,6 +37,8 @@ int RkRgaGetRgaFormat(int format)
 			return RK_FORMAT_RGBX_8888;
 		case RK_FORMAT_BGRA_8888:
 			return RK_FORMAT_BGRA_8888;
+		case RK_FORMAT_BGRX_8888:
+			return RK_FORMAT_BGRX_8888;
 		case RK_FORMAT_YCrCb_420_SP:
 			return RK_FORMAT_YCrCb_420_SP;
 		case RK_FORMAT_YCbCr_420_SP:
@@ -68,6 +70,7 @@ uint32_t bytesPerPixel(int format)
 		case RK_FORMAT_RGBA_8888:
 		case RK_FORMAT_RGBX_8888:
 		case RK_FORMAT_BGRA_8888:
+		case RK_FORMAT_BGRX_8888:
 			return 4;
 		case RK_FORMAT_RGB_888:
 			return 3;
@@ -103,9 +106,9 @@ int checkRectForRga(rga_rect_t rect)
 	}
 
 	if (NormalRgaIsYuvFormat(RkRgaGetRgaFormat(rect.format)) &&
-		((rect.wstride % 8) || (rect.xoffset % 2) || (rect.width % 2) ||
+		((rect.wstride % 2) ||(rect.xoffset % 2) || (rect.width % 2) ||
 		(rect.yoffset % 2) || (rect.height % 2) || (rect.hstride % 2))) {
-		DEBUG("err wstride is not align to 8 or yuv not align to 2 \n");
+		DEBUG("err: yuv not align to 2 \n");
 		return -EINVAL;
 	}
 
@@ -496,6 +499,7 @@ bool NormalRgaIsRgbFormat(int format)
 		case RK_FORMAT_RGBX_8888:
 		case RK_FORMAT_RGB_888:
 		case RK_FORMAT_BGRA_8888:
+		case RK_FORMAT_BGRX_8888:
 		case RK_FORMAT_RGB_565:
 		case RK_FORMAT_RGBA_5551:
 		case RK_FORMAT_RGBA_4444:

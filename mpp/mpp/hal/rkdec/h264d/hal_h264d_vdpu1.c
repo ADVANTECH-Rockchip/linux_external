@@ -24,15 +24,13 @@
 #include "rk_type.h"
 #include "mpp_err.h"
 #include "mpp_mem.h"
-#include "mpp_device.h"
 #include "mpp_common.h"
 
 #include "hal_h264d_global.h"
 #include "hal_h264d_api.h"
-#include "hal_h264d_common.h"
+#include "hal_h264d_vdpu_com.h"
 #include "hal_h264d_vdpu1.h"
 #include "hal_h264d_vdpu1_reg.h"
-
 
 static MPP_RET vdpu1_set_refer_pic_idx(H264dVdpu1Regs_t *p_regs, RK_U32 i,
                                        RK_U16 val)
@@ -715,7 +713,6 @@ MPP_RET vdpu1_h264d_init(void *hal, MppHalCfg *cfg)
     H264dHalCtx_t  *p_hal = (H264dHalCtx_t *)hal;
     INP_CHECK(ret, NULL == hal);
 
-    p_hal->fast_mode = cfg->fast_mode;
     //!< malloc init registers
     MEM_CHECK(ret, p_hal->priv =
                   mpp_calloc_size(void, sizeof(H264dVdpuPriv_t)));
@@ -846,7 +843,9 @@ MPP_RET vdpu1_h264d_start(void *hal, HalTaskInfo *task)
     MPP_RET ret = MPP_ERR_UNKNOW;
     H264dHalCtx_t *p_hal  = (H264dHalCtx_t *)hal;
     H264dVdpuRegCtx_t *reg_ctx = (H264dVdpuRegCtx_t *)p_hal->reg_ctx;
-    H264dVdpu1Regs_t *p_regs = (H264dVdpu1Regs_t *)reg_ctx->regs;
+    H264dVdpu1Regs_t *p_regs = (H264dVdpu1Regs_t *)(p_hal->fast_mode ?
+                                                    reg_ctx->reg_buf[task->dec.reg_index].regs :
+                                                    reg_ctx->regs);
 
     if (task->dec.flags.parse_err ||
         task->dec.flags.ref_err) {
@@ -860,12 +859,37 @@ MPP_RET vdpu1_h264d_start(void *hal, HalTaskInfo *task)
     p_regs->SwReg57.sw_intra_dblspeed = 1;
     p_regs->SwReg57.sw_paral_bus = 1;
 
-    ret = mpp_device_send_reg(p_hal->dev_ctx, (RK_U32 *)reg_ctx->regs,
-                              DEC_VDPU1_REGISTERS);
-    if (ret) {
-        ret =  MPP_ERR_VPUHW;
-        mpp_err_f("H264 VDPU1 FlushRegs fail, pid %d. \n", getpid());
-    }
+    do {
+        MppDevRegWrCfg wr_cfg;
+        MppDevRegRdCfg rd_cfg;
+        RK_U32 reg_size = DEC_VDPU1_REGISTERS * sizeof(RK_U32);
+
+        wr_cfg.reg = reg_ctx->regs;
+        wr_cfg.size = reg_size;
+        wr_cfg.offset = 0;
+
+        ret = mpp_dev_ioctl(p_hal->dev, MPP_DEV_REG_WR, &wr_cfg);
+        if (ret) {
+            mpp_err_f("set register write failed %d\n", ret);
+            break;
+        }
+
+        rd_cfg.reg = reg_ctx->regs;
+        rd_cfg.size = reg_size;
+        rd_cfg.offset = 0;
+
+        ret = mpp_dev_ioctl(p_hal->dev, MPP_DEV_REG_RD, &rd_cfg);
+        if (ret) {
+            mpp_err_f("set register read failed %d\n", ret);
+            break;
+        }
+
+        ret = mpp_dev_ioctl(p_hal->dev, MPP_DEV_CMD_SEND, NULL);
+        if (ret) {
+            mpp_err_f("send cmd failed %d\n", ret);
+            break;
+        }
+    } while (0);
 
 __RETURN:
     (void)task;
@@ -884,33 +908,28 @@ MPP_RET vdpu1_h264d_wait(void *hal, HalTaskInfo *task)
     MPP_RET ret = MPP_ERR_UNKNOW;
     H264dHalCtx_t  *p_hal = (H264dHalCtx_t *)hal;
     H264dVdpuRegCtx_t *reg_ctx = (H264dVdpuRegCtx_t *)p_hal->reg_ctx;
-    H264dVdpu1Regs_t *p_regs = (H264dVdpu1Regs_t *)reg_ctx->regs;
+    H264dVdpu1Regs_t *p_regs = (H264dVdpu1Regs_t *)(p_hal->fast_mode ?
+                                                    reg_ctx->reg_buf[task->dec.reg_index].regs :
+                                                    reg_ctx->regs);
 
     if (task->dec.flags.parse_err ||
         task->dec.flags.ref_err) {
         goto __SKIP_HARD;
     }
 
-    {
-        RK_S32 wait_ret = -1;
-        wait_ret = mpp_device_wait_reg(p_hal->dev_ctx, (RK_U32 *)reg_ctx->regs,
-                                       DEC_VDPU1_REGISTERS);
-        if (wait_ret) {
-            ret = MPP_ERR_VPUHW;
-            mpp_err("H264 VDPU1 wait result fail, pid=%d.\n", getpid());
-        }
-    }
+    ret = mpp_dev_ioctl(p_hal->dev, MPP_DEV_CMD_POLL, NULL);
+    if (ret)
+        mpp_err_f("poll cmd failed %d\n", ret);
 
 __SKIP_HARD:
-    if (p_hal->init_cb.callBack) {
-        IOCallbackCtx m_ctx = { 0, NULL, NULL, 0 };
-        m_ctx.device_id = DEV_VDPU;
-        if (!p_regs->SwReg01.sw_dec_rdy_int) {
-            m_ctx.hard_err = 1;
-        }
+    if (p_hal->dec_cb) {
+        DecCbHalDone m_ctx;
+
         m_ctx.task = (void *)&task->dec;
         m_ctx.regs = (RK_U32 *)reg_ctx->regs;
-        p_hal->init_cb.callBack(p_hal->init_cb.opaque, &m_ctx);
+        m_ctx.hard_err = !p_regs->SwReg01.sw_dec_rdy_int;
+
+        mpp_callback(p_hal->dec_cb, DEC_PARSER_CALLBACK, &m_ctx);
     }
     memset(&p_regs->SwReg01, 0, sizeof(RK_U32));
     if (p_hal->fast_mode) {

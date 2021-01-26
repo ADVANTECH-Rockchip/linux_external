@@ -43,7 +43,7 @@
 
 #define SYS_ISP_NAME "isp"
 #define SYS_CIF_NAME "cif"
-#define UVC_STREAMING_INTF_PATH "/sys/kernel/config/usb_gadget/rockchip/functions/uvc.gs6/streaming_intf"
+#define UVC_STREAMING_INTF_PATH "/sys/kernel/config/usb_gadget/rockchip/functions/uvc.gs6/streaming/bInterfaceNumber"
 
 struct uvc_ctrl {
     int id;
@@ -62,6 +62,19 @@ static bool run_flag = true;
 static pthread_mutex_t run_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t run_cond = PTHREAD_COND_INITIALIZER;
 static pthread_cond_t video_added = PTHREAD_COND_INITIALIZER;
+
+static uvc_open_camera_callback uvc_open_camera_cb = NULL;
+static uvc_close_camera_callback uvc_close_camera_cb = NULL;
+
+void register_uvc_open_camera(uvc_open_camera_callback cb)
+{
+    uvc_open_camera_cb = cb;
+}
+
+void register_uvc_close_camera(uvc_close_camera_callback cb)
+{
+    uvc_close_camera_cb = cb;
+}
 
 static bool is_uvc_video(void *buf)
 {
@@ -102,7 +115,7 @@ int check_uvc_video_id(void)
     memset(&uvc_ctrl, 0, sizeof(uvc_ctrl));
     uvc_ctrl[0].id = -1;
     uvc_ctrl[1].id = -1;
-    for (i = 0; i < 20; i++) {
+    for (i = 0; i < 30; i++) {
         snprintf(cmd, sizeof(cmd), "/sys/class/video4linux/video%d/name", i);
         if (access(cmd, F_OK))
             continue;
@@ -136,19 +149,23 @@ void add_uvc_video()
         uvc_video_id_add(uvc_ctrl[1].id);
 }
 
-void uvc_control_init(int width, int height)
+void uvc_control_init(int width, int height, int fcc)
 {
     pthread_mutex_lock(&lock);
     memset(&uvc_enc, 0, sizeof(uvc_enc));
-    if (uvc_encode_init(&uvc_enc, width, height)) {
+    if (uvc_encode_init(&uvc_enc, width, height, fcc)) {
         printf("%s fail!\n", __func__);
         abort();
     }
     pthread_mutex_unlock(&lock);
+    if (uvc_open_camera_cb)
+        uvc_open_camera_cb(width, height);
 }
 
 void uvc_control_exit()
 {
+    if (uvc_close_camera_cb)
+        uvc_close_camera_cb();
     pthread_mutex_lock(&lock);
     uvc_encode_exit(&uvc_enc);
     memset(&uvc_enc, 0, sizeof(uvc_enc));

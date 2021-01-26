@@ -25,10 +25,6 @@
 #ifndef _AMDGPU_INTERNAL_H_
 #define _AMDGPU_INTERNAL_H_
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include <assert.h>
 #include <pthread.h>
 
@@ -36,6 +32,7 @@
 #include "xf86atomic.h"
 #include "amdgpu.h"
 #include "util_double_list.h"
+#include "handle_table.h"
 
 #define AMDGPU_CS_MAX_RINGS 8
 /* do not use below macro if b is not power of 2 aligned value */
@@ -53,8 +50,6 @@ struct amdgpu_bo_va_hole {
 };
 
 struct amdgpu_bo_va_mgr {
-	/* the start virtual address */
-	uint64_t va_offset;
 	uint64_t va_max;
 	struct list_head va_holes;
 	pthread_mutex_t bo_va_mutex;
@@ -71,23 +66,29 @@ struct amdgpu_va {
 
 struct amdgpu_device {
 	atomic_t refcount;
+	struct amdgpu_device *next;
 	int fd;
 	int flink_fd;
 	unsigned major_version;
 	unsigned minor_version;
 
+	char *marketing_name;
 	/** List of buffer handles. Protected by bo_table_mutex. */
-	struct util_hash_table *bo_handles;
+	struct handle_table bo_handles;
 	/** List of buffer GEM flink names. Protected by bo_table_mutex. */
-	struct util_hash_table *bo_flink_names;
+	struct handle_table bo_flink_names;
 	/** This protects all hash tables. */
 	pthread_mutex_t bo_table_mutex;
 	struct drm_amdgpu_info_device dev_info;
 	struct amdgpu_gpu_info info;
-	/** The global VA manager for the whole virtual address space */
-	struct amdgpu_bo_va_mgr *vamgr;
+	/** The VA manager for the lower virtual address space */
+	struct amdgpu_bo_va_mgr vamgr;
 	/** The VA manager for the 32bit address space */
-	struct amdgpu_bo_va_mgr *vamgr_32;
+	struct amdgpu_bo_va_mgr vamgr_32;
+	/** The VA manager for the high virtual address space */
+	struct amdgpu_bo_va_mgr vamgr_high;
+	/** The VA manager for the 32bit high address space */
+	struct amdgpu_bo_va_mgr vamgr_high_32;
 };
 
 struct amdgpu_bo {
@@ -135,19 +136,12 @@ struct amdgpu_semaphore {
  * Functions.
  */
 
-drm_private void amdgpu_bo_free_internal(amdgpu_bo_handle bo);
-
 drm_private void amdgpu_vamgr_init(struct amdgpu_bo_va_mgr *mgr, uint64_t start,
 		       uint64_t max, uint64_t alignment);
 
 drm_private void amdgpu_vamgr_deinit(struct amdgpu_bo_va_mgr *mgr);
 
-drm_private uint64_t
-amdgpu_vamgr_find_va(struct amdgpu_bo_va_mgr *mgr, uint64_t size,
-		     uint64_t alignment, uint64_t base_required);
-
-drm_private void
-amdgpu_vamgr_free_va(struct amdgpu_bo_va_mgr *mgr, uint64_t va, uint64_t size);
+drm_private void amdgpu_parse_asic_ids(struct amdgpu_device *dev);
 
 drm_private int amdgpu_query_gpu_info_init(amdgpu_device_handle dev);
 
@@ -177,28 +171,6 @@ static inline bool update_references(atomic_t *dst, atomic_t *src)
 		}
 	}
 	return false;
-}
-
-/**
- * Assignment between two amdgpu_bo pointers with reference counting.
- *
- * Usage:
- *    struct amdgpu_bo *dst = ... , *src = ...;
- *
- *    dst = src;
- *    // No reference counting. Only use this when you need to move
- *    // a reference from one pointer to another.
- *
- *    amdgpu_bo_reference(&dst, src);
- *    // Reference counters are updated. dst is decremented and src is
- *    // incremented. dst is freed if its reference counter is 0.
- */
-static inline void amdgpu_bo_reference(struct amdgpu_bo **dst,
-					struct amdgpu_bo *src)
-{
-	if (update_references(&(*dst)->refcount, &src->refcount))
-		amdgpu_bo_free_internal(*dst);
-	*dst = src;
 }
 
 #endif

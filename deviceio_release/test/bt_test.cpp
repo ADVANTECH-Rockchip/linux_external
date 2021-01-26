@@ -12,6 +12,9 @@
 #include <DeviceIo/RkBle.h>
 #include <DeviceIo/RkBtSpp.h>
 #include <DeviceIo/RkBtHfp.h>
+#include <DeviceIo/RkBleClient.h>
+#include <DeviceIo/RkBtObex.h>
+#include <DeviceIo/RkBtPan.h>
 
 #include "bt_test.h"
 
@@ -21,6 +24,7 @@
 #define BLE_UUID_PROXIMITY	"7B931104-1810-4CBC-94DA-875C8067F845"
 #define BLE_UUID_SEND		"dfd4416e-1810-47f7-8248-eb8be3dc47f9"
 #define BLE_UUID_RECV		"9884d812-1810-4a24-94d3-b2c11a851fac"
+#define SERVICE_UUID		"00001910-0000-1000-8000-00805f9b34fb"
 
 #define HFP_PCM_CHANNEL_NB	2
 #define CVSD_SAMPLE_RATE	8000
@@ -64,7 +68,8 @@ static duplex_info_t g_duplex_control = {
 	0,
 };
 
-static RkBtPraiedDevice *g_dev_list_test;
+static RkBtScanedDevice *g_paired_dev_list;
+static unsigned int g_mtu = 0;
 
 static void bt_test_ble_recv_data_callback(const char *uuid, char *data, int len);
 static void bt_test_ble_request_data_callback(const char *uuid);
@@ -125,6 +130,12 @@ static void bt_test_discovery_status_cb(RK_BT_DISCOVERY_STATE status)
 			printf("++++++++++ RK_BT_DISC_STOPPED_BY_USER ++++++++++\n");
 			break;
 	}
+
+	if(status != RK_BT_DISC_STARTED) {
+		printf("+++++++++ deregister scan callback +++++++++\n");
+		rk_bt_register_discovery_callback(NULL);
+		rk_bt_register_dev_found_callback(NULL);
+	}
 }
 
 static void bt_test_dev_found_cb(const char *address,const char *name, unsigned int bt_class, int rssi)
@@ -137,17 +148,45 @@ static void bt_test_dev_found_cb(const char *address,const char *name, unsigned 
 	printf("+++++++++++++++++++++++++++++++++++++++++\n");
 }
 
+static void bt_test_name_change_cb(const char *bd_addr, const char *name)
+{
+	if(bd_addr)
+		printf("+++++ Device Name Change(%s, %s) +++++\n", bd_addr, name);
+}
+
+
 /*
  * The Bluetooth basic service is turned on and the function
  * must be called before using the Bluetooth function.
  */
-void bt_test_bluetooth_init(char *data)
+#if 1
+void *bt_test_bluetooth_init_thread(void *)
 {
-	printf("--------------- BT BLUETOOTH INIT ----------------\n");
+	printf("%s: BT BLUETOOTH INIT\n", __func__);
 	memset(&bt_content, 0, sizeof(RkBtContent));
-	bt_content.bt_name = "ROCKCHIP_AUDIO";
+	bt_content.bt_name = "ROCKCHIP_TEST";
 	//bt_content.bt_addr = "11:22:33:44:55:66";
+
 	bt_content.ble_content.ble_name = "ROCKCHIP_AUDIO BLE";
+
+#if 0
+	//user-defined ble address test, if not set, the default random address
+	bt_content.ble_content.ble_addr[0] = 0x11;
+	bt_content.ble_content.ble_addr[1] = 0x22;
+	bt_content.ble_content.ble_addr[2] = 0x33;
+	bt_content.ble_content.ble_addr[3] = 0x44;
+	bt_content.ble_content.ble_addr[4] = 0x55;
+	bt_content.ble_content.ble_addr[5] = 0x66;
+	//Clear two most significant bits
+	bt_content.ble_content.ble_addr[5] &= 0x3f;
+	//Set second most significant bit, Private resolvable
+	bt_content.ble_content.ble_addr[5] |= 0x40;
+	printf("ble_addr: %02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx\n",
+			bt_content.ble_content.ble_addr[5], bt_content.ble_content.ble_addr[4],
+			bt_content.ble_content.ble_addr[3], bt_content.ble_content.ble_addr[2],
+			bt_content.ble_content.ble_addr[1], bt_content.ble_content.ble_addr[0]);
+#endif
+
 	bt_content.ble_content.server_uuid.uuid = BLE_UUID_SERVICE;
 	bt_content.ble_content.server_uuid.len = UUID_128;
 	bt_content.ble_content.chr_uuid[0].uuid = BLE_UUID_WIFI_CHAR;
@@ -163,15 +202,137 @@ void bt_test_bluetooth_init(char *data)
 
 	rk_bt_register_state_callback(bt_test_state_cb);
 	rk_bt_register_bond_callback(bt_test_bond_state_cb);
-	rk_bt_register_discovery_callback(bt_test_discovery_status_cb);
-	rk_bt_register_dev_found_callback(bt_test_dev_found_cb);
+	rk_bt_register_name_change_callback(bt_test_name_change_cb);
 	rk_bt_init(&bt_content);
+}
+#else
+//BLE_ADVDATA_TYPE_USER demo
+void *bt_test_bluetooth_init_thread(void *)
+{
+	printf("%s: BT BLUETOOTH INIT\n", __func__);
+
+	int len, ble_name_len, remain_len;
+
+	memset(&bt_content, 0, sizeof(RkBtContent));
+	bt_content.bt_name = "ROCKCHIP_AUDIO";
+	//bt_content.bt_addr = "11:22:33:44:55:66";
+
+	bt_content.ble_content.ble_name = "ROCKCHIP_AUDIO_BLE";
+	bt_content.ble_content.server_uuid.uuid = SERVICE_UUID;
+	bt_content.ble_content.server_uuid.len = UUID_128;
+	bt_content.ble_content.chr_uuid[0].uuid = BLE_UUID_SEND;
+	bt_content.ble_content.chr_uuid[0].len = UUID_128;
+	bt_content.ble_content.chr_uuid[1].uuid = BLE_UUID_RECV;
+	bt_content.ble_content.chr_uuid[1].len = UUID_128;
+	bt_content.ble_content.chr_cnt = 2;
+
+	bt_content.ble_content.advDataType = BLE_ADVDATA_TYPE_USER;
+
+	//标识设备 LE 物理连接的功能
+	bt_content.ble_content.advData[1] = 0x02;
+	bt_content.ble_content.advData[2] = 0x01;
+	bt_content.ble_content.advData[3] = 0x02;
+
+	//service uuid(SERVICE_UUID)
+	bt_content.ble_content.advData[4] = 0x03;
+	bt_content.ble_content.advData[5] = 0x03;
+	bt_content.ble_content.advData[6] = 0x10;
+	bt_content.ble_content.advData[7] = 0x19;
+
+	//ble name
+	printf("ble_name_len: %s(%d)\n", bt_content.ble_content.ble_name, strlen(bt_content.ble_content.ble_name));
+	ble_name_len = strlen(bt_content.ble_content.ble_name);
+	remain_len = 31 - (bt_content.ble_content.advData[1] + 1)
+					- (bt_content.ble_content.advData[4] + 1);
+	len = ble_name_len > remain_len ? remain_len : ble_name_len;
+	bt_content.ble_content.advData[8] = len + 1;
+	bt_content.ble_content.advData[9] = 0x09;
+	memcpy(&bt_content.ble_content.advData[10], bt_content.ble_content.ble_name, len);
+
+	bt_content.ble_content.advData[0] = bt_content.ble_content.advData[1] + 1
+										+ bt_content.ble_content.advData[4] + 1
+										+ bt_content.ble_content.advData[8] + 1;
+	bt_content.ble_content.advDataLen = bt_content.ble_content.advData[0] + 1;
+
+	//==========================rsp======================
+	bt_content.ble_content.respData[1] = 0x16;  //长度
+	bt_content.ble_content.respData[2] = 0xFF;  //字段类型
+
+	/*厂商编码*/
+	bt_content.ble_content.respData[3] = 0x46;
+	bt_content.ble_content.respData[4] = 0x00;
+
+	bt_content.ble_content.respData[5] = 0x02;  //项目代号长度
+
+	/*项目代号*/
+	bt_content.ble_content.respData[6] = 0x1c;
+	bt_content.ble_content.respData[7] = 0x02;
+
+	bt_content.ble_content.respData[8] = 0x04;  //版本号长度
+	bt_content.ble_content.respData[9] = 'T';   //版本号类型
+	/*版本号*/
+	bt_content.ble_content.respData[10] = 0x01;
+	bt_content.ble_content.respData[11] = 0x00;
+	bt_content.ble_content.respData[12] = 0x00;
+
+	bt_content.ble_content.respData[13] = 0x08;	// SN长度
+	/*SN号*/
+	bt_content.ble_content.respData[14] = 0x54;
+	bt_content.ble_content.respData[15] = 0x00;
+	bt_content.ble_content.respData[16] = 0x00;
+	bt_content.ble_content.respData[17] = 0x00;
+	bt_content.ble_content.respData[18] = 0x00;
+	bt_content.ble_content.respData[19] = 0x00;
+	bt_content.ble_content.respData[20] = 0x00;
+	bt_content.ble_content.respData[21] = 0x36;
+
+	bt_content.ble_content.respData[22] = 0x01;	//绑定信息长度
+	bt_content.ble_content.respData[23] = 0x00;	//绑定信息
+
+	bt_content.ble_content.respData[0] = bt_content.ble_content.respData[1] + 1;  //长度
+	bt_content.ble_content.respDataLen = bt_content.ble_content.respData[0] + 1;
+
+	bt_content.ble_content.cb_ble_recv_fun = bt_test_ble_recv_data_callback;
+	bt_content.ble_content.cb_ble_request_data = bt_test_ble_request_data_callback;
+	rk_bt_register_state_callback(bt_test_state_cb);
+	rk_bt_register_bond_callback(bt_test_bond_state_cb);
+	rk_bt_init(&bt_content);
+}
+
+#endif
+static pthread_t bt_init_thread = 0;
+void bt_test_bluetooth_init(char *data)
+{
+	printf("%s: ", __func__);
+
+	if (bt_init_thread) {
+		printf("bt init thread already exist\n");
+		return;
+	}
+
+	if (pthread_create(&bt_init_thread, NULL, bt_test_bluetooth_init_thread, NULL)) {
+		printf("Create bt init pthread failed\n");
+		return;
+	}
 }
 
 void bt_test_bluetooth_deinit(char *data)
 {
-	printf("--------------- BT BLUETOOTH DEINIT ----------------\n");
+	int ret;
+
+	printf("%s: BT BLUETOOTH DEINIT\n", __func__);
 	rk_bt_deinit();
+
+	if(bt_init_thread) {
+		ret = pthread_join(bt_init_thread, NULL);
+		if (ret) {
+			printf("%s: bt init thread exit failed!\n", __func__);
+		} else {
+			printf("%s: bt init thread exit ok\n", __func__);
+		}
+		bt_init_thread = 0;
+	}
+
 }
 
 void bt_test_set_class(char *data)
@@ -224,15 +385,15 @@ void bt_test_unpair_by_addr(char *data)
 void bt_test_get_paired_devices(char *data)
 {
 	int i, count;
-	bt_paried_device *dev_tmp = NULL;
+	RkBtScanedDevice *dev_tmp = NULL;
 
-	if(g_dev_list_test)
+	if(g_paired_dev_list)
 		bt_test_free_paired_devices(NULL);
 
-	rk_bt_get_paired_devices(&g_dev_list_test, &count);
+	rk_bt_get_paired_devices(&g_paired_dev_list, &count);
 
 	printf("%s: current paired devices count: %d\n", __func__, count);
-	dev_tmp = g_dev_list_test;
+	dev_tmp = g_paired_dev_list;
 	for(i = 0; i < count; i++) {
 		printf("device %d\n", i);
 		printf("	remote_address: %s\n", dev_tmp->remote_address);
@@ -244,13 +405,88 @@ void bt_test_get_paired_devices(char *data)
 
 void bt_test_free_paired_devices(char *data)
 {
-	rk_bt_free_paired_devices(g_dev_list_test);
-	g_dev_list_test = NULL;
+	rk_bt_free_paired_devices(g_paired_dev_list);
+	g_paired_dev_list = NULL;
 }
 
 void bt_test_start_discovery(char *data)
 {
-	rk_bt_start_discovery(10000); //10s
+	int time;
+
+	if(data == NULL) {
+		printf("Please enter the scan time\n");
+		return;
+	}
+
+	time = atoi(data);
+	if(time < 10000) {
+		printf("Scan time is too short(%d), reset to 10000ms\n", time);
+		time = 10000;
+	}
+
+	rk_bt_register_discovery_callback(bt_test_discovery_status_cb);
+	rk_bt_register_dev_found_callback(bt_test_dev_found_cb);
+	rk_bt_start_discovery(time, SCAN_TYPE_AUTO);
+}
+
+void bt_test_start_discovery_bredr(char *data)
+{
+	int time;
+
+	if(data == NULL) {
+		printf("Please enter the scan time\n");
+		return;
+	}
+
+	time = atoi(data);
+	if(time < 10000) {
+		printf("Scan time is too short(%d), reset to 10000ms\n", time);
+		time = 10000;
+	}
+
+	rk_bt_register_discovery_callback(bt_test_discovery_status_cb);
+	rk_bt_register_dev_found_callback(bt_test_dev_found_cb);
+	rk_bt_start_discovery(time, SCAN_TYPE_BREDR);
+}
+
+void bt_test_start_discovery_le(char *data)
+{
+	int time;
+
+	if(data == NULL) {
+		printf("Please enter the scan time\n");
+		return;
+	}
+
+	time = atoi(data);
+	if(time < 10000) {
+		printf("Scan time is too short(%d), reset to 10000ms\n", time);
+		time = 10000;
+	}
+
+	rk_bt_register_discovery_callback(bt_test_discovery_status_cb);
+	rk_bt_register_dev_found_callback(bt_test_dev_found_cb);
+	rk_bt_start_discovery(time, SCAN_TYPE_LE);
+}
+
+void bt_test_start_discovery_pan(char *data)
+{
+	int time;
+
+	if(data == NULL) {
+		printf("Please enter the scan time\n");
+		return;
+	}
+
+	time = atoi(data);
+	if(time < 10000) {
+		printf("Scan time is too short(%d), reset to 10000ms\n", time);
+		time = 10000;
+	}
+
+	rk_bt_register_discovery_callback(bt_test_discovery_status_cb);
+	rk_bt_register_dev_found_callback(bt_test_dev_found_cb);
+	rk_bt_start_discovery(time, SCAN_TYPE_PAN);
 }
 
 void bt_test_cancel_discovery(char *data)
@@ -264,6 +500,28 @@ void bt_test_is_discovering(char *data)
 	printf("the device discovery procedure is active? %s\n", (ret == true) ? "yes" : "no");
 }
 
+void bt_test_get_scaned_devices(char *data)
+{
+	int i, count;
+	RkBtScanedDevice *dev_tmp = NULL;
+	RkBtScanedDevice *scaned_dev_list = NULL;
+
+	rk_bt_get_scaned_devices(&scaned_dev_list, &count);
+
+	printf("%s: current scaned devices count: %d\n", __func__, count);
+	dev_tmp = scaned_dev_list;
+	for(i = 0; i < count; i++) {
+		printf("device %d\n", i);
+		printf("	remote_address: %s\n", dev_tmp->remote_address);
+		printf("	remote_name: %s\n", dev_tmp->remote_name);
+		printf("	is_connected: %d\n", dev_tmp->is_connected);
+		printf("	class_of_device: 0x%x\n", dev_tmp->cod);
+		dev_tmp = dev_tmp->next;
+	}
+
+	rk_bt_free_scaned_devices(scaned_dev_list);
+}
+
 void bt_test_display_devices(char *data)
 {
 	rk_bt_display_devices();
@@ -272,6 +530,18 @@ void bt_test_display_devices(char *data)
 void bt_test_display_paired_devices(char *data)
 {
 	rk_bt_display_paired_devices();
+}
+
+void bt_test_get_connected_properties(char *data)
+{
+	bool is_connected = false;
+	is_connected = rk_bt_get_connected_properties(data);
+	printf("the device connected properties is %s\n", (is_connected == true) ? "yes" : "no");
+}
+
+void bt_test_read_remote_device_name(char *data)
+{
+	rk_bt_read_remote_device_name(data, RK_BT_TRANSPORT_UNKNOWN);
 }
 
 /******************************************/
@@ -283,14 +553,6 @@ int bt_sink_callback(RK_BT_SINK_STATE state)
 		case RK_BT_SINK_STATE_IDLE:
 			printf("++++++++++++ BT SINK EVENT: idle ++++++++++\n");
 			break;
-#if 0
-		case RK_BT_SINK_STATE_CONNECTING:
-			printf("++++++++++++ BT SINK EVENT: connecting ++++++++++\n");
-			break;
-		case RK_BT_SINK_STATE_DISCONNECTING:
-			printf("++++++++++++ BT SINK EVENT: disconnecting ++++++++++\n");
-			break;
-#endif
 		case RK_BT_SINK_STATE_CONNECT:
 			printf("++++++++++++ BT SINK EVENT: connect sucess ++++++++++\n");
 			break;
@@ -372,32 +634,32 @@ void bt_test_sink_open(char *data)
 
 void bt_test_sink_visibility00(char *data)
 {
-	rk_bt_sink_set_visibility(0, 0);
+	rk_bt_set_visibility(0, 0);
 }
 
 void bt_test_sink_visibility01(char *data)
 {
-	rk_bt_sink_set_visibility(0, 1);
+	rk_bt_set_visibility(0, 1);
 }
 
 void bt_test_sink_visibility10(char *data)
 {
-	rk_bt_sink_set_visibility(1, 0);
+	rk_bt_set_visibility(1, 0);
 }
 
 void bt_test_sink_visibility11(char *data)
 {
-	rk_bt_sink_set_visibility(1, 1);
+	rk_bt_set_visibility(1, 1);
 }
 
 void bt_test_ble_visibility00(char *data)
 {
-	rk_bt_ble_set_visibility(0, 0);
+	rk_bt_set_visibility(0, 0);
 }
 
 void bt_test_ble_visibility11(char *data)
 {
-	rk_bt_ble_set_visibility(1, 1);
+	rk_bt_set_visibility(1, 1);
 }
 
 void bt_test_sink_status(char *data)
@@ -526,10 +788,25 @@ void bt_test_source_status_callback(void *userdata, const char *bd_addr,
 			break;
 		case BT_SOURCE_EVENT_CONNECTED:
 			printf("+++++ BT_SOURCE_EVENT_CONNECTED: %s, %s +++++\n", name, bd_addr);
+			printf("+++++ device playrole: %d\n", rk_bt_get_playrole_by_addr(bd_addr));
+			break;
+		case BT_SOURCE_EVENT_AUTO_RECONNECTING:
+			printf("+++++ BT_SOURCE_EVENT_AUTO_RECONNECTING: %s, %s +++++\n", name, bd_addr);
+			break;
+		case BT_SOURCE_EVENT_DISCONNECT_FAILED:
+			printf("+++++ BT_SOURCE_EVENT_DISCONNECT_FAILED: %s, %s +++++\n", name, bd_addr);
 			break;
 		case BT_SOURCE_EVENT_DISCONNECTED:
 			printf("+++++ BT_SOURCE_EVENT_DISCONNECTED: %s, %s +++++\n", name, bd_addr);
 			break;
+#if 0
+		case BT_SOURCE_EVENT_REMOVE_FAILED:
+			printf("+++++ BT_SOURCE_EVENT_REMOVE_FAILED +++++\n");
+			break;
+		case BT_SOURCE_EVENT_REMOVED:
+			printf("+++++ BT_SOURCE_EVENT_REMOVED +++++\n");
+			break;
+#endif
 		case BT_SOURCE_EVENT_RC_PLAY:
 			printf("+++++ BT_SOURCE_EVENT_RC_PLAY: %s, %s +++++\n", name, bd_addr);
 			break;
@@ -590,12 +867,12 @@ void bt_test_source_close(char *data)
 
 void bt_test_source_connect_by_addr(char *data)
 {
-	rk_bt_source_connect(data);
+	rk_bt_source_connect_by_addr(data);
 }
 
 void bt_test_source_disconnect_by_addr(char *data)
 {
-	rk_bt_source_disconnect(data);
+	rk_bt_source_disconnect_by_addr(data);
 }
 
 void bt_test_source_remove_by_addr(char *data)
@@ -603,10 +880,15 @@ void bt_test_source_remove_by_addr(char *data)
 	rk_bt_source_remove(data);
 }
 
+void bt_test_source_disconnect(char *data)
+{
+	rk_bt_source_disconnect();
+}
+
 /******************************************/
 /*                  BLE                   */
 /******************************************/
-static void ble_status_callback_test(RK_BLE_STATE state)
+static void ble_status_callback_test(const char *bd_addr, const char *name, RK_BLE_STATE state)
 {
 	printf("%s: status: %d.\n", __func__, state);
 
@@ -615,10 +897,11 @@ static void ble_status_callback_test(RK_BLE_STATE state)
 			printf("+++++ RK_BLE_STATE_IDLE +++++\n");
 			break;
 		case RK_BLE_STATE_CONNECT:
-			printf("+++++ RK_BLE_STATE_CONNECT +++++\n");
+			printf("+++++ RK_BLE_STATE_CONNECT: %s, %s +++++\n", name, bd_addr);
 			break;
 		case RK_BLE_STATE_DISCONNECT:
-			printf("+++++ RK_BLE_STATE_DISCONNECT +++++\n");
+			printf("+++++ RK_BLE_STATE_DISCONNECT: %s, %s +++++\n", name, bd_addr);
+			g_mtu = 0;
 			break;
 	}
 }
@@ -643,26 +926,101 @@ static void bt_test_ble_recv_data_callback(const char *uuid, char *data, int len
 	}
 }
 
+void *_send_data(void *data)
+{
+	char *uuid = (char *)data;
+
+	rk_ble_write(uuid, "abcd", 4);
+	usleep(100000);
+	rk_ble_write(uuid, "wwww", 4);
+	usleep(100000);
+	rk_ble_write(uuid, "zzzz", 4);
+}
+
+void send_data(char *uuid)
+{
+	pthread_t tid = 0;
+	if (pthread_create(&tid, NULL, _send_data, (void *)uuid)) {
+		printf("Create _send_data pthread failed\n");
+		return;
+	}
+}
+
 static void bt_test_ble_request_data_callback(const char *uuid)
 {
 	printf("=== %s uuid: %s===\n", __func__, uuid);
+	//rk_ble_write(uuid, "Hello Rockchip", strlen("Hello Rockchip"));
+
+	send_data(uuid);
 }
 
-void bt_test_ble_start(char *data) {
+static void bt_test_mtu_callback(const char *bd_addr, unsigned int mtu)
+{
+	printf("=== %s: bd_addr: %s, mtu: %d ===\n", __func__, bd_addr, mtu);
+	g_mtu = mtu;
+}
+
+void bt_test_ble_start(char *data)
+{
 	rk_ble_register_status_callback(ble_status_callback_test);
 	rk_ble_register_recv_callback(bt_test_ble_recv_data_callback);
+	rk_ble_register_request_data_callback(bt_test_ble_request_data_callback);
+	rk_ble_register_mtu_callback(bt_test_mtu_callback);
 	rk_ble_start(&bt_content.ble_content);
 }
 
-void bt_test_ble_write(char *data) {
-	char write_buf[134];
-	int i = 0;
+void bt_test_ble_set_address(char *data)
+{
+	//user-defined ble address test, if not set, the default random address
+	char ble_addr[DEVICE_ADDR_LEN];
 
-	/* Construct the content of the sent data */
-	for (i = 0; i < 134; i++)
+	if(!data || strlen(data) < 17)
+		return;
+
+	printf("ble address: %s\n", data);
+	if (sscanf(data, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+			&ble_addr[5], &ble_addr[4], &ble_addr[3],
+			&ble_addr[2], &ble_addr[1], &ble_addr[0]) != 6) {
+		return;
+	}
+
+	//Clear two most significant bits
+	ble_addr[5] &= 0x3f;
+	//Set second most significant bit, Private resolvable
+	ble_addr[5] |= 0x40;
+
+	printf("ble_addr: %02hhx:%02hhx:%02hhx:%02hhx:%02hhx:%02hhx\n",
+			ble_addr[5], ble_addr[4], ble_addr[3],
+			ble_addr[2], ble_addr[1], ble_addr[0]);
+
+	rk_ble_set_address(ble_addr);
+}
+
+void bt_test_ble_set_adv_interval(char *data)
+{
+	//default 100ms, test: 20ms(32 * 0.625) ~ 100ms(160 * 0.625)
+	rk_ble_set_adv_interval(32, 160);
+}
+
+void bt_test_ble_write(char *data)
+{
+	int i = 0, write_len = BT_ATT_DEFAULT_LE_MTU;
+	char *write_buf;
+
+	if(g_mtu > BT_ATT_HEADER_LEN)
+		write_len = g_mtu;
+
+	write_len -= BT_ATT_HEADER_LEN;
+	if(write_len > BT_ATT_MAX_VALUE_LEN)
+		write_len = BT_ATT_MAX_VALUE_LEN;
+
+	write_buf = (char *)malloc(write_len);
+	for (i = 0; i < (write_len - 1); i++)
 		write_buf[i] = '0' + i % 10;
+	write_buf[write_len - 1] = '\0';
 
-	rk_ble_write(BLE_UUID_SEND, write_buf, 134);
+	rk_ble_write(BLE_UUID_WIFI_CHAR, write_buf, write_len);
+	free(write_buf);
 }
 
 void bt_test_ble_get_status(char *data)
@@ -685,21 +1043,194 @@ void bt_test_ble_get_status(char *data)
 }
 
 void bt_test_ble_stop(char *data) {
+	g_mtu = 0;
 	rk_ble_stop();
-}
-
-void bt_test_ble_setup(char *data) {
-	rk_ble_setup(NULL);
-}
-
-void bt_test_ble_clean(char *data) {
-	rk_ble_clean();
 }
 
 void bt_test_ble_disconnect(char *data) {
 	rk_ble_disconnect();
 }
 
+
+/******************************************/
+/*               BLE CLIENT               */
+/******************************************/
+void ble_client_test_state_callback(const char *bd_addr, const char *name, RK_BLE_CLIENT_STATE state)
+{
+	switch(state)
+	{
+		case RK_BLE_CLIENT_STATE_IDLE:
+			printf("+++++ RK_BLE_CLIENT_STATE_IDLE +++++\n");
+			break;
+		case RK_BLE_CLIENT_STATE_CONNECT:
+			printf("+++++ RK_BLE_CLIENT_STATE_CONNECT(%s, %s) +++++\n", bd_addr, name);
+			break;
+		case RK_BLE_CLIENT_STATE_DISCONNECT:
+			printf("+++++ RK_BLE_CLIENT_STATE_DISCONNECT(%s, %s) +++++\n", bd_addr, name);
+			g_mtu = 0;
+			break;
+		case RK_BLE_CLIENT_WRITE_SUCCESS:
+			printf("+++++ RK_BLE_CLIENT_WRITE_SUCCESS(%s, %s) +++++\n", bd_addr, name);
+			break;
+		case RK_BLE_CLIENT_WRITE_ERROR:
+			printf("+++++ RK_BLE_CLIENT_WRITE_ERROR(%s, %s) +++++\n", bd_addr, name);
+			break;
+	}
+}
+
+static void bt_test_ble_client_recv_data_callback(const char *uuid, char *data, int len)
+{
+	printf("+++++ recv data +++++\n");
+	printf("	uuid: %s\n", uuid);
+	printf("	data len: %d\n	", len);
+	for (int i = 0 ; i < len; i++) {
+		printf("%02x ", data[i]);
+	}
+	printf("\n");
+}
+
+
+void bt_test_ble_client_open(char *data)
+{
+	rk_ble_client_register_state_callback(ble_client_test_state_callback);
+	rk_ble_client_register_recv_callback(bt_test_ble_client_recv_data_callback);
+	rk_ble_client_register_mtu_callback(bt_test_mtu_callback);
+	rk_ble_client_open(true);
+}
+
+void bt_test_ble_client_close(char *data)
+{
+	g_mtu = 0;
+	rk_ble_client_close();
+}
+
+void bt_test_ble_client_get_status(char *data)
+{
+	RK_BLE_CLIENT_STATE state;
+
+	state = rk_ble_client_get_state();
+	switch (state) {
+		case RK_BLE_CLIENT_STATE_IDLE:
+			printf("RK_BLE_CLIENT_STATE_IDLE\n");
+			break;
+		case RK_BLE_CLIENT_STATE_CONNECT:
+			printf("RK_BLE_CLIENT_STATE_CONNECT\n");
+			break;
+		case RK_BLE_CLIENT_STATE_DISCONNECT:
+			printf("RK_BLE_CLIENT_STATE_DISCONNECT\n");
+			break;
+	}
+}
+
+void bt_test_ble_client_connect(char *data)
+{
+	rk_ble_client_connect(data);
+}
+
+void bt_test_ble_client_disconnect(char *data)
+{
+	rk_ble_client_disconnect(data);
+}
+
+void bt_test_ble_client_get_service_info(char *data)
+{
+	int i, j, k;
+	RK_BLE_CLIENT_SERVICE_INFO info;
+
+	if(!rk_ble_client_get_service_info(data, &info)) {
+		printf("+++++ get device(%s) service info +++++\n", data);
+		for(i = 0; i < info.service_cnt; i++) {
+			printf("service[%d]:\n", i);
+			printf("	describe: %s\n", info.service[i].describe);
+			printf("	path: %s\n", info.service[i].path);
+			printf("	uuid: %s\n", info.service[i].uuid);
+
+			for(j = 0; j < info.service[i].chrc_cnt; j++) {
+				printf("	characteristic[%d]:\n", j);
+				printf("		describe: %s\n", info.service[i].chrc[j].describe);
+				printf("		path: %s\n", info.service[i].chrc[j].path);
+				printf("		uuid: %s\n", info.service[i].chrc[j].uuid);
+				printf("		props: 0x%x\n", info.service[i].chrc[j].props);
+				printf("		ext_props: 0x%x\n", info.service[i].chrc[j].ext_props);
+				printf("		perm: 0x%x\n", info.service[i].chrc[j].perm);
+				printf("		notifying: %d\n", info.service[i].chrc[j].notifying);
+
+				for(k = 0; k < info.service[i].chrc[j].desc_cnt; k++) {
+					printf("		descriptor[%d]:\n", k);
+
+					printf("			describe: %s\n", info.service[i].chrc[j].desc[k].describe);
+					printf("			path: %s\n", info.service[i].chrc[j].desc[k].path);
+					printf("			uuid: %s\n", info.service[i].chrc[j].desc[k].uuid);
+				}
+			}
+		}
+	}
+}
+
+void bt_test_ble_client_read(char *data)
+{
+	rk_ble_client_read(data);
+}
+
+void bt_test_ble_client_write(char *data)
+{
+#if 0
+	//write data len no more than (g_mtu - BT_ATT_HEADER_LEN)
+	rk_ble_client_write(data, "rockchip ble client write test", strlen("rockchip ble client write test"));
+#else
+	int i = 0, write_len = BT_ATT_DEFAULT_LE_MTU;
+	char *write_buf;
+
+	if(g_mtu > BT_ATT_HEADER_LEN)
+		write_len = g_mtu;
+
+	write_len -= BT_ATT_HEADER_LEN;
+	if(write_len > BT_ATT_MAX_VALUE_LEN)
+		write_len = BT_ATT_MAX_VALUE_LEN;
+
+	write_buf = (char *)malloc(write_len);
+	for (i = 0; i < (write_len - 1); i++)
+		write_buf[i] = '0' + i % 10;
+	write_buf[write_len - 1] = '\0';
+
+	rk_ble_client_write(data, write_buf, strlen(write_buf));
+	free(write_buf);
+#endif
+}
+
+void bt_test_ble_client_is_notify(char *data)
+{
+	bool notifying;
+
+	notifying = rk_ble_client_is_notifying(data);
+	printf("%s notifying %s\n", data, notifying ? "yes" : "no");
+}
+
+void bt_test_ble_client_notify_on(char *data)
+{
+	rk_ble_client_notify(data, true, true);
+}
+
+void bt_test_ble_client_notify_off(char *data)
+{
+	rk_ble_client_notify(data, true, false);
+}
+
+void bt_test_ble_client_get_eir_data(char *data)
+{
+	char eir_data[300];
+	int i;
+
+	rk_ble_client_get_eir_data(data, eir_data, 300);
+#if 0
+	for(i = 0; i < 300; i++) {
+		printf("%02x ", eir_data[i]);
+		if((i != 0) && (i % 20 == 0))
+			printf("\n");
+	}
+	printf("\n");
+#endif
+}
 /******************************************/
 /*                  SPP                   */
 /******************************************/
@@ -1272,31 +1803,57 @@ static void hfp_close_audio_duplex()
 	hfp_close_bt_duplex();
 }
 
-int bt_test_hfp_hp_cb(RK_BT_HFP_EVENT event, void *data)
+static void get_call_info(char *str)
+{
+	char *p1, *p2 = NULL;
+	char number[20];
+	char name[256];
+
+	if(!str)
+		return;
+
+	printf("Call info: %s\n", str);
+
+	p1 = strstr(str, "\"");
+	p2 = strstr(p1 + 1, "\"");
+	memset(number, 0, 20);
+	strncpy(number, p1 + 1, p2 - (p1 + 1));
+	printf("Call number: %s\n", number);
+
+	p1 = strstr(p2 + 1, "\"");
+	p2 = strstr(p1 + 1, "\"");
+	memset(name, 0, 20);
+	strncpy(name, p1 + 1, p2 - (p1 + 1));
+	printf("Call name: %s\n", name);
+}
+
+int bt_test_hfp_hp_cb(const char *bd_addr, RK_BT_HFP_EVENT event, void *data)
 {
 	switch(event) {
 		case  RK_BT_HFP_CONNECT_EVT:
-			printf("+++++ BT HFP HP CONNECT +++++\n");
+			printf("+++++ BT HFP HP CONNECT(%s) +++++\n", bd_addr);
+			printf("device platform is %s\n", rk_bt_get_dev_platform(bd_addr) == RK_BT_DEV_PLATFORM_UNKNOWN ?
+				"Unknown Platform" : "Apple IOS");
 			break;
 		case RK_BT_HFP_DISCONNECT_EVT:
-			printf("+++++ BT HFP HP DISCONNECT +++++\n");
+			printf("+++++ BT HFP HP DISCONNECT(%s) +++++\n", bd_addr);
 			break;
 		case RK_BT_HFP_RING_EVT:
-			printf("+++++ BT HFP HP RING +++++\n");
+			printf("+++++ BT HFP HP RING(%s) +++++\n", bd_addr);
 			break;
 		case RK_BT_HFP_AUDIO_OPEN_EVT:
-			printf("+++++ BT HFP AUDIO OPEN +++++\n");
+			printf("+++++ BT HFP AUDIO OPEN(%s) +++++\n", bd_addr);
 			hfp_open_audio_duplex();
 			break;
 		case RK_BT_HFP_AUDIO_CLOSE_EVT:
-			printf("+++++ BT HFP AUDIO CLOSE +++++\n");
+			printf("+++++ BT HFP AUDIO CLOSE(%s) +++++\n", bd_addr);
 			hfp_close_audio_duplex();
 			break;
 		case RK_BT_HFP_PICKUP_EVT:
-			printf("+++++ BT HFP PICKUP +++++\n");
+			printf("+++++ BT HFP PICKUP(%s) +++++\n", bd_addr);
 			break;
 		case RK_BT_HFP_HANGUP_EVT:
-			printf("+++++ BT HFP HANGUP +++++\n");
+			printf("+++++ BT HFP HANGUP(%s) +++++\n", bd_addr);
 			break;
 		case RK_BT_HFP_VOLUME_EVT:
 		{
@@ -1311,6 +1868,26 @@ int bt_test_hfp_hp_cb(RK_BT_HFP_EVENT event, void *data)
 				(codec_type == BT_SCO_CODEC_MSBC) ? "mSBC":"CVSD");
 			sco_codec = (RK_BT_SCO_CODEC_TYPE)codec_type;
 			break;
+		}
+		case RK_BT_HFP_CLIP_EVT:
+		{
+			printf("+++++ BT HFP CLIP EVENT(%s) +++++\n", bd_addr);
+			get_call_info((char *)data);
+			break;
+		}
+
+		case RK_BT_HFP_OUTGOING_CALL_DIAL_EVT:
+			printf("+++++ BT HFP OUTGOING CALL DIAL EVT(%s) +++++\n", bd_addr);
+			break;
+
+		case RK_BT_HFP_OUTGOING_CALL_RING_EVT:
+			printf("+++++ BT HFP OUTGOING CALL RING EVT(%s) +++++\n", bd_addr);
+			break;
+
+		case RK_BT_HFP_CLCC_EVT:
+		{
+			printf("+++++ BT HFP CLCC EVENT(%s) +++++\n", bd_addr);
+			get_call_info((char *)data);
 		}
 		default:
 			break;
@@ -1359,6 +1936,12 @@ void bt_test_hfp_hp_redial(char *data)
 	if (ret < 0)
 		printf("%s hfp redial failed!\n", __func__);
 }
+
+void bt_test_hfp_hp_dial_number(char *data)
+{
+	rk_bt_hfp_dial_number(data);
+}
+
 
 void bt_test_hfp_hp_report_battery(char *data)
 {
@@ -1409,10 +1992,48 @@ void bt_test_hfp_sink_open(char *data)
 	rk_bt_hfp_sink_open();
 }
 
-/* OBEX FOR PBAP */
+
+/******************************************/
+/*                 OBEX                   */
+/******************************************/
+static void  obex_pbap_event_cb(const char *bd_addr, RK_BT_OBEX_STATE state)
+{
+	switch(state) {
+		case RK_BT_OBEX_CONNECT_FAILED:
+			printf("----- RK_BT_OBEX_CONNECT_FAILED(%s) -----\n", bd_addr);
+			break;
+
+		case RK_BT_OBEX_CONNECTED:
+			printf("----- RK_BT_OBEX_CONNECTED(%s) -----\n", bd_addr);
+			break;
+
+		case RK_BT_OBEX_DISCONNECT_FAILED:
+			printf("----- RK_BT_OBEX_DISCONNECT_FAILED(%s) -----\n", bd_addr);
+			break;
+
+		case RK_BT_OBEX_DISCONNECTED:
+			printf("----- RK_BT_OBEX_DISCONNECTED(%s) -----\n", bd_addr);
+			break;
+
+		case RK_BT_OBEX_TRANSFER_ACTIVE:
+			printf("----- RK_BT_OBEX_TRANSFER_ACTIVE(%s) -----\n", bd_addr);
+			break;
+
+		case RK_BT_OBEX_TRANSFER_COMPLETE:
+			printf("----- RK_BT_OBEX_TRANSFER_COMPLETE(%s) -----\n", bd_addr);
+			break;
+	}
+}
+
 void bt_test_obex_init(char *data)
 {
-	rk_bt_obex_init();
+	rk_bt_obex_init(data);
+}
+
+void bt_test_obex_pbap_init(char *data)
+{
+	rk_bt_obex_register_status_cb(obex_pbap_event_cb);
+	rk_bt_obex_pbap_init();
 }
 
 void bt_test_obex_pbap_connect(char *data)
@@ -1440,12 +2061,68 @@ void bt_test_obex_pbap_get_mch_vcf(char *data)
 	rk_bt_obex_pbap_get_vcf("mch", "/data/mch.vcf");
 }
 
-void bt_test_obex_pbap_disconnect(char *data)
+void bt_test_obex_pbap_get_spd_vcf(char *data)
 {
-	rk_bt_obex_pbap_disconnect(NULL);
+	rk_bt_obex_pbap_get_vcf("spd", "/data/spd.vcf");
 }
 
-void bt_test_obex_close(char *data)
+void bt_test_obex_pbap_get_fav_vcf(char *data)
 {
-	rk_bt_obex_close();
+	rk_bt_obex_pbap_get_vcf("fav", "/data/fav.vcf");
+}
+
+void bt_test_obex_pbap_disconnect(char *data)
+{
+	rk_bt_obex_pbap_disconnect(data);
+}
+
+void bt_test_obex_pbap_deinit(char *data)
+{
+	rk_bt_obex_pbap_deinit();
+}
+
+void bt_test_obex_deinit(char *data)
+{
+	rk_bt_obex_deinit();
+}
+
+/******************************************/
+/*                 PAN                    */
+/******************************************/
+static void pan_event_cb(RK_BT_PAN_EVENT event, char *bd_addr)
+{
+	switch(event) {
+		case RK_BT_PAN_CONNECT_FAILED:
+			printf("----- RK_BT_PAN_CONNECT_FAILED(%s) -----\n", bd_addr);
+			break;
+
+		case RK_BT_PAN_CONNECT:
+			printf("----- RK_BT_PAN_CONNECT(%s) -----\n", bd_addr);
+			break;
+
+		case RK_BT_PAN_DISCONNECT:
+			printf("----- RK_BT_PAN_DISCONNECT(%s) -----\n", bd_addr);
+			break;
+	}
+}
+
+void bt_test_pan_init(char *data)
+{
+	rk_bt_pan_register_event_cb(pan_event_cb);
+	rk_bt_pan_open();
+}
+
+void bt_test_pan_deinit(char *data)
+{
+	rk_bt_pan_close();
+}
+
+void bt_test_pan_connect(char *data)
+{
+	rk_bt_pan_connect(data);
+}
+
+void bt_test_pan_disconnect(char *data)
+{
+	rk_bt_pan_disconnect(data);
 }

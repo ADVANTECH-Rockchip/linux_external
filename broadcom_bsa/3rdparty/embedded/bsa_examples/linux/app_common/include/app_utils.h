@@ -30,7 +30,7 @@
 #define APP_BITS_SET(__v, __b) (((__v) & (__b)) == (__b))
 
 /* Macro to print an message */
-//#define SYSLOG_DEBUG
+#define SYSLOG_DEBUG
 
 #ifdef SYSLOG_DEBUG
 #define LOG_TAG "BROADCOM_BSA"

@@ -71,7 +71,12 @@ BTSNOOPDISP_INCLUDED = TRUE
 #HCI_DUMP_EVT_MAX = 0
 
 # BSA Boot timeout (including PatchRam download)
-#BSA_DM_START_TIMEOUT = 20000
+BSA_DM_START_TIMEOUT = 20000
+
+
+######################## COEX ########################
+BSA_AFH_BEHAVIOR_DEBUG = FALSE
+
 
 ######################## BTA BRCM  ########################
 BT_BRCM_VS_INCLUDED = TRUE
@@ -127,6 +132,9 @@ BLE_CON_CPLT_MISSING_FW_BUG = TRUE
 #BTM_BLE_SKIP_ASK_MULTI_ADV_INST = TRUE
 #BTM_BLE_SKIP_ASK_MULTI_ADV_INST_NUM = 4
 
+# BT 5.0 features support
+# BLE 2M PHY
+BLE_2M_PHY_INCLUDED = TRUE
 
 # Authenticated_Payload_Timeout shall be equal to or greater than
 # connInterval * (1 + connSlaveLatency).
@@ -243,7 +251,8 @@ BTA_PR_INCLUDED = FALSE
 
 ################################### AVRC - RC #############################
 BTA_RC_INCLUDED = TRUE
-AVRC_COVER_ART_INCLUDED = FALSE
+AVRC_COVER_ART_INCLUDED = TRUE
+CAC_OPEN_EVENT_STATUS_CHANGE = TRUE
 
 ######################## ADVANCED AUDIO & VIDEO ########################
 AVCT_INCLUDED = TRUE
@@ -427,6 +436,7 @@ BTA_PBAP_1_2_SUPPORTED = TRUE
 ################################### MAP ####################################
 BTA_MCE_INCLUDED = TRUE
 BTA_MAP_1_2_SUPPORTED = TRUE
+#BTA_MCE_NUM_MA = 2
 
 ###################################### SYNC ################################
 BTA_SS_INCLUDED = FALSE
@@ -526,6 +536,7 @@ BTM_SCO_INCLUDED = TRUE
 # Bluetooth 2.1 support
 BTM_LISBON_INCLUDED = TRUE
 BTM_OOB_INCLUDED = FALSE
+BTM_SEC_REMOVE_NOT_IN_USE = TRUE
 
 # BTM_LOCAL_IO_CAPS allowed values:
 #       BTM_IO_CAP_OUT => Display Only
@@ -549,6 +560,9 @@ BTM_DEFAULT_CONN_INTERVAL = 800
 
 # this option indicates if the PATCHRAM download from the host is supported BSA
 PATCHRAM_INCLUDED = TRUE
+# This option indicates a specific directory which contains a patchram file with
+# the local device name
+PATCHRAM_DIR_INCLUDED = FALSE
 # indicates the function to call after device init (contains the PATCHRAM
 # download)
 BTM_APP_DEV_INIT = bta_sys_dev_init
@@ -665,6 +679,9 @@ GKI_USE_PTHREADS = TRUE
 GKI_TIMER_LIST_NOPREEMPT = TRUE
 UCODEC_TASK = 3
 BT_MEDIA_TASK = UCODEC_TASK
+
+GKI_DEF_BUFPOOL_PERM_MASK = 0xffe0
+
 
 ###################################### TM (Test Module) #######################
 BSA_TM_INCLUDED = TRUE

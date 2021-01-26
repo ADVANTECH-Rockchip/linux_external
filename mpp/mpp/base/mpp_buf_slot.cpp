@@ -242,8 +242,8 @@ static void generate_info_set(MppBufSlotsImpl *impl, MppFrame frame, RK_U32 forc
     RK_U32 width  = mpp_frame_get_width(frame);
     RK_U32 height = mpp_frame_get_height(frame);
     MppFrameFormat fmt = mpp_frame_get_fmt(frame);
-    RK_U32 depth = (fmt == MPP_FMT_YUV420SP_10BIT
-                    || fmt == MPP_FMT_YUV422SP_10BIT) ? 10 : 8;
+    RK_U32 depth = ((fmt & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV420SP_10BIT ||
+                    (fmt & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV422SP_10BIT) ? 10 : 8;
     RK_U32 codec_hor_stride = mpp_frame_get_hor_stride(frame);
     RK_U32 codec_ver_stride = mpp_frame_get_ver_stride(frame);
     RK_U32 hal_hor_stride = (codec_hor_stride) ?
@@ -666,6 +666,18 @@ size_t mpp_buf_slot_get_size(MppBufSlots slots)
     MppBufSlotsImpl *impl = (MppBufSlotsImpl *)slots;
     AutoMutex auto_lock(impl->lock);
     return impl->buf_size;
+}
+
+RK_S32 mpp_buf_slot_get_count(MppBufSlots slots)
+{
+    if (NULL == slots) {
+        mpp_err_f("found NULL input\n");
+        return -1;
+    }
+
+    MppBufSlotsImpl *impl = (MppBufSlotsImpl *)slots;
+    AutoMutex auto_lock(impl->lock);
+    return impl->buf_count;
 }
 
 MPP_RET mpp_buf_slot_get_unused(MppBufSlots slots, RK_S32 *index)

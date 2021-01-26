@@ -32,7 +32,7 @@
 
 #define APP_AG_FEATURES  (BSA_AG_FEAT_ECNR | BSA_AG_FEAT_3WAY | \
                           BSA_AG_FEAT_VREC | BSA_AG_FEAT_ECS |  \
-                          BSA_AG_FEAT_ECC | BSA_AG_FEAT_CODEC)
+                          BSA_AG_FEAT_ECC | BSA_AG_FEAT_CODEC | BSA_AG_FEAT_HF_IND)
 
 #define APP_AG_XML_REM_DEVICES_FILE_PATH "./bt_devices.xml"
 //#define APP_MAX_AUDIO_BUF 240
@@ -73,35 +73,13 @@ static tBSA_AG_CBACK *s_pCallback = NULL;
 
 /*******************************************************************************
  **
- ** Function         app_ag_display_available_handle
- **
- ** Description      This function is used to display available AG handles
- **
- ** Parameters
- **
- ** Returns          void
- **
- *******************************************************************************/
-void app_ag_display_available_handle(void)
-{
-    UINT8 index;
-    for (index = 0; index < APP_AG_MAX_NUM_CONN; index++)
-    {
-        if (app_ag_cb.inst[index].hndl != BSA_AG_BAD_HANDLE)
-        {
-            APP_INFO1("%d => Registered AG handle: %d", index, app_ag_cb.inst[index].hndl);
-        }
-    }
-}
-/*******************************************************************************
- **
  ** Function         app_ag_read_xml_remote_devices
  **
  ** Description      This function is used to read the XML Bluetooth remote device file
  **
  ** Parameters
  **
- ** Returns          int
+ ** Returns          void
  **
  *******************************************************************************/
 int app_ag_read_xml_remote_devices(void)
@@ -139,7 +117,7 @@ static UINT8 app_ag_get_index_by_handle(UINT16 handle)
 
     for (index=0; index < APP_AG_MAX_NUM_CONN; index++)
     {
-        if (app_ag_cb.inst[index].hndl == handle)
+        if (app_ag_cb.hndl[index] == handle)
         {
             break;
         }
@@ -152,7 +130,7 @@ static UINT8 app_ag_get_index_by_handle(UINT16 handle)
  **
  ** Function         app_ag_enable
  **
- ** Description      enable AG service
+ ** Description      enable mono AG service
  **
  ** Returns          BSA_SUCCESS success error code for failure
  *******************************************************************************/
@@ -203,16 +181,16 @@ tBSA_STATUS app_ag_disable(void)
         /* Ensure deregister steps have been done */
         for (index=0; index < APP_AG_MAX_NUM_CONN; index++)
         {
-            if ((app_ag_cb.inst[index].sco_route == BSA_SCO_ROUTE_HCI) &&
-                (app_ag_cb.inst[index].uipc_channel != UIPC_CH_ID_BAD))
+            if ((app_ag_cb.sco_route == BSA_SCO_ROUTE_HCI) &&
+                (app_ag_cb.uipc_channel[index] != UIPC_CH_ID_BAD))
             {
-                UIPC_Close(app_ag_cb.inst[index].uipc_channel);
-                app_ag_cb.inst[index].uipc_channel = UIPC_CH_ID_BAD;
+                UIPC_Close(app_ag_cb.uipc_channel[index]);
+                app_ag_cb.uipc_channel[index] = UIPC_CH_ID_BAD;
             }
 
-            if (app_ag_cb.inst[index].hndl != BSA_AG_BAD_HANDLE)
+            if (app_ag_cb.hndl[index] != BSA_AG_BAD_HANDLE)
             {
-                app_ag_cb.inst[index].hndl = BSA_AG_BAD_HANDLE;
+                app_ag_cb.hndl[index] = BSA_AG_BAD_HANDLE;
             }
         }
     }
@@ -242,7 +220,7 @@ tBSA_STATUS app_ag_register(UINT8 sco_route)
 
     for (index=0; index < APP_AG_MAX_NUM_CONN; index++)
     {
-        if (app_ag_cb.inst[index].hndl == BSA_AG_BAD_HANDLE)
+        if (app_ag_cb.hndl[index] == BSA_AG_BAD_HANDLE)
         {
             break;
         }
@@ -278,12 +256,10 @@ tBSA_STATUS app_ag_register(UINT8 sco_route)
     }
     else
     {
-        app_ag_cb.inst[index].hndl = param.hndl;
-        app_ag_cb.inst[index].uipc_channel = param.uipc_channel;
-        /* save SCO routing option to match with the Audio open request */
-        app_ag_cb.inst[index].sco_route = param.sco_route;
-        APP_DEBUG1("Register complete handle %d, status %d/%s", app_ag_cb.inst[index].hndl,
-            status, app_ag_status_2_str(status));
+        app_ag_cb.hndl[index] = param.hndl;
+        app_ag_cb.uipc_channel[index] = param.uipc_channel;
+        APP_DEBUG1("Register complete handle %d, status %d/%s", app_ag_cb.hndl[index],
+                status, app_ag_status_2_str(status));
     }
 
     return status;
@@ -302,44 +278,35 @@ tBSA_STATUS app_ag_deregister(void)
     tBSA_STATUS status = BSA_SUCCESS;
     tBSA_AG_DEREGISTER param;
     UINT8 index;
-    int choice;
+
     APP_DEBUG0("Entering");
 
     BSA_AgDeregisterInit(&param);
 
-#if APP_AG_MAX_NUM_CONN > 1
-    app_ag_display_available_handle();
-    choice = app_get_choice("Select available AG handle index");
-    if (choice < 0 || choice >= APP_AG_MAX_NUM_CONN) 
+    for (index=0; index < APP_AG_MAX_NUM_CONN; index++)
     {
-        APP_ERROR1("Wrong selection: %d", choice);
-        return BSA_ERROR_CLI_BAD_PARAM;
-    }
-#else
-    choice = 0;
-#endif
-    param.hndl = app_ag_cb.inst[choice].hndl;
-
-    status = BSA_AgDeregister(&param);
-    if (status != BSA_SUCCESS)
-    {
-        APP_ERROR1("BSA_AgDeregister failed(%d)", status);
-        return status;
-    }
-    else
-    {
-        for (index = 0; index < APP_AG_MAX_NUM_CONN; index++)
+        if (app_ag_cb.hndl[index] != BSA_AG_BAD_HANDLE)
         {
-            if ((app_ag_cb.inst[index].hndl == param.hndl) &&
-                (app_ag_cb.inst[index].uipc_channel != UIPC_CH_ID_BAD))
+            param.hndl = app_ag_cb.hndl[index];
+
+            status = BSA_AgDeregister(&param);
+            if (status != BSA_SUCCESS)
             {
-                if(app_ag_cb.inst[index].voice_opened)
+                APP_ERROR1("BSA_AgDeregister failed(%d)", status);
+                return status;
+            }
+            else
+            {
+                if (app_ag_cb.uipc_channel[index] != UIPC_CH_ID_BAD)
                 {
-                    UIPC_Close(app_ag_cb.inst[index].uipc_channel);
-                    app_ag_cb.inst[index].voice_opened = FALSE;
+                    if(app_ag_cb.voice_opened)
+                    {
+                        UIPC_Close(app_ag_cb.uipc_channel[index]);
+                        app_ag_cb.voice_opened = FALSE;
+                    }
+                    app_ag_cb.uipc_channel[index] = UIPC_CH_ID_BAD;
                 }
-                app_ag_cb.inst[index].uipc_channel = UIPC_CH_ID_BAD;
-                app_ag_cb.inst[index].hndl = BSA_AG_BAD_HANDLE;
+                app_ag_cb.hndl[index] = BSA_AG_BAD_HANDLE;
             }
         }
     }
@@ -362,7 +329,6 @@ int app_ag_open(BD_ADDR *bd_addr_in /*= NULL*/)
     tBSA_STATUS status = 0;
     BD_ADDR bd_addr;
     int device_index;
-    int choice;
 
     tBSA_AG_OPEN param;
 
@@ -420,18 +386,7 @@ int app_ag_open(BD_ADDR *bd_addr_in /*= NULL*/)
     BSA_AgOpenInit(&param);
 
     bdcpy(param.bd_addr, bd_addr);
-#if APP_AG_MAX_NUM_CONN > 1
-    app_ag_display_available_handle();
-    choice = app_get_choice("Select available AG handle index");
-    if (choice < 0 || choice >= APP_AG_MAX_NUM_CONN) 
-    {
-        APP_ERROR1("Wrong selection: %d", choice);
-        return BSA_ERROR_CLI_BAD_PARAM;
-    }
-#else
-    choice = 0;
-#endif
-    param.hndl = app_ag_cb.inst[choice].hndl;
+    param.hndl = app_ag_cb.hndl[0];
     status = BSA_AgOpen(&param);
 
     if (status != BSA_SUCCESS)
@@ -452,32 +407,19 @@ int app_ag_open(BD_ADDR *bd_addr_in /*= NULL*/)
 tBSA_STATUS app_ag_close(void)
 {
     tBSA_STATUS status;
-    int choice;
     tBSA_AG_CLOSE param;
 
     APP_DEBUG0("Entering");
 
-    status = BSA_AgCloseInit(&param);
-
-#if APP_AG_MAX_NUM_CONN > 1
-    app_ag_display_available_handle();
-    choice = app_get_choice("Select available AG handle index");
-    if (choice < 0 || choice >= APP_AG_MAX_NUM_CONN) 
-    {
-        APP_ERROR1("Wrong selection: %d", choice);
-        return BSA_ERROR_CLI_BAD_PARAM;
-    }
-#else
-    choice = 0;
-#endif
-
-    if (app_ag_cb.inst[choice].opened == FALSE)
+    if (app_ag_cb.opened == FALSE)
     {
         status = BSA_ERROR_CLI_NOT_CONNECTED;
-        APP_ERROR1("app_ag_close failed, handle %d no AG connection", app_ag_cb.inst[choice].hndl);
+        APP_ERROR0("app_ag_close failed, no AG connection");
         return status;
     }
-    param.hndl = app_ag_cb.inst[choice].hndl;
+
+    status = BSA_AgCloseInit(&param);
+    param.hndl = app_ag_cb.hndl[0];
     status = BSA_AgClose(&param);
 
     if (status != BSA_SUCCESS)
@@ -500,30 +442,18 @@ void app_ag_open_audio(void)
 {
     tBSA_STATUS status;
     tBSA_AG_AUDIO_OPEN param;
-    int choice;
+
     APP_DEBUG0("Entering");
 
-    status = BSA_AgAudioOpenInit(&param);
-#if APP_AG_MAX_NUM_CONN > 1
-    app_ag_display_available_handle();
-    choice = app_get_choice("Select available AG handle index");
-    if (choice < 0 || choice >= APP_AG_MAX_NUM_CONN) 
+    if (app_ag_cb.opened == FALSE)
     {
-        APP_ERROR1("Wrong selection: %d", choice);
+        APP_ERROR0("AG connection must be established first");
         return;
     }
-#else
-    choice = 0;
-#endif
 
-    if (app_ag_cb.inst[choice].opened == FALSE)
-    {
-        status = BSA_ERROR_CLI_NOT_CONNECTED;
-        APP_ERROR1("Handle %d AG connection must be established first", app_ag_cb.inst[choice].hndl);
-        return;
-    }
-    param.hndl = app_ag_cb.inst[choice].hndl;
-    param.sco_route = app_ag_cb.inst[choice].sco_route;
+    status = BSA_AgAudioOpenInit(&param);
+    param.hndl = app_ag_cb.hndl[0];
+    param.sco_route = app_ag_cb.sco_route;
     status = BSA_AgAudioOpen(&param);
 
     if (status != BSA_SUCCESS)
@@ -545,29 +475,11 @@ void app_ag_close_audio(void)
 {
     tBSA_STATUS status;
     tBSA_AG_AUDIO_CLOSE param;
-    int choice;
+
     APP_DEBUG0("Entering");
 
     status = BSA_AgAudioCloseInit(&param);
-#if APP_AG_MAX_NUM_CONN > 1
-    app_ag_display_available_handle();
-    choice = app_get_choice("Select available AG handle index");
-    if (choice < 0 || choice >= APP_AG_MAX_NUM_CONN) 
-    {
-        APP_ERROR1("Wrong selection: %d", choice);
-        return;
-    }
-#else
-    choice = 0;
-#endif
-
-    if (app_ag_cb.inst[choice].opened == FALSE)
-    {
-        status = BSA_ERROR_CLI_NOT_CONNECTED;
-        APP_ERROR1("Handle %d AG connection must be established first", app_ag_cb.inst[choice].hndl);
-        return;
-    }
-    param.hndl = app_ag_cb.inst[choice].hndl;
+    param.hndl = app_ag_cb.hndl[0];
     status = BSA_AgAudioClose(&param);
 
     if (status != BSA_SUCCESS)
@@ -674,7 +586,11 @@ int app_ag_sco_out_read_file(void)
     /* Check if file is already open */
     if ((app_ag_cb.fd_sco_out_file < 0))
     {
-        app_ag_cb.fd_sco_out_file = app_wav_open_file(APP_AG_SCO_OUT_SOUND_FILE, &format);
+        /* Open only if audio is opened */
+        if (app_ag_cb.voice_opened)
+        {
+            app_ag_cb.fd_sco_out_file = app_wav_open_file(APP_AG_SCO_OUT_SOUND_FILE, &format);
+        }
 
         if (app_ag_cb.fd_sco_out_file < 0)
         {
@@ -700,7 +616,6 @@ int app_ag_sco_out_read_file(void)
 }
 
 #ifndef PCM_ALSA_AG
-#ifdef PCM_ALSA_DISABLE_AG
 /*******************************************************************************
  **
  ** Function         app_ag_play_file_thread
@@ -721,6 +636,12 @@ static void  app_ag_play_file_thread(void)
 
     APP_DEBUG0("Entering");
 
+    if (!app_ag_cb.voice_opened)
+    {
+        APP_ERROR0("Could not play file, voice connection not opened");
+        return;
+    }
+
     if ((app_wav_format(APP_AG_SCO_OUT_SOUND_FILE, &wav_format) == 0) &&
         (wav_format.bits_per_sample == APP_AG_BITS_PER_SAMPLE)        &&
         (wav_format.nb_channels     == APP_AG_CHANNEL_NB)             &&
@@ -731,23 +652,19 @@ static void  app_ag_play_file_thread(void)
     if (status != 0)
     {
         APP_ERROR1("'%s' does not exist or is not right format (%d/%d/%d)",
-            APP_AG_SCO_OUT_SOUND_FILE, APP_AG_SAMPLE_RATE, APP_AG_CHANNEL_NB, APP_AG_BITS_PER_SAMPLE);
+                APP_AG_SCO_OUT_SOUND_FILE, APP_AG_SAMPLE_RATE, APP_AG_CHANNEL_NB, APP_AG_BITS_PER_SAMPLE);
         return;
     }
 
     for (index = 0; index < APP_AG_MAX_NUM_CONN; index++)
     {
         /* Play on the first channel id */
-        if (app_ag_cb.inst[index].voice_opened && (app_ag_cb.inst[index].uipc_channel != UIPC_CH_ID_BAD))
-        {
-            APP_DEBUG1("voice_opened:%d, uipc_channel:%d", app_ag_cb.inst[index].voice_opened, app_ag_cb.inst[index].uipc_channel);
+        if (app_ag_cb.uipc_channel[index] != UIPC_CH_ID_BAD)
             break;
-        }
     }
 
     if (index == APP_AG_MAX_NUM_CONN)
     {
-        APP_ERROR0("Could not play file, no voice connection not opened");
         return;
     }
 
@@ -755,9 +672,9 @@ static void  app_ag_play_file_thread(void)
     {
         if ((nb_bytes = app_ag_sco_out_read_file()) > 0)
         {
-            if (!UIPC_Send(app_ag_cb.inst[index].uipc_channel, 0, app_ag_cb.pcmbuf, nb_bytes))
+            if (!UIPC_Send(app_ag_cb.uipc_channel[index], 0, app_ag_cb.pcmbuf, nb_bytes))
             {
-                APP_ERROR1("UIPC_Send(%d) failed", app_ag_cb.inst[index].uipc_channel);
+                APP_ERROR1("UIPC_Send(%d) failed", app_ag_cb.uipc_channel[index]);
             }
         }
         else if (nb_bytes < 0)
@@ -766,7 +683,7 @@ static void  app_ag_play_file_thread(void)
             nb_bytes = 0;
         }
 
-    } while ((nb_bytes != 0) && app_ag_cb.inst[index].voice_opened && !app_ag_cb.stop_play);
+    } while ((nb_bytes != 0) && app_ag_cb.voice_opened && !app_ag_cb.stop_play);
 
     if (app_ag_cb.fd_sco_out_file >= 0)
     {
@@ -784,7 +701,7 @@ static void  app_ag_play_file_thread(void)
         APP_INFO0("Finished reading audio file...all data sent to SCO");
     }
 }
-#endif
+
 #endif
 
 /*******************************************************************************
@@ -830,35 +747,6 @@ int app_ag_stop_play_file(void)
 
 /*******************************************************************************
  **
- ** Function         app_ag_in_call
- **
- ** Description      Indicate a call
- **
- ** Parameters
- **         handle: connection handle
- **
-  ** Returns          void
- **
- *******************************************************************************/
-void app_ag_in_call(UINT16 handle)
-{
-    tBSA_AG_RES bsa_ag_res;
-    /* send response to indicate a call */
-    bsa_ag_res.hndl = handle;
-    bsa_ag_res.result = BTA_AG_IN_CALL_RES;
-    /* CLIP string */
-    strncpy(bsa_ag_res.data.str, "\"BSA_CallYou\"",sizeof(bsa_ag_res.data.str));
-    /* CLIP type: type of address octet in integer format:
-     * 145 when dialing string includes international access code character �+�
-     * otherwise 129
-     * 129 -> "0612345678"
-     * 145 -> "+33612345678"
-     */
-    bsa_ag_res.data.num = 145;
-    BSA_AgResult(&bsa_ag_res);
-}
-/*******************************************************************************
- **
  ** Function         app_ag_pickupcall
  **
  ** Description      Pickup a call
@@ -872,15 +760,14 @@ void app_ag_in_call(UINT16 handle)
 void app_ag_pickupcall(UINT16 handle)
 {
     tBSA_AG_RES bsa_ag_res;
-    int index;
+
     /* send response to open the SCO link */
     bsa_ag_res.hndl = handle;
     bsa_ag_res.result = BTA_AG_IN_CALL_CONN_RES;
     bsa_ag_res.data.audio_handle = handle;
     /* ATOK was already sent by BTA */
     BSA_AgResult(&bsa_ag_res);
-    index = app_ag_get_index_by_handle(handle);
-    app_ag_cb.inst[index].call_active = TRUE;
+    app_ag_cb.call_active = TRUE;
 }
 
 /*******************************************************************************
@@ -898,13 +785,39 @@ void app_ag_pickupcall(UINT16 handle)
 void app_ag_hangupcall(UINT16 handle)
 {
     tBSA_AG_RES bsa_ag_res;
-    int index;
+
     /* send response to open the SCO link */
     bsa_ag_res.hndl = handle;
     bsa_ag_res.result = BTA_AG_END_CALL_RES;
     BSA_AgResult(&bsa_ag_res);
-    index = app_ag_get_index_by_handle(handle);
-    app_ag_cb.inst[index].call_active = FALSE;
+    app_ag_cb.call_active = FALSE;
+}
+
+/*******************************************************************************
+ **
+ ** Function         app_ag_ind_change_state
+ **
+ ** Description     Change the enabled/disabled state of the HF Ind
+ **
+ ** Parameters
+ **         handle: connection handle
+ **         ind_id: Indicator Id
+ **         on_demand: Enabled/Disabled
+ **
+ ** Returns          void
+ **
+ *******************************************************************************/
+void app_ag_ind_change_state(UINT16 handle, UINT16 ind_id, BOOLEAN on_demand)
+{
+    tBSA_AG_RES bsa_ag_res;
+
+    /* send enabled/disabled state of the HF Ind to remote */
+    bsa_ag_res.hndl = handle;
+    bsa_ag_res.result = BTA_AG_BIND_RES;
+    bsa_ag_res.data.ind.id = ind_id;
+    bsa_ag_res.data.ind.on_demand = on_demand;
+    bsa_ag_res.data.ok_flag = BTA_AG_OK_CONTINUE;
+    BSA_AgResult(&bsa_ag_res);
 }
 
 /*******************************************************************************
@@ -1059,33 +972,25 @@ void app_ag_cback(tBSA_AG_EVT event, tBSA_AG_MSG *p_data)
         APP_DEBUG1("%02x:%02x:%02x:%02x:%02x:%02x",
                 p_data->open.bd_addr[0], p_data->open.bd_addr[1], p_data->open.bd_addr[2],
                 p_data->open.bd_addr[3], p_data->open.bd_addr[4], p_data->open.bd_addr[5]);
-
-        if(index >= APP_AG_MAX_NUM_CONN)
-            break;
-
         if (p_data->open.status == BSA_SUCCESS)
         {
-            app_ag_cb.inst[index].opened = TRUE;
+            app_ag_cb.opened = TRUE;
         }
         else
         {
-            app_ag_cb.inst[index].opened = FALSE;
+            app_ag_cb.opened = FALSE;
         }
 
         break;
     case BSA_AG_CONN_EVT: /* Service level connection */
         APP_DEBUG1("BSA_AG_CONN_EVT: %02x:%02x:%02x:%02x:%02x:%02x",
-            p_data->conn.bd_addr[0], p_data->conn.bd_addr[1], p_data->conn.bd_addr[2],
-            p_data->conn.bd_addr[3], p_data->conn.bd_addr[4], p_data->conn.bd_addr[5]);
+                p_data->conn.bd_addr[0], p_data->conn.bd_addr[1], p_data->conn.bd_addr[2],
+                p_data->conn.bd_addr[3], p_data->conn.bd_addr[4], p_data->conn.bd_addr[5]);
         break;
 
     case BSA_AG_CLOSE_EVT: /* Connection Closed (for info)*/
         APP_DEBUG1("BSA_AG_CLOSE_EVT: s=%d(%s)", p_data->close.status, app_ag_status_2_str(p_data->close.status));
-
-        if(index >= APP_AG_MAX_NUM_CONN)
-            break;
-
-        app_ag_cb.inst[index].opened = FALSE;
+        app_ag_cb.opened = FALSE;
         break;
 
     case BSA_AG_AUDIO_OPEN_EVT: /* Audio Open Event */
@@ -1094,18 +999,18 @@ void app_ag_cback(tBSA_AG_EVT event, tBSA_AG_MSG *p_data)
         if(index >= APP_AG_MAX_NUM_CONN)
             break;
 
-        if (app_ag_cb.inst[index].sco_route == BSA_SCO_ROUTE_HCI &&
-           app_ag_cb.inst[index].uipc_channel != UIPC_CH_ID_BAD &&
-           !app_ag_cb.inst[index].voice_opened)
+        if (app_ag_cb.sco_route == BSA_SCO_ROUTE_HCI &&
+           app_ag_cb.uipc_channel[index] != UIPC_CH_ID_BAD &&
+           !app_ag_cb.voice_opened)
         {
             /* Open UIPC channel for TX channel ID */
-            if (UIPC_Open(app_ag_cb.inst[index].uipc_channel, app_ag_sco_uipc_cback) != TRUE)
+            if (UIPC_Open(app_ag_cb.uipc_channel[index], app_ag_sco_uipc_cback) != TRUE)
             {
-                APP_ERROR1("UIPC_Open(%d) failed", app_ag_cb.inst[index].uipc_channel);
+                APP_ERROR1("UIPC_Open(%d) failed", app_ag_cb.uipc_channel[index]);
                 break;
             }
-            app_ag_cb.inst[index].voice_opened = TRUE;
-            UIPC_Ioctl(app_ag_cb.inst[index].uipc_channel,UIPC_REG_CBACK,(void*) app_ag_sco_uipc_cback);
+            app_ag_cb.voice_opened = TRUE;
+            UIPC_Ioctl(app_ag_cb.uipc_channel[index],UIPC_REG_CBACK,(void*) app_ag_sco_uipc_cback);
         }
 
 #ifdef PCM_ALSA
@@ -1121,11 +1026,11 @@ void app_ag_cback(tBSA_AG_EVT event, tBSA_AG_MSG *p_data)
         if(index >= APP_AG_MAX_NUM_CONN)
             break;
 
-        if(app_ag_cb.inst[index].uipc_channel != UIPC_CH_ID_BAD &&
-           app_ag_cb.inst[index].voice_opened)
+        if(app_ag_cb.uipc_channel[index] != UIPC_CH_ID_BAD &&
+           app_ag_cb.voice_opened)
         {
-            UIPC_Close(app_ag_cb.inst[index].uipc_channel);
-            app_ag_cb.inst[index].voice_opened = FALSE;
+            UIPC_Close(app_ag_cb.uipc_channel[index]);
+            app_ag_cb.voice_opened = FALSE;
         }
 
 #ifdef PCM_ALSA
@@ -1175,7 +1080,7 @@ void app_ag_cback(tBSA_AG_EVT event, tBSA_AG_MSG *p_data)
         /* send back the appropriate AT commands */
         bsa_ag_res.hndl = handle;
         bsa_ag_res.result = BTA_AG_CIND_RES;
-        strncpy(bsa_ag_res.data.str,app_ag_cb.inst[index].call_active?"1":"0",
+        strncpy(bsa_ag_res.data.str,app_ag_cb.call_active?"1":"0",
             sizeof(bsa_ag_res.data.str)-1);
         strncat(bsa_ag_res.data.str, ",0,0,6,0,5,0,7",
             (sizeof(bsa_ag_res.data.str)-1) - strlen(bsa_ag_res.data.str));
@@ -1215,7 +1120,7 @@ void app_ag_cback(tBSA_AG_EVT event, tBSA_AG_MSG *p_data)
         /* send back the appropriate AT commands */
         bsa_ag_res.hndl = handle;
         bsa_ag_res.result = BTA_AG_CLCC_RES;
-        if (app_ag_cb.inst[index].call_active)
+        if (app_ag_cb.call_active)
         {
             /* dummy string: call id 1, mobile terminated, active, voice, noMP */
             strncpy(bsa_ag_res.data.str, "1,1,0,0, 0",sizeof(bsa_ag_res.data.str)-1);
@@ -1251,6 +1156,14 @@ void app_ag_cback(tBSA_AG_EVT event, tBSA_AG_MSG *p_data)
     case BSA_AG_AT_BCS_EVT :
         /* Codec select */
         APP_DEBUG0("BSA_AG_AT_BCS_EVT");
+        break;
+    case BSA_AG_AT_BIND_EVT :
+        /* HF supports HF indicator list */
+        APP_DEBUG1("BSA_AG_AT_BIND_EVT %s", p_data->val.str);
+        break;
+    case BSA_AG_AT_BIEV_EVT :
+        /* HF indicator updates from peer */
+        APP_DEBUG1("BSA_AG_AT_BIEV_EVT %s", p_data->val.str);
         break;
 
     default:
@@ -1394,30 +1307,15 @@ int app_ag_close_alsa_duplex(void)
 tBSA_STATUS app_ag_start(UINT8 sco_route)
 {
     tBSA_STATUS status;
-    UINT8 index;
 
     status = app_ag_enable();
-    if (status == BSA_ERROR_SRV_ALREADY_ACTIVE)
-    {
-        APP_DEBUG0("AG has already enabled");
-    }
-    else if (status != BSA_SUCCESS)
+    if (status != BSA_SUCCESS)
     {
         return status;
     }
 
-    for (index = 0; index < APP_AG_MAX_NUM_CONN; index++)
-    {
-        if (app_ag_cb.inst[index].hndl == BSA_AG_BAD_HANDLE)
-        {
-            status = app_ag_register(sco_route);
-            if (status != BSA_SUCCESS)
-            {
-                APP_ERROR1("app_ag_register failed: %d(%s)", status, app_ag_status_2_str(status));
-                return status;
-            }
-        }
-    }
+    status = app_ag_register(sco_route);
+
     return status;
 }
 
@@ -1437,25 +1335,20 @@ tBSA_STATUS app_ag_stop(void)
     tBSA_STATUS status = BSA_SUCCESS;
     tBSA_AG_DISABLE disable_param;
     tBSA_AG_DEREGISTER deregister_param;
-    UINT8 index;
+
     APP_DEBUG0("Deregister");
 
     /* prepare parameters */
     BSA_AgDeregisterInit(&deregister_param);
-    for (index = 0; index < APP_AG_MAX_NUM_CONN; index++)
-    {
-        if (app_ag_cb.inst[index].hndl != BSA_AG_BAD_HANDLE)
-        {
-            deregister_param.hndl = app_ag_cb.inst[index].hndl;
-            status = BSA_AgDeregister(&deregister_param);
+    deregister_param.hndl = app_ag_cb.hndl[0];
+    status = BSA_AgDeregister(&deregister_param);
 
-            if (status != BSA_SUCCESS)
-            {
-                APP_ERROR1("BSA_AgDeregister failed: %d(%s)", status, app_ag_status_2_str(status));
-                return status;
-            }
-        }
+    if (status != BSA_SUCCESS)
+    {
+        APP_ERROR1("BSA_AgDeregister failed: %d(%s)", status, app_ag_status_2_str(status));
+        return status;
     }
+
     /* prepare parameters */
     BSA_AgDisableInit(&disable_param);
     status = BSA_AgDisable(&disable_param);
@@ -1490,8 +1383,8 @@ void app_ag_init(void)
 
     for (index=0; index < APP_AG_MAX_NUM_CONN; index++)
     {
-        app_ag_cb.inst[index].uipc_channel = UIPC_CH_ID_BAD;
-        app_ag_cb.inst[index].hndl = BSA_AG_BAD_HANDLE;
+        app_ag_cb.uipc_channel[index] = UIPC_CH_ID_BAD;
+        app_ag_cb.hndl[index] = BSA_AG_BAD_HANDLE;
     }
 }
 
@@ -1511,11 +1404,11 @@ void app_ag_end(void)
     /* Close UIPC channel */
     for (index = 0; index < APP_AG_MAX_NUM_CONN; index++)
     {
-        if (app_ag_cb.inst[index].uipc_channel != UIPC_CH_ID_BAD)
+        if (app_ag_cb.uipc_channel[index] != UIPC_CH_ID_BAD)
         {
             APP_DEBUG0("Closing UIPC Channel");
-            UIPC_Close(app_ag_cb.inst[index].uipc_channel);
-            app_ag_cb.inst[index].uipc_channel= UIPC_CH_ID_BAD;
+            UIPC_Close(app_ag_cb.uipc_channel[index]);
+            app_ag_cb.uipc_channel[index]= UIPC_CH_ID_BAD;
         }
 
     }

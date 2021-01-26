@@ -15,17 +15,12 @@ add_subdirectory(common)
 # add mpp_hal implement
 # ----------------------------------------------------------------------------
 add_library(mpp_hal STATIC
+    mpp_enc_hal.cpp
     hal_task.cpp
     mpp_hal.cpp
     )
 
 set_target_properties(mpp_hal PROPERTIES FOLDER "mpp/hal")
-
-# ----------------------------------------------------------------------------
-# add hardware worker implement
-# ----------------------------------------------------------------------------
-add_subdirectory(worker/mpp_device)
-add_subdirectory(worker/libv4l2)
 
 target_link_libraries(mpp_hal
                       ${HAL_AVSD}
@@ -42,5 +37,4 @@ target_link_libraries(mpp_hal
                       ${HAL_H265E}
                       ${HAL_VP8E}
                       hal_dummy
-                      mpp_device
                       )

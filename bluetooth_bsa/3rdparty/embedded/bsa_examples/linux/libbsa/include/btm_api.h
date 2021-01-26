@@ -1867,7 +1867,6 @@ typedef union
 */
 typedef void (tBTM_LE_KEY_CALLBACK) (UINT8 key_type, tBTM_BLE_LOCAL_KEYS *p_key);
 
-
 /***************************
 **  Security Manager Types
 ****************************/

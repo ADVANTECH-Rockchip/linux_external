@@ -82,7 +82,7 @@ typedef UINT8 tBTA_AG_STATUS;
 #if (BTA_HFP_VERSION >= HFP_VERSION_1_7 && BTA_HFP_HF_IND_SUPPORTED == TRUE)
 /* Number of supported HF indicators, there is one HF indicator so far, enhanced driver status. */
 #ifndef BTA_AG_NUM_LOCAL_HF_IND
-#define BTA_AG_NUM_LOCAL_HF_IND     1
+#define BTA_AG_NUM_LOCAL_HF_IND     2
 #endif
 #endif
 
@@ -376,9 +376,9 @@ typedef void (tBTA_AG_CBACK)(tBTA_AG_EVT event, tBTA_AG *p_data);
 /* type for HF indicator */
 typedef struct
 {
-    UINT32          ind_id;
+    UINT16          ind_id;
     BOOLEAN         is_enable;
-    UINT32          ind_val;
+    UINT32          max_ind_val;
 } tBTA_AG_HF_IND;
 #endif
 

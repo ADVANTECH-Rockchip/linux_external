@@ -18,6 +18,7 @@
 
 #include "mpp_log.h"
 #include "mpp_platform.h"
+#include "vcodec_service.h"
 
 int main()
 {
@@ -28,14 +29,14 @@ int main()
     mpp_log("\n");
     mpp_log("chip vcodec type %08x\n", vcodec_type);
 
-    if (vcodec_type & HAVE_VPU1)
+    if (vcodec_type & (HAVE_VDPU1 | HAVE_VEPU1))
         mpp_log("found vpu1 codec\n");
 
-    if (vcodec_type & HAVE_VPU2)
+    if (vcodec_type & (HAVE_VDPU2 | HAVE_VEPU2))
         mpp_log("found vpu2 codec\n");
 
     if (vcodec_type & HAVE_HEVC_DEC)
-        mpp_log("found RK hevc decoder\n");
+        mpp_log("found rk hevc decoder\n");
 
     if (vcodec_type & HAVE_RKVDEC)
         mpp_log("found rkvdec decoder\n");
@@ -43,13 +44,16 @@ int main()
     if (vcodec_type & HAVE_AVSDEC)
         mpp_log("found avs+ decoder\n");
 
+    if (vcodec_type & HAVE_JPEG_DEC)
+        mpp_log("found rk jpeg decoder\n");
+
     if (vcodec_type & HAVE_RKVENC)
         mpp_log("found rkvenc encoder\n");
 
-    if (vcodec_type & HAVE_VEPU)
+    if (vcodec_type & HAVE_VEPU2)
         mpp_log("found vpu2 encoder\n");
 
-    if (vcodec_type & HAVE_H265ENC)
+    if (vcodec_type & HAVE_VEPU22)
         mpp_log("found h265 stand-alone encoder\n");
 
     mpp_log("\n");

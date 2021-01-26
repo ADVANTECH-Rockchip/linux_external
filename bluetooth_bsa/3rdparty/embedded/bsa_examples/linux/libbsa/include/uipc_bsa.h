@@ -92,8 +92,15 @@ enum
 #define UIPC_LAST_NSA_CH_ID UIPC_NSA_CH_ID_CTL
 
 /*define here Ch IDs used by PBC & MCE*/
-#define UIPC_CH_ID_PBC ( UIPC_LAST_NSA_CH_ID + 1)       /* PBC */
-#define UIPC_CH_ID_PBS ( UIPC_CH_ID_PBC + 1)            /* PBS */
+#ifndef UIPC_CH_ID_PBC_NB
+#define UIPC_CH_ID_PBC_NB   2
+#endif
+
+/* PBC */
+#define UIPC_CH_ID_PBC_FIRST    (UIPC_LAST_NSA_CH_ID + 1)
+#define UIPC_CH_ID_PBC_LAST     (UIPC_CH_ID_PBC_FIRST + UIPC_CH_ID_PBC_NB - 1)
+/* PBS */
+#define UIPC_CH_ID_PBS          (UIPC_CH_ID_PBC_LAST + 1)
 
 #ifndef UIPC_CH_ID_MCE_NB
 #define UIPC_CH_ID_MCE_NB   2

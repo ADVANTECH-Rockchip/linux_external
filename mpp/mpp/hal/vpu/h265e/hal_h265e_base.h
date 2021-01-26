@@ -24,25 +24,11 @@
 #include "mpp_hal.h"
 #include "rga_api.h"
 
-extern RK_U32 hal_h265e_debug ;
-
-#define HAL_H265E_DBG_FUNCTION          (0x00010000)
-#define HAL_H265E_DBG_INPUT             (0x00020000)
-#define HAL_H265E_DBG_OUTPUT            (0x00040000)
-#define HAL_H265E_DBG_WRITE_IN_STREAM   (0x00080000)
-#define HAL_H265E_DBG_WRITE_OUT_STREAM  (0x00100000)
-
-#define hal_h265e_dbg(flag, fmt, ...)   _mpp_dbg(hal_h265e_debug, flag, fmt, ## __VA_ARGS__)
-#define hal_h265e_dbg_f(flag, fmt, ...) _mpp_dbg_f(hal_h265e_debug, flag, fmt, ## __VA_ARGS__)
-
-#define hal_h265e_dbg_func(fmt, ...)    hal_h265e_dbg_f(HAL_H265E_DBG_FUNCTION, fmt, ## __VA_ARGS__)
-#define hal_h265e_dbg_input(fmt, ...)   hal_h265e_dbg(HAL_H265E_DBG_INPUT, fmt, ## __VA_ARGS__)
-#define hal_h265e_dbg_output(fmt, ...)  hal_h265e_dbg(HAL_H265E_DBG_OUTPUT, fmt, ## __VA_ARGS__)
-
+#include "hal_h265e_vepu22_def.h"
 
 typedef struct hal_h265e_ctx {
     MppHalApi       hal_api;
-    MppDevCtx       dev_ctx;
+    MppDev          dev;
     MppBufferGroup  buf_grp;
 
     /*
@@ -78,7 +64,8 @@ typedef struct hal_h265e_ctx {
     RK_U32          option;
     RK_U32          user_cfg;
     void            *hw_cfg;
-    IOInterruptCB   int_cb;
+    Vepu22H265eRet  result;
+    MppCbCtx        *enc_cb;
 
 
     MppEncCfgSet    *cfg;
@@ -97,6 +84,5 @@ typedef struct hal_h265e_ctx {
      */
     FILE*           mOutFile;
 } HalH265eCtx;
-
 
 #endif

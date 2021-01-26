@@ -4,8 +4,8 @@
 **
 ** Description:  Broadcom specific BTE API function external definitions.
 **
-** Copyright (c) 2009-2014, BROADCOM Inc., All Rights Reserved.
-** Broadcom Bluetooth Core. Proprietary and confidential.
+**  COPYRIGHT (C) 2018, CYPRESS SEMICONDUCTOR, ALL RIGHTS RESERVED.
+**  PROPRIETARY AND CONFIDENTIAL.
 **
 ******************************************************************************/
 #ifndef BRCM_API_H
@@ -307,12 +307,20 @@ typedef union
 }tBTM_BLE_APCF_COND_PARAM;
 
 /* adv tx power level */
+#if (defined BSA_ADV_TX_PWR_DBM && BSA_ADV_TX_PWR_DBM == TRUE)
+/* following AOSP HCI requirement */
+#define MULTI_ADV_TXPOWER_DBM_SUPPORT_MIN   -70
+#define MULTI_ADV_TXPOWER_DBM_SUPPORT_MAX   20
+typedef INT8 tBTM_BLE_ADV_TX_POWER;
+#else
 #define BTM_BLE_ADV_TX_POWER_MIN        0           /* minimum tx power */
 #define BTM_BLE_ADV_TX_POWER_LOW        1           /* low tx power     */
 #define BTM_BLE_ADV_TX_POWER_MID        2           /* middle tx power  */
 #define BTM_BLE_ADV_TX_POWER_UPPER      3           /* upper tx power   */
 #define BTM_BLE_ADV_TX_POWER_MAX        4           /* maximum tx power */
 typedef UINT8 tBTM_BLE_ADV_TX_POWER;
+#endif
+
 
 /* advertising parameter */
 typedef struct

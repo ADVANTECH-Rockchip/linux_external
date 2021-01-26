@@ -22,7 +22,6 @@
 #define MPP_PACKET_FLAG_EOS             (0x00000001)
 #define MPP_PACKET_FLAG_EXTRA_DATA      (0x00000002)
 #define MPP_PACKET_FLAG_INTERNAL        (0x00000004)
-#define MPP_PACKET_FLAG_INTRA           (0x00000008)
 
 /*
  * mpp_packet_imp structure
@@ -58,6 +57,8 @@ extern "C" {
  * mpp_packet_reset is only used internelly and should NOT be used outside
  */
 MPP_RET mpp_packet_reset(MppPacketImpl *packet);
+MPP_RET mpp_packet_copy(MppPacket dst, MppPacket src);
+MPP_RET mpp_packet_append(MppPacket dst, MppPacket src);
 
 /* pointer check function */
 MPP_RET check_is_mpp_packet(void *ptr);

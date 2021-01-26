@@ -6,6 +6,68 @@ extern "C" {
 #endif
 
 /*
+ *Version 1.3.6 Release 2020/12/02
+  1.add rk_bt_get_dev_platform api
+  2.bluez: don't judge COD when ble connect
+  3.bsa: add pbap client api
+  4.bsa: rk_ble_client_open add mtu_change parameter
+  5.bsa: fix write failed when the chrc uuid only has WRITE_WITHOUT_RESP prop
+  6.bsa: fix set device name failed
+  7.bsa: hfp: call number report
+  8.bsa: hfp: outgoing call event report
+  9.bsa: hfp: outgoing call ring event report
+  10.bsa: hfp: current active call list info report
+  11.broadcom bsa: get ble device name from FullName/ShortName
+  12.broadcom bsa: add PAN profile api
+ *Version 1.3.5 Release 2020/07/02
+  1.bluez: modify avrcp event report to use the standard bluetoothd process
+  2.bluez: fix the class of device judgment
+  3.bluez: scan off when source close
+  4.bluez: fix source reconnect, only reconnect sink device
+  5.bluez: fix ble continuous broadcast after rk_ble_stop
+  6.bluez: fix phone->setting->connect ble server causes bt abnormal
+  7.bluez: fix loop call rk_ble_disconnect coredump
+  8.bluez: modify ble server/client connect and disconnect handle
+  9.bluez: remove rk_ble_client_register_dev_found_callback
+  10.bluez: ble client state callback add remote device address and name
+  11.bluez: remove unpaired or unconnected historical scan device when scan on
+  12.bluez: add obex state callback
+  13.bluez: add rk_ble_set_address api
+  14.bluez: ble chr uuid add write-without-response props
+  15.bluez: fixed ble connection bug caused by two iPhones loop connections to ble
+  16.bsa: add rk_bt_source_disconnect api
+  17.bsa: support for setting up scan filtering(LE BR/EDR or both)
+  18.bsa: source: add the first scan auto reconnect
+  19.bsa: fix eq and source communication exception after source disconnect
+  20.bsa: support ble client
+  21.bsa: add rk_bt_read_remote_device_name api
+  22.bsa: add rk_ble_register_request_data_callback api
+  23.bsa: add rk_bt_get_scaned_devices and rk_bt_free_scaned_devices api
+  24. add rk_ble_set_adv_interval api
+  25. support ble MTU report
+  26. hfp event callback add remote device address parameter
+  27. add rk_bt_hfp_dial_number api
+  28. rk_ble_client_write add data_len parameter
+ *Version 1.3.4 Release 2020/03/17
+  1.bsa: add rk_bt_set_bsa_server_path api
+  2.bluez: add rk_bt_get_connected_properties api
+  3.bluez: change bt source and and eq communication
+  4.bluez: ble event callback takes the remotr device name and address
+  5.bluez: fixed gatt init memory overbounds
+  6.bluez: add remote device name change callback
+  7.bluez: change ble connect event report
+ *Version 1.3.3 Release 2020/02/27
+  1.bluez: support for setting up scan filtering(LE BR/EDR or both)
+  2.bluez: optimize the init/deinit execution time
+  3.bluez: add rk_bt_get_scaned_devices/rk_bt_free_scaned_devices api
+  4.bluez: source: add the first scan automatically reconnects
+  5.bluez: source: fix connection failed during scan
+  6.bluez: fix init crash in qt new thread(due to mainloop thread sync)
+  7.rk_bt_source_connect rename rk_bt_source_connect_by_addr
+  8.rk_bt_source_disconnect rename rk_bt_source_disconnect_by_addr
+  9.bluez: change rk_bt_source_disconnect api to disconnect current connection
+ *Version 1.3.2 Release 2019/12/12
+  bluez: support ble client
  *Version 1.3.1 Release 2019/11/16
   bt source callback add device address and device name
  *Version 1.3.0 Release 2019/10/30
@@ -92,7 +154,7 @@ extern "C" {
  *Version 1.0.0 Release 2018/12/22
  */
 
-#define DEVICEIO_VERSION "V1.3.1"
+#define DEVICEIO_VERSION "V1.3.6"
 
 int RK_read_chip_id(char *buffer, const int size);
 int RK_read_version(char *buffer, const int size);

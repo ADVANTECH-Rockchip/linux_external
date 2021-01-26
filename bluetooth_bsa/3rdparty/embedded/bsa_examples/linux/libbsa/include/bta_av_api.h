@@ -112,6 +112,8 @@ typedef UINT8 tBTA_AV_HNDL;
 
 typedef UINT8 tBTA_AV_CODEC;
 
+typedef UINT8 tBTA_AV_PROTECT_INFO[AVDT_PROTECT_SIZE];
+
 /* Company ID in BT assigned numbers */
 #define BTA_AV_BT_VENDOR_ID     VDP_BT_VENDOR_ID        /* Broadcom Corporation */
 
@@ -246,6 +248,7 @@ typedef UINT8 tBTA_CAS_FNAME_STR[BIP_FNAME_SIZE+1];         /* friendly name */
 #define BTA_AV_UPDATE_SEPS_EVT  20      /* Update all SEPs to available or unavailable */
 #define BTA_AV_RC_CMD_TOUT_EVT  21      /* Timeout waiting for response for AVRC command */
 #define BTA_AV_DELAY_RPT_EVT    22      /* Delay report received */  /* BSA_SPECIFIC */
+#define BTA_AV_META_RSP_EVT     23      /* metadata response */
 
 typedef UINT8 tBTA_AV_EVT;
 

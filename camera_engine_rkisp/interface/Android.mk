@@ -62,7 +62,7 @@ LOCAL_C_INCLUDES += \
     system/media/private/camera/include \
     frameworks/av/include
 LOCAL_CFLAGS += -DANDROID_PLATEFORM
-ifeq (1,$(strip $(shell expr $(PLATFORM_VERSION) \>= 8.0)))
+ifeq (1,$(strip $(shell expr $(PLATFORM_SDK_VERSION) \>= 26)))
 LOCAL_PROPRIETARY_MODULE := true
 LOCAL_C_INCLUDES += \
 system/core/libutils/include \
@@ -79,7 +79,9 @@ else
 LOCAL_C_INCLUDES += \
 	$(LOCAL_PATH)/../metadata/libcamera_client/include \
 	$(LOCAL_PATH)/../metadata/libcamera_metadata/include \
-	$(LOCAL_PATH)/../metadata/header_files/include/system/core/include
+	$(LOCAL_PATH)/../metadata/header_files/include/system/core/include \
+	$(LOCAL_PATH)/../ext/tinyxml2
+
 LOCAL_STATIC_LIBRARIES += \
 	librkisp_metadata
 endif

@@ -616,7 +616,7 @@ void BLE::on_btnStartDisc()
         delete sDiscServices[i];
     }
     sDiscServices.clear();
-    app_disc_start_ble_regular(BleDiscCb);    
+    app_disc_start_ble_regular(BleDiscCb, 0);
     mBsa->ui->btnStartDiscBle->setText("Stop Discovery");
     gThis->setCursor(Qt::WaitCursor);
 }

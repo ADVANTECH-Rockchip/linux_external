@@ -232,42 +232,79 @@ gst_mpp_dec_buffer_pool_acquire_buffer (GstBufferPool * bpool,
 {
   GstMppDecBufferPool *pool = GST_MPP_DEC_BUFFER_POOL (bpool);
   GstMppVideoDec *dec = pool->dec;
+  GstVideoInterlaceMode interlace_mode;
   GstBuffer *outbuf;
   MppFrame mframe = NULL;
   MppBuffer mpp_buf;
   gint buf_index, ret, mode;
 
   ret = dec->mpi->decode_get_frame (dec->mpp_ctx, &mframe);
+  if (ret == MPP_ERR_TIMEOUT)
+    goto mpp_timeout;
+
   if (ret || NULL == mframe)
     goto mpp_error;
 
+  if (mpp_frame_get_eos (mframe))
+    goto mpp_eos;
+
   if (mpp_frame_get_discard (mframe) || mpp_frame_get_errinfo (mframe))
     goto drop_frame;
+
   /* get from the pool the GstBuffer associated with the index */
   mpp_buf = mpp_frame_get_buffer (mframe);
   if (NULL == mpp_buf)
-    goto mpp_eos;
+    goto drop_frame;
+
   buf_index = mpp_buffer_get_index (mpp_buf);
   outbuf = pool->buffers[buf_index];
-  if (outbuf == NULL)
-    goto no_buffer;
+  if (outbuf == NULL) {
+    GST_ERROR_OBJECT (pool, "No free buffer found in the pool at index %d",
+        buf_index);
+    goto drop_frame;
+  }
+
+  GST_BUFFER_DTS (outbuf) = mpp_frame_get_dts (mframe);
+  GST_BUFFER_PTS (outbuf) = mpp_frame_get_pts (mframe);
 
   mode = mpp_frame_get_mode (mframe);
+  interlace_mode = GST_VIDEO_INTERLACE_MODE_PROGRESSIVE;
   switch (mode & MPP_FRAME_FLAG_FIELD_ORDER_MASK) {
     case MPP_FRAME_FLAG_BOT_FIRST:
       GST_BUFFER_FLAG_SET (outbuf, GST_VIDEO_BUFFER_FLAG_INTERLACED);
       GST_BUFFER_FLAG_UNSET (outbuf, GST_VIDEO_BUFFER_FLAG_TFF);
+      interlace_mode = GST_VIDEO_INTERLACE_MODE_INTERLEAVED;
       break;
     case MPP_FRAME_FLAG_TOP_FIRST:
       GST_BUFFER_FLAG_SET (outbuf, GST_VIDEO_BUFFER_FLAG_INTERLACED);
       GST_BUFFER_FLAG_SET (outbuf, GST_VIDEO_BUFFER_FLAG_TFF);
+      interlace_mode = GST_VIDEO_INTERLACE_MODE_INTERLEAVED;
       break;
     case MPP_FRAME_FLAG_DEINTERLACED:
+      interlace_mode = GST_VIDEO_INTERLACE_MODE_MIXED;
     default:
       GST_BUFFER_FLAG_UNSET (outbuf, GST_VIDEO_BUFFER_FLAG_INTERLACED);
       GST_BUFFER_FLAG_UNSET (outbuf, GST_VIDEO_BUFFER_FLAG_TFF);
       break;
   }
+
+#ifdef MPP_FRAME_FLAG_IEP_DEI_MASK
+  /* IEP deinterlaced */
+  if (mode & MPP_FRAME_FLAG_IEP_DEI_MASK)
+    interlace_mode = GST_VIDEO_INTERLACE_MODE_PROGRESSIVE;
+#endif
+
+  if (dec->info.interlace_mode != interlace_mode) {
+    GstVideoCodecState *output_state =
+        gst_video_decoder_get_output_state ((GstVideoDecoder *) dec);
+
+    if (output_state) {
+      output_state->info.interlace_mode = dec->info.interlace_mode =
+          interlace_mode;
+      gst_video_codec_state_unref (output_state);
+    }
+  }
+
   /*
    * Increase the reference of the buffer or the destroy the mpp frame
    * would decrease the reference and put it back to unused status
@@ -291,25 +328,34 @@ mpp_eos:
   {
     *buffer = NULL;
     GST_INFO_OBJECT (pool, "got eos or %d", ret);
+
+    mpp_frame_deinit (&mframe);
     return GST_FLOW_EOS;
   }
 mpp_error:
   {
     *buffer = NULL;
     GST_ERROR_OBJECT (pool, "mpp error %d", ret);
-    return GST_FLOW_ERROR;
-  }
-no_buffer:
-  {
-    *buffer = NULL;
-    GST_ERROR_OBJECT (pool, "No free buffer found in the pool at index %d",
-        buf_index);
+
+    if (mframe)
+      goto drop_frame;
+
     return GST_FLOW_ERROR;
   }
 drop_frame:
   {
+    *buffer = gst_buffer_new ();
+    GST_BUFFER_DTS (*buffer) = mpp_frame_get_dts (mframe);
+    GST_BUFFER_PTS (*buffer) = mpp_frame_get_pts (mframe);
+
     mpp_frame_deinit (&mframe);
-    return GST_FLOW_CUSTOM_ERROR_1;
+    return GST_FLOW_CUSTOM_DROP;
+  }
+mpp_timeout:
+  {
+    *buffer = NULL;
+    GST_INFO_OBJECT (pool, "mpp timeout %d", ret);
+    return GST_FLOW_CUSTOM_TIMEOUT;
   }
 }
 
@@ -377,9 +423,6 @@ static void
 gst_mpp_dec_buffer_pool_finalize (GObject * object)
 {
   GstMppDecBufferPool *pool = GST_MPP_DEC_BUFFER_POOL (object);
-
-  if (GST_MPP_DEC_BUFFER_POOL (pool->dec->pool) == pool)
-    pool->dec->mpi->control (pool->dec->mpp_ctx, MPP_DEC_SET_EXT_BUF_GROUP, NULL);
 
   gst_object_unref (pool->dec);
 

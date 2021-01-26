@@ -50,6 +50,7 @@ enum
     APP_AG_KEY_IN_CALL,
     APP_AG_KEY_PICKUP_CALL,
     APP_AG_KEY_HANGUP_CALL,
+    APP_AG_KEY_IND_CHANGE_STATE,
     APP_AG_KEY_QUIT = 99
 };
 
@@ -84,6 +85,7 @@ void app_ag_display_main_menu(void)
     printf("    %d  => Indicate incoming call\n", APP_AG_KEY_IN_CALL);
     printf("    %d  => PickUp call\n", APP_AG_KEY_PICKUP_CALL);
     printf("    %d  => HangUp call\n", APP_AG_KEY_HANGUP_CALL);
+    printf("    %d  => HF Indicator Change State\n", APP_AG_KEY_IND_CHANGE_STATE);
     printf("    %d  => Quit\n", APP_AG_KEY_QUIT);
 }
 
@@ -126,16 +128,16 @@ static BOOLEAN app_ag_mgt_callback(tBSA_MGT_EVT event, tBSA_MGT_MSG *p_data)
 
             for(index=0; index<APP_AG_MAX_NUM_CONN; index++)
             {
-                if((app_ag_cb.inst[index].sco_route == BSA_SCO_ROUTE_HCI) &&
-                   (app_ag_cb.inst[index].uipc_channel != UIPC_CH_ID_BAD))
+                if((app_ag_cb.sco_route == BSA_SCO_ROUTE_HCI) &&
+                   (app_ag_cb.uipc_channel[index] != UIPC_CH_ID_BAD))
                 {
-                    app_ag_cb.inst[index].uipc_channel = UIPC_CH_ID_BAD;
+                    app_ag_cb.uipc_channel[index] = UIPC_CH_ID_BAD;
                 }
 
-                app_ag_cb.inst[index].hndl = BSA_AG_BAD_HANDLE;
+                app_ag_cb.hndl[index] = BSA_AG_BAD_HANDLE;
             }
-            app_ag_cb.inst[index].voice_opened = FALSE;
-            app_ag_cb.inst[index].opened = FALSE;
+            app_ag_cb.voice_opened = FALSE;
+            app_ag_cb.opened = FALSE;
         }
         else
         {
@@ -171,6 +173,8 @@ int main(int argc, char **argv)
 {
     tBSA_STATUS status;
     int choice;
+    UINT16 ind_id;
+    BOOLEAN enable;
 
     /* Open connection to BSA Server */
     app_mgt_init();
@@ -249,77 +253,67 @@ int main(int argc, char **argv)
             printf("SCO route configuration value meaning:\n");
             printf("\t%d  => BSA_SCO_ROUTE_PCM\n", BSA_SCO_ROUTE_PCM);
             printf("\t%d  => BSA_SCO_ROUTE_HCI\n", BSA_SCO_ROUTE_HCI);
-#if APP_AG_MAX_NUM_CONN > 1
-            choice = app_get_choice("Select available AG handle index");
-            if (choice < 0 || choice >= APP_AG_MAX_NUM_CONN)
-            {
-                APP_ERROR1("Wrong selection: %d", choice);
-                break;
-            }
-#else
-            choice = 0;
-#endif
-            printf("Configured SCO route in AG: %d\n", app_ag_cb.inst[choice].sco_route);
+            printf("Configured SCO route in AG: %d\n", app_ag_cb.sco_route);
             break;
 
         case APP_AG_KEY_IN_CALL:
-#if APP_AG_MAX_NUM_CONN > 1
-            app_ag_display_available_handle();
-            choice = app_get_choice("Select available AG handle index");
-            if (choice < 0 || choice >= APP_AG_MAX_NUM_CONN)
+            if (app_ag_cb.opened)
             {
-                APP_ERROR1("Wrong selection: %d", choice);
-                break;
+                printf("Ringing... (can pickup locally or wait for HF to answer)\n");
+                tBSA_AG_RES bsa_ag_res;
+
+                bsa_ag_res.hndl = BTA_AG_HANDLE_ALL;
+                bsa_ag_res.result = BTA_AG_IN_CALL_RES;
+                /* CLIP string */
+                strncpy(bsa_ag_res.data.str, "\"BSA_CallYou\"",sizeof(bsa_ag_res.data.str));
+                /* CLIP type: type of address octet in integer format:
+                 * 145 when dialing string includes international access code character ?+?
+                 * otherwise 129
+                 * 129 -> "0612345678"
+                 * 145 -> "+33612345678"
+                 */
+                bsa_ag_res.data.num = 145;
+                BSA_AgResult(&bsa_ag_res);
             }
-#else
-            choice = 0;
-#endif
-            if (!app_ag_cb.inst[choice].opened)
+            else
             {
-                APP_ERROR1("Handle %d has no AG connection active", app_ag_cb.inst[choice].hndl);
-                break;
+                APP_ERROR0("No AG connection active");
             }
-            app_ag_in_call(app_ag_cb.inst[choice].hndl);
             break;
 
         case APP_AG_KEY_PICKUP_CALL:
-#if APP_AG_MAX_NUM_CONN > 1
-            app_ag_display_available_handle();
-            choice = app_get_choice("Select available AG handle index");
-            if (choice < 0 || choice >= APP_AG_MAX_NUM_CONN)
+            if (app_ag_cb.opened)
             {
-                APP_ERROR1("Wrong selection: %d", choice);
-                break;
+                app_ag_pickupcall(app_ag_cb.hndl[0]);
             }
-#else
-            choice = 0;
-#endif
-            if (!app_ag_cb.inst[choice].opened)
+            else
             {
-                APP_ERROR1("Handle %d has no AG connection active", app_ag_cb.inst[choice].hndl);
-                break;
+                APP_ERROR0("No AG connection active");
             }
-            app_ag_pickupcall(app_ag_cb.inst[choice].hndl);
             break;
 
         case APP_AG_KEY_HANGUP_CALL:
-#if APP_AG_MAX_NUM_CONN > 1
-            app_ag_display_available_handle();
-            choice = app_get_choice("Select available AG handle index");
-            if (choice < 0 || choice >= APP_AG_MAX_NUM_CONN)
+            if (app_ag_cb.opened)
             {
-                APP_ERROR1("Wrong selection: %d", choice);
-                break;
+                app_ag_hangupcall(app_ag_cb.hndl[0]);
             }
-#else
-            choice = 0;
-#endif
-            if (!app_ag_cb.inst[choice].opened)
+            else
             {
-                APP_ERROR1("Handle %d has no AG connection active", app_ag_cb.inst[choice].hndl);
-                break;
+                APP_ERROR0("No AG connection active");
             }
-            app_ag_hangupcall(app_ag_cb.inst[choice].hndl);
+            break;
+
+        case APP_AG_KEY_IND_CHANGE_STATE:
+            ind_id = app_get_choice("Please input Indicator ID:");
+            enable = app_get_choice("Enable : 1, Disable : 0");
+            if (app_ag_cb.opened)
+            {
+                app_ag_ind_change_state(app_ag_cb.hndl[0], ind_id, enable);
+            }
+            else
+            {
+                APP_ERROR0("No AG connection active");
+            }
             break;
 
         case APP_AG_KEY_QUIT:

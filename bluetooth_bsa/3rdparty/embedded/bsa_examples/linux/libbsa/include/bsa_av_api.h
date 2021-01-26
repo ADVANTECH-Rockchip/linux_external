@@ -197,6 +197,7 @@ typedef UINT8 tBSA_AV_CMD;
                                          * after BTA_AV_SIG_TIME_VAL ms */
 #define BSA_AV_FEAT_EVT         19      /* Peer feature event */
 #define BSA_AV_DELAY_RPT_EVT    20      /* Delay report event */
+#define BSA_AV_META_RSP_EVT     21
 typedef UINT8 tBSA_AV_EVT;
 
 #define BSA_AV_FEEDING_ASYNCHRONOUS 0   /* asynchronous feeding, use tx av timer */
@@ -547,38 +548,6 @@ typedef struct
     tBTA_AV_RC_INFO    ct;                 /* Peer CT role info */
 } tBSA_AV_RC_FEAT_MSG;
 
-/* union of data associated with AV callback */
-typedef union
-{
-    tBSA_AV_OPEN_MSG open;
-    tBSA_AV_CLOSE_MSG close;
-    tBSA_AV_DELAY_MSG delay;
-    tBSA_AV_START_MSG start;
-    tBSA_AV_STOP_MSG stop;
-    tBSA_AV_RC_OPEN_MSG rc_open;
-    tBSA_AV_RC_CLOSE_MSG rc_close;
-    tBSA_AV_REMOTE_CMD_MSG remote_cmd;
-    tBSA_AV_REMOTE_RSP_MSG remote_rsp;
-    tBSA_AV_VENDOR_CMD_MSG vendor_cmd;
-    tBSA_AV_VENDOR_RSP_MSG vendor_rsp;
-    tBSA_AV_PEND_MSG       pend;
-    tBSA_AV_META_MSG_MSG meta_msg;
-    tBSA_AV_RC_FEAT_MSG rc_feat;
-} tBSA_AV_MSG;
-
-/* AV callback */
-typedef void (tBSA_AV_CBACK)(tBSA_AV_EVT event, tBSA_AV_MSG *p_data);
-
-/* data associated with BSA_AvEnable */
-typedef struct
-{
-    tBSA_SEC_AUTH sec_mask;         /* Security type */
-    tBSA_AV_FEAT features;          /* Supported AV features */
-    tBSA_AV_CODEC_INFO aptx_caps;   /* apt-X capabilities (if id=apt-X apt-X support enabled) */
-    tBSA_AV_CODEC_INFO sec_caps;    /* SEC capabilities (if id=SEC SEC support enabled) */
-    tBSA_AV_CBACK *p_cback;         /* Callback */
-} tBSA_AV_ENABLE;
-
 /* data associated with BSA_AvDisable */
 typedef struct
 {
@@ -792,6 +761,57 @@ typedef struct
 {
     UINT8 level;
 } tBSA_AV_BUSY_LEVEL;
+
+/* union of data associated with AV callback */
+typedef union
+{
+    tBSA_AV_OPEN_MSG open;
+    tBSA_AV_CLOSE_MSG close;
+    tBSA_AV_DELAY_MSG delay;
+    tBSA_AV_START_MSG start;
+    tBSA_AV_STOP_MSG stop;
+    tBSA_AV_RC_OPEN_MSG rc_open;
+    tBSA_AV_RC_CLOSE_MSG rc_close;
+    tBSA_AV_REMOTE_CMD_MSG remote_cmd;
+    tBSA_AV_REMOTE_RSP_MSG remote_rsp;
+    tBSA_AV_VENDOR_CMD_MSG vendor_cmd;
+    tBSA_AV_VENDOR_RSP_MSG vendor_rsp;
+    tBSA_AV_PEND_MSG       pend;
+    tBSA_AV_META_MSG_MSG meta_msg;
+    tBSA_AV_META_RSP_CMD meta_rsp;
+    tBSA_AV_RC_FEAT_MSG rc_feat;
+} tBSA_AV_MSG;
+
+/* AV callback */
+typedef void (tBSA_AV_CBACK)(tBSA_AV_EVT event, tBSA_AV_MSG *p_data);
+
+/* data associated with BSA_AvEnable */
+typedef struct
+{
+    tBSA_SEC_AUTH sec_mask;         /* Security type */
+    tBSA_AV_FEAT features;          /* Supported AV features */
+    tBSA_AV_CODEC_INFO aptx_caps;   /* apt-X capabilities (if id=apt-X apt-X support enabled) */
+    tBSA_AV_CODEC_INFO sec_caps;    /* SEC capabilities (if id=SEC SEC support enabled) */
+    tBSA_AV_CBACK *p_cback;         /* Callback */
+} tBSA_AV_ENABLE;
+
+/* PTS Protocol */
+enum {
+    BSA_PTS_AVDTP,
+};
+
+/* PTS AVDTP Command */
+enum {
+    BSA_PTS_AVDTP_GET_CONFIG,
+    BSA_PTS_AVDTP_ABORT,
+};
+/* data associated with BSA_AvTestCmd */
+ typedef struct
+{
+    UINT16 protocol;
+    UINT16 cmd;
+    UINT16 param;
+} tBSA_AV_TEST_CMD;
 
 #if (defined(AVRC_COVER_ART_INCLUDED) && AVRC_COVER_ART_INCLUDED == TRUE)
 typedef tBTA_AV_CAS_RSP tBSA_AV_CAS_RSP;
@@ -1160,6 +1180,28 @@ tBSA_STATUS BSA_AvBusyLevelInit(tBSA_AV_BUSY_LEVEL *blevel);
  **
  *******************************************************************************/
 tBSA_STATUS BSA_AvBusyLevel(tBSA_AV_BUSY_LEVEL *p_req);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_AvTestCmdInit
+ **
+ ** Description      Init structure tBSA_AV_TEST_CMD
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_AvTestCmdInit(tBSA_AV_TEST_CMD *p_req);
+
+/*******************************************************************************
+ **
+ ** Function         BSA_AvTestCmd
+ **
+ ** Description      Test command for PTS test
+ **
+ ** Returns          tBSA_STATUS
+ **
+ *******************************************************************************/
+tBSA_STATUS BSA_AvTestCmd(tBSA_AV_TEST_CMD *p_req);
 
 #if (defined(AVRC_COVER_ART_INCLUDED) && AVRC_COVER_ART_INCLUDED == TRUE)
 /*******************************************************************************

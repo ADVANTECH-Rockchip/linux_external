@@ -292,6 +292,7 @@
 #endif
 
 #define UUID_HF_IND_EDS                         0x0001      /* HF indicator for enhanced driver safety */
+#define UUID_HF_IND_BL                            0x0002      /* HF indicator for battery level */
 
 /* Define all the 'Descriptor Type' values.
 */

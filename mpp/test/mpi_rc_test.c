@@ -594,7 +594,7 @@ static MPP_RET mpi_rc_codec(MpiRcTestCtx *ctx)
     rc_cfg->fps_in_flex = 0;
     rc_cfg->fps_out_flex = 0;
     rc_cfg->gop = fps;
-    rc_cfg->skip_cnt = 0;
+    rc_cfg->max_reenc_times = 1;
 
     ret = enc_mpi->control(enc_ctx, MPP_ENC_SET_RC_CFG, rc_cfg);
     if (ret) {
@@ -640,24 +640,22 @@ static MPP_RET mpi_rc_codec(MpiRcTestCtx *ctx)
     codec_cfg->h264.cabac_init_idc  = 0;
 
     codec_cfg->h264.qp_init = 0;
-    if (rc_cfg->rc_mode == MPP_ENC_RC_MODE_CBR) {
+    if (rc_cfg->rc_mode == MPP_ENC_RC_MODE_FIXQP) {
+        /* constant QP mode qp is fixed */
+        codec_cfg->h264.qp_init  = 26;
+        codec_cfg->h264.qp_max   = 26;
+        codec_cfg->h264.qp_min   = 26;
+        codec_cfg->h264.qp_max_step  = 0;
+    } else if (rc_cfg->rc_mode == MPP_ENC_RC_MODE_CBR) {
         /* constant bitrate do not limit qp range */
         codec_cfg->h264.qp_max   = 48;
         codec_cfg->h264.qp_min   = 4;
         codec_cfg->h264.qp_max_step  = 16;
     } else if (rc_cfg->rc_mode == MPP_ENC_RC_MODE_VBR) {
-        if (rc_cfg->quality == MPP_ENC_RC_QUALITY_CQP) {
-            /* constant QP mode qp is fixed */
-            codec_cfg->h264.qp_init  = 26;
-            codec_cfg->h264.qp_max   = 26;
-            codec_cfg->h264.qp_min   = 26;
-            codec_cfg->h264.qp_max_step  = 0;
-        } else {
-            /* variable bitrate has qp min limit */
-            codec_cfg->h264.qp_max   = 40;
-            codec_cfg->h264.qp_min   = 12;
-            codec_cfg->h264.qp_max_step  = 8;
-        }
+        /* variable bitrate has qp min limit */
+        codec_cfg->h264.qp_max   = 40;
+        codec_cfg->h264.qp_min   = 12;
+        codec_cfg->h264.qp_max_step  = 8;
     }
     ret = enc_mpi->control(enc_ctx, MPP_ENC_SET_CODEC_CFG, codec_cfg);
     if (ret) {
@@ -713,18 +711,18 @@ static MPP_RET mpi_rc_codec(MpiRcTestCtx *ctx)
             i = 0;
 
         if (fp_input) {
-            ret = read_yuv_image(buf, fp_input,
-                                 prep_cfg->width, prep_cfg->height,
-                                 prep_cfg->hor_stride, prep_cfg->ver_stride,
-                                 prep_cfg->format);
+            ret = read_image(buf, fp_input,
+                             prep_cfg->width, prep_cfg->height,
+                             prep_cfg->hor_stride, prep_cfg->ver_stride,
+                             prep_cfg->format);
             if (MPP_OK != ret || feof(fp_input)) {
                 mpp_log("found last frame\n");
                 frm_eos = 1;
             }
         } else {
-            ret = fill_yuv_image(buf, prep_cfg->width, prep_cfg->height,
-                                 prep_cfg->hor_stride, prep_cfg->ver_stride,
-                                 prep_cfg->format, frame_count);
+            ret = fill_image(buf, prep_cfg->width, prep_cfg->height,
+                             prep_cfg->hor_stride, prep_cfg->ver_stride,
+                             prep_cfg->format, frame_count);
             if (ret)
                 goto MPP_TEST_OUT;
         }
@@ -733,6 +731,7 @@ static MPP_RET mpi_rc_codec(MpiRcTestCtx *ctx)
         mpp_frame_set_eos(frame_in, frm_eos);
 
         mpp_packet_init_with_buffer(&packet, pkt_buf_out);
+        mpp_packet_set_length(packet, 0);
 
         ret = enc_mpi->poll(enc_ctx, MPP_PORT_INPUT, MPP_POLL_BLOCK);
         if (ret) {
@@ -1006,8 +1005,7 @@ static RK_S32 mpi_enc_test_parse_options(int argc, char **argv, MpiRcTestCmd* cm
             switch (*opt) {
             case 'i':
                 if (next) {
-                    strncpy(cmd->file_input, next, MPI_RC_FILE_NAME_LEN);
-                    cmd->file_input[strlen(next)] = '\0';
+                    strncpy(cmd->file_input, next, MPI_RC_FILE_NAME_LEN - 1);
                     cmd->have_input = 1;
                 } else {
                     mpp_err("input file is invalid\n");
@@ -1016,8 +1014,7 @@ static RK_S32 mpi_enc_test_parse_options(int argc, char **argv, MpiRcTestCmd* cm
                 break;
             case 'o':
                 if (next) {
-                    strncpy(cmd->file_enc_out, next, MPI_RC_FILE_NAME_LEN);
-                    cmd->file_enc_out[strlen(next)] = '\0';
+                    strncpy(cmd->file_enc_out, next, MPI_RC_FILE_NAME_LEN - 1);
                     cmd->have_enc_out = 1;
                 } else {
                     mpp_log("output file is invalid\n");
@@ -1085,8 +1082,7 @@ static RK_S32 mpi_enc_test_parse_options(int argc, char **argv, MpiRcTestCmd* cm
                 break;
             case 'y':
                 if (next) {
-                    strncpy(cmd->file_dec_out, next, MPI_RC_FILE_NAME_LEN);
-                    cmd->file_dec_out[strlen(next)] = '\0';
+                    strncpy(cmd->file_dec_out, next, MPI_RC_FILE_NAME_LEN - 1);
                     cmd->have_dec_out = 1;
                 } else {
                     mpp_log("dec output file is invalid\n");
@@ -1095,8 +1091,7 @@ static RK_S32 mpi_enc_test_parse_options(int argc, char **argv, MpiRcTestCmd* cm
                 break;
             case 's':
                 if (next) {
-                    strncpy(cmd->file_stat, next, MPI_RC_FILE_NAME_LEN);
-                    cmd->file_stat[strlen(next)] = '\0';
+                    strncpy(cmd->file_stat, next, MPI_RC_FILE_NAME_LEN - 1);
                     cmd->have_stat_out = 1;
                 } else {
                     mpp_log("stat file is invalid\n");

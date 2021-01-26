@@ -15,6 +15,26 @@
 #include <string>
 
 static std::map<string, CalibDb*> g_CalibDbHandlesMap;
+static uint8_t g_aec_weights[81] = {0};
+static bool g_update_aec_weights = false;
+
+void CamIa10_get_aec_weights(unsigned char* pWeight, unsigned int* cnt)
+{
+   DCT_ASSERT(NULL != pWeight);
+   DCT_ASSERT(NULL != cnt);
+
+   memcpy(pWeight, g_aec_weights, sizeof(g_aec_weights));
+   *cnt = 81;
+}
+
+void CamIa10_set_aec_weights(const unsigned char* pWeight, unsigned int cnt)
+{
+   if (cnt != 81)
+       LOGE(" invalid aec weights counts, only accept size 81 !");
+
+   memcpy(g_aec_weights, pWeight, sizeof(g_aec_weights));
+   g_update_aec_weights = true;
+}
 
 CamIA10Engine::CamIA10Engine():
     aecContext(NULL),
@@ -156,6 +176,8 @@ RESULT CamIA10Engine::initStatic
         if (it != g_CalibDbHandlesMap.end()) {
             CalibDb* calibdb_p = it->second;
             hCamCalibDb = calibdb_p->GetCalibDbHandle();
+            struct sensor_calib_info* pCalib_info = calibdb_p->GetCalibDbInfo();
+            magicVerCode = pCalib_info->IQMagicVerCode;
             LOGD("use cached calibdb for %s !", aiqb_data_file);
         } else {
             CalibDb* calibdb_p = new CalibDb();
@@ -468,10 +490,42 @@ RESULT CamIA10Engine::updateAeConfig(struct CamIA10_DyCfg* cfg) {
         (set->ae_bias != shd->ae_bias)||
         (set->frame_time_ns_min != shd->frame_time_ns_min)||
         (set->frame_time_ns_max != shd->frame_time_ns_max)||
+        (set->iso_max != shd->iso_max)||
         (set->manual_gains !=  shd->manual_gains) ||
         mLightMode != cfg->LightMode
-        || (aecCfg.flashModeSetting != flashModeState)) {
+        || (aecCfg.flashModeSetting != flashModeState) ||
+        g_update_aec_weights) {
         //cifisp_histogram_mode mode = CIFISP_HISTOGRAM_MODE_RGB_COMBINED;
+        if (g_update_aec_weights) {
+            uint8_t* pweight = g_aec_weights;
+            for ( int i = 0; i < 81; i+=9 ) {
+                LOGD("use user aec weights:");
+                LOGD("%02d -> %02d: %02d, %02d, %02d, %02d, %02d, %02d, %02d, %02d, %02d", i, i+8,
+                     pweight[i], pweight[i+1],pweight[i+2],pweight[i+3],pweight[i+4],
+                     pweight[i+5],pweight[i+6],pweight[i+7],pweight[i+8]);
+            }
+            if (mIspVer > 0)
+                memcpy(aecCfg.GridWeights.uCoeff, pweight, sizeof(g_aec_weights));
+            else {
+                cam_ia10_isp_map_hstw_9x9_to_5x5(pweight, aecCfg.GridWeights.uCoeff);
+                pweight = (uint8_t*)aecCfg.GridWeights.uCoeff;
+                LOGD("use user aec weights:");
+                for ( int i = 0; i < 25; i+=5 )
+                    LOGD("%02d -> %02d: %02d, %02d, %02d, %02d, %02d", i, i+4,
+                         pweight[i], pweight[i+1],pweight[i+2],pweight[i+3],pweight[i+4]);
+            }
+            g_update_aec_weights = false;
+        }
+
+        if (set->iso_max != shd->iso_max) {
+            for (int i = 1; i < 5; i++) {
+                if (aecCfg.EcmGainDot.fCoeff[i] > set->iso_max)
+                    aecCfg.EcmGainDot.fCoeff[i] = set->iso_max;
+            }
+            aecCfg.EcmGainDot.fCoeff[5] = set->iso_max;
+            LOGD("use user aec max gain: %d", set->iso_max);
+        }
+
         cam_ia10_isp_hst_update_stepSize(
                                          aecCfg.HistMode,
                                          aecCfg.GridWeights.uCoeff,
@@ -1741,6 +1795,8 @@ RESULT CamIA10Engine::initAEC() {
            aecCfg.pDySetpoint[i] = pDySetpointProfile;
         }
     }
+
+    memcpy(g_aec_weights, aecCfg.GridWeights.uCoeff, sizeof(g_aec_weights));
 
     int no_ExpSeparate = 0;
     ret = CamCalibDbGetNoOfExpSeparate(hCamCalibDb, pAecGlobal, &no_ExpSeparate);

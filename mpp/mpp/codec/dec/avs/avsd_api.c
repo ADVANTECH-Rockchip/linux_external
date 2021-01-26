@@ -25,7 +25,6 @@
 #include "mpp_log.h"
 #include "mpp_env.h"
 #include "mpp_packet_impl.h"
-#include "mpp_buffer_impl.h"
 
 #include "avsd_syntax.h"
 #include "avsd_api.h"
@@ -294,7 +293,7 @@ MPP_RET avsd_callback(void *decoder, void *info)
 {
     MPP_RET ret = MPP_ERR_UNKNOW;
     AvsdCtx_t *p_dec = (AvsdCtx_t *)decoder;
-    IOCallbackCtx *ctx = (IOCallbackCtx *)info;
+    DecCbHalDone *ctx = (DecCbHalDone *)info;
 
     AVSD_PARSE_TRACE("In.");
     {

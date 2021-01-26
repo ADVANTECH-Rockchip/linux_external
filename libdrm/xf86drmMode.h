@@ -49,12 +49,12 @@ extern "C" {
  * header defining uint32_t, int32_t and uint16_t.
  *
  * It aims to provide a randr1.2 compatible interface for modesettings in the
- * kernel, the interface is also ment to be used by libraries like EGL.
+ * kernel, the interface is also meant to be used by libraries like EGL.
  *
  * More information can be found in randrproto.txt which can be found here:
  * http://gitweb.freedesktop.org/?p=xorg/proto/randrproto.git
  *
- * There are some major diffrences to be noted. Unlike the randr1.2 proto you
+ * There are some major differences to be noted. Unlike the randr1.2 proto you
  * need to create the memory object of the framebuffer yourself with the ttm
  * buffer object interface. This object needs to be pinned.
  */
@@ -349,7 +349,7 @@ extern void drmModeFreePlane( drmModePlanePtr ptr );
 extern void drmModeFreePlaneResources(drmModePlaneResPtr ptr);
 
 /**
- * Retrives all of the resources associated with a card.
+ * Retrieves all of the resources associated with a card.
  */
 extern drmModeResPtr drmModeGetResources(int fd);
 
@@ -358,7 +358,7 @@ extern drmModeResPtr drmModeGetResources(int fd);
  */
 
 /**
- * Retrive information about framebuffer bufferId
+ * Retrieve information about framebuffer bufferId
  */
 extern drmModeFBPtr drmModeGetFB(int fd, uint32_t bufferId);
 
@@ -370,20 +370,17 @@ extern int drmModeAddFB(int fd, uint32_t width, uint32_t height, uint8_t depth,
 			uint32_t *buf_id);
 /* ...with a specific pixel format */
 extern int drmModeAddFB2(int fd, uint32_t width, uint32_t height,
-			 uint32_t pixel_format, uint32_t bo_handles[4],
-			 uint32_t pitches[4], uint32_t offsets[4],
+			 uint32_t pixel_format, const uint32_t bo_handles[4],
+			 const uint32_t pitches[4], const uint32_t offsets[4],
 			 uint32_t *buf_id, uint32_t flags);
 
 /* ...with format modifiers */
 int drmModeAddFB2WithModifiers(int fd, uint32_t width, uint32_t height,
-			       uint32_t pixel_format, uint32_t bo_handles[4],
-			       uint32_t pitches[4], uint32_t offsets[4],
-			       uint64_t modifier[4], uint32_t *buf_id, uint32_t flags);
+			       uint32_t pixel_format, const uint32_t bo_handles[4],
+			       const uint32_t pitches[4], const uint32_t offsets[4],
+			       const uint64_t modifier[4], uint32_t *buf_id,
+				   uint32_t flags);
 
-extern int drmModeAddFB2_ext(int fd, uint32_t width, uint32_t height,
-			 uint32_t pixel_format, uint32_t bo_handles[4],
-			 uint32_t pitches[4], uint32_t offsets[4], __u64 modifier[4],
-			 uint32_t *buf_id, uint32_t flags);
 /**
  * Destroies the given framebuffer.
  */
@@ -401,7 +398,7 @@ extern int drmModeDirtyFB(int fd, uint32_t bufferId,
  */
 
 /**
- * Retrive information about the ctrt crtcId
+ * Retrieve information about the ctrt crtcId
  */
 extern drmModeCrtcPtr drmModeGetCrtc(int fd, uint32_t crtcId);
 
@@ -503,25 +500,6 @@ extern int drmModeObjectSetProperty(int fd, uint32_t object_id,
 				    uint64_t value);
 
 
-typedef struct _drmModePropertySet drmModePropertySet, *drmModePropertySetPtr;
-
-extern drmModePropertySetPtr drmModePropertySetAlloc(void);
-
-extern int drmModePropertySetAdd(drmModePropertySetPtr set,
-				 uint32_t object_id,
-				 uint32_t property_id,
-				 uint64_t value);
-extern int drmModePropertySetAddBlob(drmModePropertySetPtr set,
-				     uint32_t object_id,
-				     uint32_t property_id,
-				     uint64_t length,
-				     void *blob);
-
-extern int drmModePropertySetCommit(int fd, uint32_t flags,
-				    void *user_data, drmModePropertySetPtr set);
-
-extern void drmModePropertySetFree(drmModePropertySetPtr set);
-
 typedef struct _drmModeAtomicReq drmModeAtomicReq, *drmModeAtomicReqPtr;
 
 extern drmModeAtomicReqPtr drmModeAtomicAlloc(void);
@@ -544,6 +522,28 @@ extern int drmModeCreatePropertyBlob(int fd, const void *data, size_t size,
 				     uint32_t *id);
 extern int drmModeDestroyPropertyBlob(int fd, uint32_t id);
 
+/*
+ * DRM mode lease APIs. These create and manage new drm_masters with
+ * access to a subset of the available DRM resources
+ */
+
+extern int drmModeCreateLease(int fd, const uint32_t *objects, int num_objects, int flags, uint32_t *lessee_id);
+
+typedef struct drmModeLesseeList {
+	uint32_t count;
+	uint32_t lessees[0];
+} drmModeLesseeListRes, *drmModeLesseeListPtr;
+
+extern drmModeLesseeListPtr drmModeListLessees(int fd);
+
+typedef struct drmModeObjectList {
+	uint32_t count;
+	uint32_t objects[0];
+} drmModeObjectListRes, *drmModeObjectListPtr;
+
+extern drmModeObjectListPtr drmModeGetLease(int fd);
+
+extern int drmModeRevokeLease(int fd, uint32_t lessee_id);
 
 #if defined(__cplusplus)
 }

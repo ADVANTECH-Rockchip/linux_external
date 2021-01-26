@@ -46,6 +46,10 @@ enum
     APP_BLE_MENU_APCF_ENABLE,
     APP_BLE_MENU_APCF_DISABLE,
     APP_BLE_MENU_APCF_CONFIG,
+#if defined(APP_BLE_2M_PHY_INCLUDED) && (APP_BLE_2M_PHY_INCLUDED == TRUE)
+    APP_BLE_MENU_PHY_STATUS,
+    APP_BLE_MENU_PHY_CONTROL,
+#endif
 
     APP_BLECL_MENU_REGISTER,
     APP_BLECL_MENU_DEREGISTER,
@@ -57,6 +61,10 @@ enum
     APP_BLECL_MENU_PREPARE_WRITE,
     APP_BLECL_MENU_EXECUTE_WRITE,
     APP_BLECL_MENU_SERVICE_DISC,
+    APP_BLECL_MENU_GET_FIRST_CHAR,
+    APP_BLECL_MENU_GET_NEXT_CHAR,
+    APP_BLECL_MENU_GET_FIRST_CHAR_DESCR,
+    APP_BLECL_MENU_GET_NEXT_CHAR_DESCR,
     APP_BLECL_MENU_REG_FOR_NOTI,
     APP_BLECL_MENU_DEREG_FOR_NOTI,
     APP_BLECL_MENU_DISPLAY_CLIENT,
@@ -128,6 +136,12 @@ void app_ble_display_menu (void)
     APP_INFO1("\t%d => Disable APCF",APP_BLE_MENU_APCF_DISABLE);
     APP_INFO1("\t%d => Configure APCF",APP_BLE_MENU_APCF_CONFIG);
 
+#if defined(APP_BLE_2M_PHY_INCLUDED) && (APP_BLE_2M_PHY_INCLUDED == TRUE)
+    APP_INFO0("\t**** Bluetooth Low Energy 2M BPS menu ****");
+    APP_INFO1("\t%d => BLE PHY Status", APP_BLE_MENU_PHY_STATUS);
+    APP_INFO1("\t%d => BLE PHY Control", APP_BLE_MENU_PHY_CONTROL);
+#endif
+
     APP_INFO0("\t**** Bluetooth Low Energy Client menu ****");
     APP_INFO1("\t%d => Register client app", APP_BLECL_MENU_REGISTER);
     APP_INFO1("\t%d => Deregister Client app", APP_BLECL_MENU_DEREGISTER);
@@ -139,6 +153,12 @@ void app_ble_display_menu (void)
     APP_INFO1("\t%d => Prepare Write ", APP_BLECL_MENU_PREPARE_WRITE);
     APP_INFO1("\t%d => Execute Write ", APP_BLECL_MENU_EXECUTE_WRITE);
     APP_INFO1("\t%d => Service Discovery", APP_BLECL_MENU_SERVICE_DISC);
+    APP_INFO1("\t%d => Get First Characteristic", APP_BLECL_MENU_GET_FIRST_CHAR);
+    APP_INFO1("\t%d => Get Next Characteristic", APP_BLECL_MENU_GET_NEXT_CHAR);
+    APP_INFO1("\t%d => Get first Characteristic Descriptor",
+                APP_BLECL_MENU_GET_FIRST_CHAR_DESCR);
+    APP_INFO1("\t%d => Get next Characteristic Descriptor",
+                APP_BLECL_MENU_GET_NEXT_CHAR_DESCR);
     APP_INFO1("\t%d => Register Notification", APP_BLECL_MENU_REG_FOR_NOTI);
     APP_INFO1("\t%d => Deregister Notification", APP_BLECL_MENU_DEREG_FOR_NOTI);
     APP_INFO1("\t%d => Display Clients", APP_BLECL_MENU_DISPLAY_CLIENT);
@@ -169,7 +189,6 @@ void app_ble_display_menu (void)
     APP_INFO1("\t%d => Display Servers", APP_BLESE_MENU_DISPLAY_SERVER);
     APP_INFO1("\t%d => Send indication", APP_BLESE_MENU_SEND_IND);
     APP_INFO1("\t%d => Send notification", APP_BLESE_MENU_SEND_NOTIF);
-
 #if defined(APP_BLE2_BRCM_INCLUDED) && (APP_BLE2_BRCM_INCLUDED == TRUE)
     APP_INFO1("\t%d => BLE1 Packet Extension", APP_BLE_MENU_LE1_PACKET_EXT);
     APP_INFO0("\t**** Bluetooth Low Energy 2MBPS menu ****");
@@ -213,7 +232,7 @@ void app_ble_menu(void)
             break;
 
         case APP_BLE_MENU_DISCOVERY:
-            app_disc_start_ble_regular(NULL);
+            app_disc_start_ble_regular(NULL, 0);
             break;
 
         case APP_BLE_MENU_CONFIG_BLE_BG_CONN:
@@ -292,6 +311,16 @@ void app_ble_menu(void)
             app_ble_apcf_cfg();
             break;
 
+#if defined(APP_BLE_2M_PHY_INCLUDED) && (APP_BLE_2M_PHY_INCLUDED == TRUE)
+        case APP_BLE_MENU_PHY_STATUS:
+            app_ble_read_phy();
+            break;
+
+        case APP_BLE_MENU_PHY_CONTROL:
+            app_ble_set_phy();
+            break;
+#endif
+
         case APP_BLECL_MENU_REGISTER:
             app_ble_client_register(APP_BLE_MAIN_INVALID_UUID);
             break;
@@ -302,6 +331,22 @@ void app_ble_menu(void)
 
         case APP_BLECL_MENU_SERVICE_DISC:
             app_ble_client_service_search();
+            break;
+
+        case APP_BLECL_MENU_GET_FIRST_CHAR:
+            app_ble_client_get_first_char();
+            break;
+
+        case APP_BLECL_MENU_GET_NEXT_CHAR:
+            app_ble_client_get_next_char();
+            break;
+
+        case APP_BLECL_MENU_GET_FIRST_CHAR_DESCR:
+            app_ble_client_get_first_char_descr();
+            break;
+
+        case APP_BLECL_MENU_GET_NEXT_CHAR_DESCR:
+            app_ble_client_get_next_char_descr();
             break;
 
         case APP_BLECL_MENU_READ:
@@ -387,6 +432,7 @@ void app_ble_menu(void)
         case APP_BLECL_MENU_REFRESH:
             app_ble_client_refresh();
             break;
+
 #if (defined(APP_BLE_OTA_FW_DL_INCLUDED) && (APP_BLE_OTA_FW_DL_INCLUDED == TRUE))
         case APP_BLECL_MENU_FW_UPGRADE:
              if(app_ble_client_otafwdl() != 0)

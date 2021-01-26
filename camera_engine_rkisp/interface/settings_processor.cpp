@@ -227,19 +227,22 @@ SettingsProcessor::fillAeInputParams(const CameraMetadata *settings,
         }
     }
 
-    CameraWindow aeRegion;
-    parseMeteringRegion(settings, ANDROID_CONTROL_AE_REGIONS, &aeRegion);
-    memcpy(aiqInputParams->aeInputParams.aeRegion, aeRegion.meteringRectangle(),
-           sizeof(aiqInputParams->aeInputParams.aeRegion));
-    convertCoordinates(&aeRegion, aiqInputParams->sensorOutputWidth, aiqInputParams->sensorOutputHeight);
+    rw_entry = staticMeta.find(ANDROID_CONTROL_MAX_REGIONS);
+    if(rw_entry.count == 3) {
+        if(rw_entry.data.i32[0] == 1) {
+            CameraWindow aeRegion;
+            parseMeteringRegion(settings, ANDROID_CONTROL_AE_REGIONS, &aeRegion);
+            memcpy(aiqInputParams->aeInputParams.aeRegion, aeRegion.meteringRectangle(),
+                   sizeof(aiqInputParams->aeInputParams.aeRegion));
+            convertCoordinates(&aeRegion, aiqInputParams->sensorOutputWidth, aiqInputParams->sensorOutputHeight);
 
-    if (aeRegion.isValid()) {
-        aeParams->window.x_start = aeRegion.left();
-        aeParams->window.y_start = aeRegion.top();
-        aeParams->window.x_end = aeRegion.right();
-        aeParams->window.y_end = aeRegion.bottom();
-        LOGI("@%s %d: window:(%d,%d,%d,%d)", __FUNCTION__, __LINE__,
-             aeParams->window.x_start, aeParams->window.y_start, aeParams->window.x_end, aeParams->window.y_end);
+            if (aeRegion.isValid()) {
+                aeParams->window.x_start = aeRegion.left();
+                aeParams->window.y_start = aeRegion.top();
+                aeParams->window.x_end = aeRegion.right();
+                aeParams->window.y_end = aeRegion.bottom();
+            }
+        }
     }
 
     // ******** exposure_coordinate
@@ -247,6 +250,15 @@ SettingsProcessor::fillAeInputParams(const CameraMetadata *settings,
     if (rw_entry.count == 2) {
         aeParams->exposure_time_min = rw_entry.data.i64[0];
         aeParams->exposure_time_max = rw_entry.data.i64[1];
+    }
+
+    int32_t iso_min, iso_max;
+    rw_entry = staticMeta.find(ANDROID_SENSOR_INFO_SENSITIVITY_RANGE);
+    if (rw_entry.count == 2) {
+        iso_min = rw_entry.data.i32[0];
+        iso_max = rw_entry.data.i32[1];
+        aeParams->max_analog_gain = (double)iso_max / 100;
+        LOGD("iso_max %f",aeParams->max_analog_gain);
     }
     /*
      * MANUAL AE CONTROL
@@ -275,13 +287,6 @@ SettingsProcessor::fillAeInputParams(const CameraMetadata *settings,
             }
         }
 
-        int32_t iso_min, iso_max;
-        rw_entry = staticMeta.find(ANDROID_SENSOR_INFO_SENSITIVITY_RANGE);
-        if (rw_entry.count == 2) {
-            iso_min = rw_entry.data.i32[0];
-            iso_max = rw_entry.data.i32[1];
-        }
-        aeParams->max_analog_gain = (double)iso_max / 100;
         // ******** manual_iso
         //# METADATA_Control sensor.sensitivity done
         entry = settings->find(ANDROID_SENSOR_SENSITIVITY);
@@ -563,6 +568,7 @@ SettingsProcessor::fillAfInputParams(const CameraMetadata *settings,
                                       AiqInputParams *aiqInputParams)
 {
     XCamReturn status = XCAM_RETURN_ERROR_UNKNOWN;
+    CameraMetadata& staticMeta = RkispDeviceManager::get_static_metadata();
 
     if (settings == nullptr
         || aiqInputParams == nullptr) {
@@ -584,6 +590,8 @@ SettingsProcessor::fillAfInputParams(const CameraMetadata *settings,
     /* afCfg.frame_use = getFrameUseFromIntent(settings); */
 
     camera_metadata_ro_entry entry;
+    camera_metadata_entry_t rw_entry;
+
     //# METADATA_Control control.afTrigger done
     entry = settings->find(ANDROID_CONTROL_AF_TRIGGER);
     if (entry.count == 1) {
@@ -677,16 +685,22 @@ SettingsProcessor::fillAfInputParams(const CameraMetadata *settings,
      * we only support one for the time being
      */
     //# METADATA_Control control.afRegions done
-    CameraWindow afRegion;
-    parseMeteringRegion(settings, ANDROID_CONTROL_AF_REGIONS, &afRegion);
-    memcpy(aiqInputParams->afInputParams.afRegion, afRegion.meteringRectangle(),
-           sizeof(aiqInputParams->afInputParams.afRegion));
-    convertCoordinates(&afRegion, aiqInputParams->sensorOutputWidth, aiqInputParams->sensorOutputHeight);
-    if (afRegion.isValid()) {
-        afCfg.focus_rect[0].left_hoff = afRegion.left();
-        afCfg.focus_rect[0].top_voff = afRegion.top();
-        afCfg.focus_rect[0].right_width = afRegion.width();
-        afCfg.focus_rect[0].bottom_height = afRegion.height();
+
+    rw_entry = staticMeta.find(ANDROID_CONTROL_MAX_REGIONS);
+    if(rw_entry.count == 3) {
+        if(rw_entry.data.i32[2] == 1) {
+            CameraWindow afRegion;
+            parseMeteringRegion(settings, ANDROID_CONTROL_AF_REGIONS, &afRegion);
+            memcpy(aiqInputParams->afInputParams.afRegion, afRegion.meteringRectangle(),
+                   sizeof(aiqInputParams->afInputParams.afRegion));
+            convertCoordinates(&afRegion, aiqInputParams->sensorOutputWidth, aiqInputParams->sensorOutputHeight);
+            if (afRegion.isValid()) {
+                afCfg.focus_rect[0].left_hoff = afRegion.left();
+                afCfg.focus_rect[0].top_voff = afRegion.top();
+                afCfg.focus_rect[0].right_width = afRegion.width();
+                afCfg.focus_rect[0].bottom_height = afRegion.height();
+            }
+        }
     }
 
     return XCAM_RETURN_NO_ERROR;

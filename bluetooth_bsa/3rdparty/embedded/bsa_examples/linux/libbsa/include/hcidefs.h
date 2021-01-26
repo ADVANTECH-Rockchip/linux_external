@@ -357,6 +357,27 @@
 #define HCI_BLE_READ_RESOLVABLE_ADDR_LOCAL  (0x002C | HCI_GRP_BLE_CMDS)
 #define HCI_BLE_SET_ADDR_RESOLUTION_ENABLE  (0x002D | HCI_GRP_BLE_CMDS)
 #define HCI_BLE_SET_RAND_PRIV_ADDR_TIMOUT   (0x002E | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_READ_PHY                    (0x0030 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_DEFAULT_PHY             (0x0031 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_PHY                     (0x0032 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_ENHANCED_RECEIVER_TEST                      (0x0033 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_ENHANCED_TRANSMITTER_TEST                   (0x0034 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_EXT_ADVERTISING_RANDOM_ADDRESS          (0x0035 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_EXT_ADVERTISING_PARAM                   (0x0036 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_EXT_ADVERTISING_DATA                    (0x0037 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_EXT_ADVERTISING_SCAN_RESP               (0x0038 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_EXT_ADVERTISING_ENABLE                  (0x0039 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_READ_MAXIMUM_ADVERTISING_DATA_LENGTH        (0x003A | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_READ_NUMBER_OF_SUPPORTED_ADVERTISING_SETS   (0x003B | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_REMOVE_ADVERTISING_SET                      (0x003C | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_CLEAR_ADVERTISING_SETS                      (0x003D | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_PERIODIC_ADVERTISING_PARAM              (0x003E | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_PERIODIC_ADVERTISING_DATA               (0x003F | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_PERIODIC_ADVERTISING_ENABLE             (0x0040 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_EXTENDED_SCAN_PARAMETERS                (0x0041 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_EXTENDED_SCAN_ENABLE                    (0x0042 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_EXTENDED_CREATE_CONNECTION                  (0x0043 | HCI_GRP_BLE_CMDS)
+#define HCI_BLE_SET_PRIVACY_MODE                            (0x004E | HCI_GRP_BLE_CMDS)
 
 /* LE supported states definition */
 #define HCI_LE_ADV_STATE          0x00000001
@@ -657,8 +678,6 @@
 #define HCI_AMP_STATUS_CHANGE_EVT           0x4D
 #define HCI_SET_TRIGGERED_CLOCK_CAPTURE_EVT 0x4E
 
-
-
 /* ULP HCI Event */
 #define HCI_BLE_EVENT                       0x3e
 /* ULP Event sub code */
@@ -669,8 +688,11 @@
 #define HCI_BLE_LTK_REQ_EVT                 0x05
 #define HCI_BLE_RC_PARAM_REQ_EVT            0x06
 #define HCI_BLE_DATA_LENGTH_CHANGE_EVT      0x07
-#define HCI_BLE_ENHANCED_CONN_COMPLETE_EVT  0x0a
-#define HCI_BLE_DIRECT_ADV_EVT              0x0b
+#define HCI_BLE_ENHANCED_CONN_COMPLETE_EVT  0x0A
+#define HCI_BLE_DIRECT_ADV_EVT              0x0B
+#define HCI_BLE_PHY_UPDATE_COMPLETE_EVT         0x0C
+#define HCI_BLE_EXTENDED_ADVERTISING_REPORT_EVT 0x0D
+#define HCI_BLE_ADVERTISING_SET_TERMINATED_EVT  0x12
 
 /* Definitions for LE Channel Map */
 #define HCI_BLE_CHNL_MAP_SIZE               5
@@ -877,11 +899,57 @@
     0x0000000000400000 Inquiry Response Notification Event  // mask off this event, not processed on host
     0x0000000000800000 Authenticated_Payload_Timeout_Expired Event
 */
+
+/*
+LE_Event_Mask:
+Bit  LE Subevent Types
+0    LE Connection Complete Event
+1    LE Advertising Report Event
+2    LE Connection Update Complete Event
+3    LE Read Remote Features Complete Event
+
+4    LE Long Term Key Request Event
+5    LE Remote Connection Parameter Request Event
+6    LE Data Length Change Event
+7    LE Read Local P-256 Public Key Complete Event
+
+8    LE Generate DHKey Complete Event
+9    LE Enhanced Connection Complete Event
+10   LE Directed Advertising Report Event
+11   LE PHY Update Complete Event
+
+12   LE Extended Advertising Report Event
+13   LE Periodic Advertising Sync Established Event
+14   LE Periodic Advertising Report Event
+15   LE Periodic Advertising Sync Lost Event
+
+16   LE Extended Scan Timeout Event
+17   LE Extended Advertising Set Terminated Event
+18   LE Scan Request Received Event
+19   LE Channel Selection Algorithm Event
+*/
+
+#if defined(BLE_2M_PHY_INCLUDED) && (BLE_2M_PHY_INCLUDED == TRUE)
+// Enable more BLE event notice
+// Bit 11 - LE PHY Update Complete Event
+// Bit 12 - LE Extended Advertising Report Event
+
 #if BTM_BLE_PRIVACY_SPT == TRUE
 /* BLE event mask */
-#define HCI_BLE_EVENT_MASK_DEF               "\x00\x00\x00\x00\x00\x00\x07\xff"
+#define HCI_BLE_EVENT_MASK_DEF              "\x00\x00\x00\x00\x00\x02\x1f\xff"
+#else
+#define HCI_BLE_EVENT_MASK_DEF              "\x00\x00\x00\x00\x00\x02\x1e\x7f"
+#endif
+
+#else
+
+#if BTM_BLE_PRIVACY_SPT == TRUE
+/* BLE event mask */
+#define HCI_BLE_EVENT_MASK_DEF              "\x00\x00\x00\x00\x00\x00\x07\xff"
 #else
 #define HCI_BLE_EVENT_MASK_DEF              "\x00\x00\x00\x00\x00\x00\x00\x7f"
+#endif
+
 #endif
 /*
 ** Definitions for packet type masks (BT1.2 and BT2.0 definitions)
@@ -1544,6 +1612,7 @@ typedef struct
 #define LMP_COMPID_THINK_OPTICS         146
 #define LMP_COMPID_UNIVERSAL_ELEC       147
 #define LMP_COMPID_AIROHA_TECH          148
+#define LMP_COMPID_CYPRESS              305
 #define LMP_COMPID_MAX_ID               443 /* this is a place holder */
 #define LMP_COMPID_INTERNAL             65535
 
@@ -1946,6 +2015,37 @@ typedef struct
 #define HCI_LE_FEATURE_EXT_SCAN_FILTER_POLICY_MASK       0x80
 #define HCI_LE_FEATURE_EXT_SCAN_FILTER_POLICY_OFF        0
 #define HCI_LE_EXT_SCAN_FILTER_POLICY_SUPPORTED(x) ((x)[HCI_LE_FEATURE_EXT_SCAN_FILTER_POLICY_OFF] & HCI_LE_FEATURE_EXT_SCAN_FILTER_POLICY_MASK)
+
+/* LE 2M PHY : 8 */
+#define HCI_LE_FEATURE_LE_2M_PHY_MASK       0x01
+#define HCI_LE_FEATURE_LE_2M_PHY_OFF        1
+#define HCI_LE_2M_PHY_SUPPORTED(x) ((x)[HCI_LE_FEATURE_LE_2M_PHY_OFF] & HCI_LE_FEATURE_LE_2M_PHY_MASK)
+
+/* LE Coded PHY : 11 */
+#define HCI_LE_FEATURE_LE_CODED_PHY_MASK       0x08
+#define HCI_LE_FEATURE_LE_CODED_PHY_OFF        1
+#define HCI_LE_CODED_PHY_SUPPORTED(x) ((x)[HCI_LE_FEATURE_LE_CODED_PHY_OFF] & HCI_LE_FEATURE_LE_CODED_PHY_MASK)
+
+/* LE Extended Advertising : 12 */
+#define HCI_LE_FEATURE_LE_EXT_ADV_MASK       0x10
+#define HCI_LE_FEATURE_LE_EXT_ADV_OFF        1
+#define HCI_LE_EXT_ADV_SUPPORTED(x) ((x)[HCI_LE_FEATURE_LE_EXT_ADV_OFF] & HCI_LE_FEATURE_LE_EXT_ADV_MASK)
+
+/* LE Periodic Advertising : 13 */
+#define HCI_LE_FEATURE_LE_PERIODIC_ADV_MASK       0x20
+#define HCI_LE_FEATURE_LE_PERIODIC_ADV_OFF        1
+#define HCI_LE_PERIODIC_ADV_SUPPORTED(x) ((x)[HCI_LE_FEATURE_LE_PERIODIC_ADV_OFF] & HCI_LE_FEATURE_LE_PERIODIC_ADV_MASK)
+
+/* Channel Selection Algorithm : 14 */
+#define HCI_LE_FEATURE_LE_CSA_MASK       0x40
+#define HCI_LE_FEATURE_LE_CSA_OFF        1
+#define HCI_LE_CSA_SUPPORTED(x) ((x)[HCI_LE_FEATURE_LE_CSA_OFF] & HCI_LE_FEATURE_LE_CSA_MASK)
+
+/* LE Power Class 1 : 15 */
+#define HCI_LE_FEATURE_LE_POWER_CLASS_1_MASK       0x80
+#define HCI_LE_FEATURE_LE_POWER_CLASS_1_OFF        1
+#define HCI_LE_POWER_CLASS_1_SUPPORTED(x) ((x)[HCI_LE_FEATURE_LE_POWER_CLASS_1_OFF] & HCI_LE_FEATURE_LE_POWER_CLASS_1_MASK)
+
 
 /*
 **   Local Supported Commands encoding

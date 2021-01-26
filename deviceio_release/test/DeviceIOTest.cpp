@@ -75,9 +75,9 @@ static command_t wifi_config_command_table[] = {
 	{"wifi_scan", rk_wifi_scan},
 	{"wifi_getSavedInfo", rk_wifi_getSavedInfo},
 	{"rk_wifi_getConnectionInfo", rk_wifi_getConnectionInfo},
-	{"wifi_connect_with_bssid", rk_wifi_connect_with_bssid},
+	{"wifi_connect_with_ssid", rk_wifi_connect_with_ssid},
 	{"wifi_cancel", rk_wifi_cancel},
-	{"wifi_forget_with_bssid", rk_wifi_forget_with_bssid},
+	{"wifi_forget_with_ssid", rk_wifi_forget_with_ssid},
 	{"wifi_connect1", rk_wifi_connect1},
 	{"rk_wifi_disconnect", rk_wifi_disconnect},
 };
@@ -92,20 +92,27 @@ static command_bt_t bt_command_table[] = {
 	{"bt_test_enable_reconnect", bt_test_enable_reconnect},
 	{"bt_test_disable_reconnect", bt_test_disable_reconnect},
 	{"bt_test_start_discovery", bt_test_start_discovery},
+	{"bt_test_start_discovery_le", bt_test_start_discovery_le},
+	{"bt_test_start_discovery_bredr", bt_test_start_discovery_bredr},
+	{"bt_test_start_discovery_pan", bt_test_start_discovery_pan},
 	{"bt_test_cancel_discovery", bt_test_cancel_discovery},
 	{"bt_test_is_discovering", bt_test_is_discovering},
 	{"bt_test_display_devices", bt_test_display_devices},
+	{"bt_test_read_remote_device_name", bt_test_read_remote_device_name},
+	{"bt_test_get_scaned_devices", bt_test_get_scaned_devices},
 	{"bt_test_display_paired_devices", bt_test_display_paired_devices},
 	{"bt_test_get_paired_devices", bt_test_get_paired_devices},
 	{"bt_test_free_paired_devices", bt_test_free_paired_devices},
 	{"bt_test_pair_by_addr", bt_test_pair_by_addr},
 	{"bt_test_unpair_by_addr", bt_test_unpair_by_addr},
+	{"bt_test_get_connected_properties", bt_test_get_connected_properties},
 	{"bt_test_source_auto_start", bt_test_source_auto_start},
 	{"bt_test_source_connect_status", bt_test_source_connect_status},
 	{"bt_test_source_auto_stop", bt_test_source_auto_stop},
 	{"bt_test_source_open", bt_test_source_open},
 	{"bt_test_source_close", bt_test_source_close},
 	{"bt_test_source_connect_by_addr", bt_test_source_connect_by_addr},
+	{"bt_test_source_disconnect", bt_test_source_disconnect},
 	{"bt_test_source_disconnect_by_addr", bt_test_source_disconnect_by_addr},
 	{"bt_test_source_remove_by_addr", bt_test_source_remove_by_addr},
 	{"bt_test_sink_open", bt_test_sink_open},
@@ -129,12 +136,24 @@ static command_bt_t bt_command_table[] = {
 	{"bt_test_sink_disconnect", bt_test_sink_disconnect},
 	{"bt_test_sink_close", bt_test_sink_close},
 	{"bt_test_ble_start", bt_test_ble_start},
+	{"bt_test_ble_set_address", bt_test_ble_set_address},
+	{"bt_test_ble_set_adv_interval", bt_test_ble_set_adv_interval},
 	{"bt_test_ble_write", bt_test_ble_write},
 	{"bt_test_ble_disconnect", bt_test_ble_disconnect},
 	{"bt_test_ble_stop", bt_test_ble_stop},
-	{"bt_test_ble_setup", bt_test_ble_setup},
-	{"bt_test_ble_clean", bt_test_ble_clean},
 	{"bt_test_ble_get_status", bt_test_ble_get_status},
+	{"bt_test_ble_client_open", bt_test_ble_client_open},
+	{"bt_test_ble_client_close", bt_test_ble_client_close},
+	{"bt_test_ble_client_connect", bt_test_ble_client_connect},
+	{"bt_test_ble_client_disconnect", bt_test_ble_client_disconnect},
+	{"bt_test_ble_client_get_status", bt_test_ble_client_get_status},
+	{"bt_test_ble_client_get_service_info", bt_test_ble_client_get_service_info},
+	{"bt_test_ble_client_read", bt_test_ble_client_read},
+	{"bt_test_ble_client_write", bt_test_ble_client_write},
+	{"bt_test_ble_client_is_notify", bt_test_ble_client_is_notify},
+	{"bt_test_ble_client_notify_on", bt_test_ble_client_notify_on},
+	{"bt_test_ble_client_notify_off", bt_test_ble_client_notify_off},
+	{"bt_test_ble_client_get_eir_data", bt_test_ble_client_get_eir_data},
 	{"bt_test_spp_open", bt_test_spp_open},
 	{"bt_test_spp_write", bt_test_spp_write},
 	{"bt_test_spp_close", bt_test_spp_close},
@@ -144,18 +163,27 @@ static command_bt_t bt_command_table[] = {
 	{"bt_test_hfp_hp_accept", bt_test_hfp_hp_accept},
 	{"bt_test_hfp_hp_hungup", bt_test_hfp_hp_hungup},
 	{"bt_test_hfp_hp_redail", bt_test_hfp_hp_redial},
+	{"bt_test_hfp_hp_dial_number", bt_test_hfp_hp_dial_number},
 	{"bt_test_hfp_hp_report_battery", bt_test_hfp_hp_report_battery},
 	{"bt_test_hfp_hp_set_volume", bt_test_hfp_hp_set_volume},
 	{"bt_test_hfp_hp_close", bt_test_hfp_hp_close},
 	{"bt_test_hfp_hp_disconnect", bt_test_hfp_hp_disconnect},
 	{"bt_test_obex_init", bt_test_obex_init},
+	{"bt_test_obex_pbap_init", bt_test_obex_pbap_init},
 	{"bt_test_obex_pbap_connect", bt_test_obex_pbap_connect},
 	{"bt_test_obex_pbap_get_pb_vcf", bt_test_obex_pbap_get_pb_vcf},
 	{"bt_test_obex_pbap_get_ich_vcf", bt_test_obex_pbap_get_ich_vcf},
 	{"bt_test_obex_pbap_get_och_vcf", bt_test_obex_pbap_get_och_vcf},
 	{"bt_test_obex_pbap_get_mch_vcf", bt_test_obex_pbap_get_mch_vcf},
+	{"bt_test_obex_pbap_get_spd_vcf", bt_test_obex_pbap_get_spd_vcf},
+	{"bt_test_obex_pbap_get_fav_vcf", bt_test_obex_pbap_get_fav_vcf},
 	{"bt_test_obex_pbap_disconnect", bt_test_obex_pbap_disconnect},
-	{"bt_test_obex_close", bt_test_obex_close},
+	{"bt_test_obex_pbap_deinit", bt_test_obex_pbap_deinit},
+	{"bt_test_obex_deinit", bt_test_obex_deinit},
+	{"bt_test_pan_init", bt_test_pan_init},
+	{"bt_test_pan_deinit", bt_test_pan_deinit},
+	{"bt_test_pan_connect", bt_test_pan_connect},
+	{"bt_test_pan_disconnect", bt_test_pan_disconnect},
 	{"bt_server_close", bt_test_bluetooth_deinit},
 };
 
@@ -278,15 +306,19 @@ static void deviceio_test_bluetooth()
 			continue;
 		}
 
+		printf("%s: szBuf =  %s\n", __func__, szBuf);
 		input_start = strstr(szBuf, "input");
 		if(input_start == NULL) {
 			i = atoi(szBuf);
+			printf("%s: selset %d\n", __func__, i);
 			if ((i >= 1) && (i < item_cnt))
 				bt_command_table[i].action(NULL);
 		} else {
 			memset(cmdBuf, 0, sizeof(cmdBuf));
 			strncpy(cmdBuf, szBuf, strlen(szBuf) - strlen(input_start) - 1);
+			printf("%s: cmdBuf = %s\n", __func__, cmdBuf);
 			i = atoi(cmdBuf);
+			printf("%s: i = %d\n", __func__, i);
 			if ((i >= 1) && (i < item_cnt))
 				bt_command_table[i].action(input_start + strlen("input") + 1);
 		}

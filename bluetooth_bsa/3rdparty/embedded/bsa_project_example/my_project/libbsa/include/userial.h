@@ -50,14 +50,15 @@ typedef UINT8 tUSERIAL_PORT;
 #define USERIAL_BAUD_115200       7
 #define USERIAL_BAUD_230400       8
 #define USERIAL_BAUD_460800       9
-#define USERIAL_BAUD_921600       10
-#define USERIAL_BAUD_1M           11
-#define USERIAL_BAUD_1_5M         12
-#define USERIAL_BAUD_2M           13
-#define USERIAL_BAUD_2_5M         14   /* BSA_SPECIFIC */
-#define USERIAL_BAUD_3M           15
-#define USERIAL_BAUD_4M           16
-#define USERIAL_BAUD_AUTO         17
+#define USERIAL_BAUD_500000       10
+#define USERIAL_BAUD_921600       11
+#define USERIAL_BAUD_1M           12
+#define USERIAL_BAUD_1_5M         13
+#define USERIAL_BAUD_2M           14
+#define USERIAL_BAUD_2_5M         15
+#define USERIAL_BAUD_3M           16
+#define USERIAL_BAUD_4M           17
+#define USERIAL_BAUD_AUTO         18
 
 /**** Data Format ****/
 

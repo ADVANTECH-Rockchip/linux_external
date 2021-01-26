@@ -25,8 +25,8 @@
 #include "mpp_common.h"
 
 #include "h265e_syntax.h"
+#include "hal_h265e_debug.h"
 #include "hal_h265e_base.h"
-#include "hal_h265e_vepu22_def.h"
 #include "hal_h265e_vepu22.h"
 
 
@@ -1254,7 +1254,7 @@ static MPP_RET vepu22_check_rc_cfg_change(HalH265eCtx* ctx, MppEncRcCfg* set)
                         set->fps_in_num, set->fps_in_denorm);
     hal_h265e_dbg_input("fps_out_num = %d,fps_out_denorm = %d\n",
                         set->fps_out_num, set->fps_out_denorm);
-    hal_h265e_dbg_input("gop = %d,skip_cnt = %d\n", set->gop, set->skip_cnt);
+    hal_h265e_dbg_input("gop = %d, max_reenc_cnt = %d\n", set->gop, set->max_reenc_times);
     if (!ctx->init) {
         set->change = MPP_ENC_RC_CFG_CHANGE_ALL;
         ctx->option |= H265E_SET_RC_CFG;
@@ -1285,7 +1285,7 @@ static MPP_RET vepu22_set_rc_cfg(HalH265eCtx* ctx)
                         rc->fps_in_num, rc->fps_in_denorm);
     hal_h265e_dbg_input("fps_out_num = %d,fps_out_denorm = %d\n",
                         rc->fps_out_num, rc->fps_out_denorm);
-    hal_h265e_dbg_input("gop = %d,skip_cnt = %d\n", rc->gop, rc->skip_cnt);
+    hal_h265e_dbg_input("gop = %d, max_reenc_cnt = %d\n", rc->gop, rc->max_reenc_times);
 
     /* the first time to set rc cfg*/
     if (change & MPP_ENC_RC_CFG_CHANGE_FPS_OUT) {
@@ -1302,18 +1302,17 @@ static MPP_RET vepu22_set_rc_cfg(HalH265eCtx* ctx)
         hal_h265e_dbg_input("rc change = 0x%x\n", change);
         cfg->rc_enable = 0;
         switch (rc->rc_mode) {
+        case MPP_ENC_RC_MODE_FIXQP:
+            cfg->rc_enable = 0;
+            cfg->bit_rate = 0;
+            cfg->trans_rate = 0;
+            break;
         case MPP_ENC_RC_MODE_VBR:
             // if rc_mode is VBR and quality == MPP_ENC_RC_QUALITY_CQP, this mode is const QP
-            if (rc->quality == MPP_ENC_RC_QUALITY_CQP) {
-                cfg->rc_enable = 0; // fix qp
-                cfg->bit_rate = 0;
-                cfg->trans_rate = 0;
-            } else {
-                cfg->rc_enable = 1;
-                cfg->bit_rate = rc->bps_target;
-                // set trans_rate larger than bit_rate
-                cfg->trans_rate = cfg->bit_rate + 10000;
-            }
+            cfg->rc_enable = 1;
+            cfg->bit_rate = rc->bps_target;
+            // set trans_rate larger than bit_rate
+            cfg->trans_rate = cfg->bit_rate + 10000;
             break;
         case MPP_ENC_RC_MODE_CBR:
             cfg->rc_enable = 1;
@@ -1763,16 +1762,13 @@ static MPP_RET vepu22_set_cfg(HalH265eCtx* ctx)
 
     vepu22_dump_cfg(ctx);
 
-
-    if (ctx->dev_ctx) {
-        ret = mpp_device_send_reg_with_id(ctx->dev_ctx, H265E_SET_PARAMETER,
-                                          ctx->hw_cfg, sizeof(struct hal_h265e_cfg));
-        hal_h265e_dbg_input("hal_h265e_send_cmd ret = %d\n", ret);
-        if (ret) {
-            mpp_err_f("error: hal_h265e_set_param 0x%x fail\n", ret);
-            return MPP_NOK;
-        }
-    }
+    MppDevRegWrCfg cfg;
+    cfg.offset = 0;
+    cfg.reg = ctx->hw_cfg;
+    cfg.size = sizeof(struct hal_h265e_cfg);
+    ret = mpp_dev_ioctl(ctx->dev, H265E_SET_PARAMETER, &cfg);
+    if (ret)
+        mpp_err_f("poll cmd failed %d\n", ret);
 
     vepu22_clear_cfg_mask(ctx);
     hal_h265e_dbg_func("leave hal");
@@ -1791,9 +1787,9 @@ MPP_RET hal_h265e_vepu22_init(void *hal, MppHalCfg *cfg)
     ctx->pre_buf = NULL;
 
     /* pointer to cfg define in controller*/
-    ctx->cfg = cfg->cfg;
-    ctx->set = cfg->set;
-    ctx->int_cb = cfg->hal_int_cb;
+    ctx->cfg = NULL;    // NOTE: (MppEncCfgSet *) cfg->cfg;
+    ctx->set = NULL;    // NOTE: (MppEncCfgSet *) cfg->set;
+    ctx->enc_cb = cfg->dec_cb;
     ctx->option = H265E_SET_CFG_INIT;
     ctx->init = 0;
     ctx->rga_ctx = NULL;
@@ -1833,17 +1829,9 @@ MPP_RET hal_h265e_vepu22_init(void *hal, MppHalCfg *cfg)
         goto FAIL;
     }
 
-    //!< mpp_device_init
-    MppDevCfg dev_cfg = {
-        .type = MPP_CTX_ENC,             /* type */
-        .coding = MPP_VIDEO_CodingHEVC,  /* coding */
-        .platform = 0,                   /* platform */
-        .pp_enable = 0,                  /* pp_enable */
-    };
-
-    ret = mpp_device_init(&ctx->dev_ctx, &dev_cfg);
+    ret = mpp_dev_init(&ctx->dev, VPU_CLIENT_VEPU22);
     if (ret) {
-        mpp_err("mpp_device_init failed ret: %d\n", ret);
+        mpp_err("mpp_dev_init failed ret: %d\n", ret);
         goto FAIL;
     }
     hal_h265e_dbg_func("leave hal %p\n", hal);
@@ -1932,9 +1920,9 @@ MPP_RET hal_h265e_vepu22_deinit(void *hal)
         ctx->buf_grp = NULL;
     }
 
-    if (ctx->dev_ctx) {
-        mpp_device_deinit(ctx->dev_ctx);
-        ctx->dev_ctx = NULL;
+    if (ctx->dev) {
+        mpp_dev_deinit(ctx->dev);
+        ctx->dev = NULL;
     }
 
     if (ctx->rga_ctx != NULL) {
@@ -2008,12 +1996,37 @@ MPP_RET hal_h265e_vepu22_start(void *hal, HalTaskInfo *task)
 
     hal_h265e_dbg_func("enter hal %p\n", hal);
 
-    ret = mpp_device_send_reg(ctx->dev_ctx, (RK_U32*)ctx->en_info,
-                              sizeof(EncInfo) / sizeof(RK_U32));
-    if (ret) {
-        ret = MPP_ERR_VPUHW;
-        mpp_err_f("h265 encoder FlushRegs fail. \n");
-    }
+    do {
+        MppDevRegWrCfg wr_cfg;
+        MppDevRegRdCfg rd_cfg;
+        RK_U32 reg_size = sizeof(EncInfo);
+
+        wr_cfg.reg = ctx->en_info;
+        wr_cfg.size = reg_size;
+        wr_cfg.offset = 0;
+
+        ret = mpp_dev_ioctl(ctx->dev, MPP_DEV_REG_WR, &wr_cfg);
+        if (ret) {
+            mpp_err_f("set register write failed %d\n", ret);
+            break;
+        }
+
+        rd_cfg.reg = &ctx->result;
+        rd_cfg.size = sizeof(ctx->result);
+        rd_cfg.offset = 0;
+
+        ret = mpp_dev_ioctl(ctx->dev, MPP_DEV_REG_RD, &rd_cfg);
+        if (ret) {
+            mpp_err_f("set register read failed %d\n", ret);
+            break;
+        }
+
+        ret = mpp_dev_ioctl(ctx->dev, MPP_DEV_CMD_SEND, NULL);
+        if (ret) {
+            mpp_err_f("send cmd failed %d\n", ret);
+            break;
+        }
+    } while (0);
 
     hal_h265e_dbg_func("leave hal %p\n", hal);
 
@@ -2024,35 +2037,32 @@ MPP_RET hal_h265e_vepu22_start(void *hal, HalTaskInfo *task)
 MPP_RET hal_h265e_vepu22_wait(void *hal, HalTaskInfo *task)
 {
     RK_S32 ret = MPP_NOK;
-
     HalH265eCtx* ctx = (HalH265eCtx*)hal;
     HalEncTask *info = &task->enc;
+    Vepu22H265eRet *result = &ctx->result;
     H265eFeedback feedback;
-    H265eVepu22Result result;
-    MppBuffer output = info->output;
 
     hal_h265e_dbg_func("enter hal %p\n", hal);
 
-    ret = mpp_device_wait_reg(ctx->dev_ctx, (RK_U32*)&result,
-                              (RK_U32)(sizeof(H265eVepu22Result) / sizeof(RK_U32)));
+    ret = mpp_dev_ioctl(ctx->dev, MPP_DEV_CMD_POLL, NULL);
     if (ret) {
-        mpp_err_f("leave hal hardware returns error:%d\n", ret);
+        mpp_err_f("poll cmd failed %d\n", ret);
         return MPP_ERR_VPUHW;
     }
 
     info->is_intra = 0;
-    feedback.status = result.fail_reason;
+    feedback.status = result->fail_reason;
     if (feedback.status == 0) {
         void* buffer = NULL;
         int size = 0;
 
-        feedback.bs_size = result.bs_size;
-        feedback.pic_type = result.pic_type;
-        feedback.avg_ctu_qp = result.avg_ctu_qp;
-        feedback.gop_idx = result.gop_idx;
-        feedback.poc = result.poc;
-        feedback.src_idx = result.src_idx;
-        feedback.enc_pic_cnt = result.enc_pic_cnt;
+        feedback.bs_size = result->bs_size;
+        feedback.pic_type = result->pic_type;
+        feedback.avg_ctu_qp = result->avg_ctu_qp;
+        feedback.gop_idx = result->gop_idx;
+        feedback.poc = result->poc;
+        feedback.src_idx = result->src_idx;
+        feedback.enc_pic_cnt = result->enc_pic_cnt;
 
         if (feedback.pic_type == H265E_PIC_TYPE_I ||
             feedback.pic_type == H265E_PIC_TYPE_IDR ||
@@ -2061,8 +2071,8 @@ MPP_RET hal_h265e_vepu22_wait(void *hal, HalTaskInfo *task)
         } else {
             info->is_intra = 0;
         }
-        buffer = mpp_buffer_get_ptr(output);
-        size = result.bs_size;
+        buffer = mpp_buffer_get_ptr(info->output);
+        size = result->bs_size;
         if (ctx->mOutFile != NULL && size > 0) {
             fwrite(buffer, size, 1, ctx->mOutFile);
             fflush(ctx->mOutFile);
@@ -2073,7 +2083,7 @@ MPP_RET hal_h265e_vepu22_wait(void *hal, HalTaskInfo *task)
         feedback.bs_size = 0;
     }
 
-    ctx->int_cb.callBack(ctx->int_cb.opaque, &feedback);
+    mpp_callback(ctx->enc_cb, ENC_CALLBACK_BASE, &feedback);
     task->enc.length = feedback.bs_size;
     hal_h265e_dbg_func("leave hal %p,status = %d,size = %d\n",
                        hal, feedback.status, feedback.bs_size);
@@ -2088,13 +2098,9 @@ MPP_RET hal_h265e_vepu22_reset(void *hal)
 
     hal_h265e_dbg_func("enter hal %p\n", hal);
 
-    if (ctx->dev_ctx) {
-        ret = mpp_device_send_reg_with_id(ctx->dev_ctx, H265E_RESET, NULL, 0);
-        if (ret) {
-            ret = MPP_ERR_VPUHW;
-            mpp_err_f("failed to send reset cmd\n");
-        }
-    }
+    ret = mpp_dev_ioctl(ctx->dev, H265E_RESET, NULL);
+    if (ret)
+        mpp_err_f("poll cmd failed %d\n", ret);
 
     hal_h265e_dbg_func("leave hal %p\n", hal);
 
@@ -2122,8 +2128,8 @@ MPP_RET hal_h265e_vepu22_control(void *hal, MpiCmd cmd_type, void *param)
 
     hal_h265e_dbg_func("enter hal %p,cmd = %d\n", hal, cmd_type);
     switch (cmd_type) {
-    case MPP_ENC_SET_EXTRA_INFO: {
-        hal_h265e_dbg_input("MPP_ENC_SET_EXTRA_INFO\n");
+    case MPP_ENC_GET_HDR_SYNC: {
+        hal_h265e_dbg_input("MPP_ENC_GET_HDR_SYNC\n");
         break;
     }
 

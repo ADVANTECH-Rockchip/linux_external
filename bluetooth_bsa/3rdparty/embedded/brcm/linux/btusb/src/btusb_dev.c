@@ -34,6 +34,10 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)
+#include <linux/sched/signal.h>
+#endif
+
 #include "hcidefs.h"
 
 #include "gki_int.h"

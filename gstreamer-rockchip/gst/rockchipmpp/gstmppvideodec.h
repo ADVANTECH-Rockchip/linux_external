@@ -40,7 +40,6 @@ G_BEGIN_DECLS
 	(G_TYPE_CHECK_INSTANCE_TYPE((obj), GST_TYPE_MPP_VIDEO_DEC))
 #define GST_IS_MPP_VIDEO_DEC_CLASS(obj) \
 	(G_TYPE_CHECK_CLASS_TYPE((klass), GST_TYPE_MPP_VIDEO_DEC))
-
 typedef struct _GstMppVideoDec GstMppVideoDec;
 typedef struct _GstMppVideoDecClass GstMppVideoDecClass;
 
@@ -67,6 +66,8 @@ struct _GstMppVideoDec
   MppApi *mpi;
 
   GstBufferPool *pool;          /* Pool of output frames */
+
+  gboolean seen_valid_pts;
 };
 
 struct _GstMppVideoDecClass

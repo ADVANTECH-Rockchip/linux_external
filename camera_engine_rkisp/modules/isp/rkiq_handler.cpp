@@ -398,6 +398,39 @@ AiqAeHandler::processAeMetaResults(AecResult_t aec_results, X3aResultList &outpu
                          &stillcap_sync, 1);
     }
 
+/*
+    metadata->update(RKCAMERA3_PRIVATEDATA_GRID_WEIGHTS,
+                     _rkaiq_result.hist_config_result.weights,
+                    _rkaiq_result.hist_config_result.weights_cnt);
+*/
+    struct cifisp_stat_buffer& isp_stat = _aiq_compositor->get_3a_isp_stats();
+/*
+    metadata->update(RKCAMERA3_PRIVATEDATA_HIST_BINS,
+                    (int*)isp_stat.params.hist.hist_bins,
+                    CIFISP_HIST_BIN_N_MAX);
+*/
+    uint8_t hist_mode = ANDROID_STATISTICS_HISTOGRAM_MODE_ON;
+    metadata->update(ANDROID_STATISTICS_HISTOGRAM_MODE,
+                    &hist_mode,
+                    1);
+    metadata->update(ANDROID_STATISTICS_HISTOGRAM,
+                    (int*)isp_stat.params.hist.hist_bins,
+                    CIFISP_HIST_BIN_N_MAX);
+    int32_t hist_cnt = CIFISP_HIST_BIN_N_MAX;
+    metadata->update(ANDROID_STATISTICS_INFO_HISTOGRAM_BUCKET_COUNT,
+                    &hist_cnt,
+                    1);
+    metadata->update(ANDROID_STATISTICS_INFO_MAX_HISTOGRAM_COUNT,
+                    &hist_cnt,
+                    1);
+   metadata->update(RKCAMERA3_PRIVATEDATA_EXP_MEANS,
+                    isp_stat.params.ae.exp_mean,
+                    CIFISP_AE_MEAN_MAX);
+   int32_t ae_mean_cnt = CIFISP_AE_MEAN_MAX;
+   metadata->update(RKCAMERA3_PRIVATEDATA_EXP_MEANS_COUNT,
+                    &ae_mean_cnt,
+                    1);
+
     return XCAM_RETURN_NO_ERROR;
 }
 
@@ -1883,9 +1916,9 @@ AiqCommonHandler::AiqCommonHandler (SmartPtr<RKiqCompositor> &aiq_compositor)
 }
 AiqCommonHandler::~AiqCommonHandler ()
 {
-    delete mRGammaLut;
-    delete mGGammaLut;
-    delete mBGammaLut;
+    delete[] mRGammaLut;
+    delete[] mGGammaLut;
+    delete[] mBGammaLut;
 }
 
 XCamReturn
@@ -2201,7 +2234,7 @@ RKiqCompositor::set_flash_status_info (rkisp_flash_setting_t& flash_info) {
         _ia_stat.flash_status.flash_mode = HAL_FLASH_ON;
         break;
     default:
-        LOGE("not support flash mode %d", flash_info.flash_mode);
+        LOGD("not support flash mode %d", flash_info.flash_mode);
     }
     // set frame status in set_3a_stats
 
