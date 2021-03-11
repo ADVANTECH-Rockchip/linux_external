@@ -299,6 +299,8 @@ finish_recovery(const char *send_intent) {
         }
     }
 
+    printf("finish_recovery Enter.....\n");
+
     // Copy logs to cache so the system can find out what happened.
     copy_log_file(LOG_FILE, true);
     copy_log_file(LAST_LOG_FILE, false);
@@ -725,7 +727,10 @@ main(int argc, char **argv) {
         freopen(TEMPORARY_LOG_FILE, "a", stdout); setbuf(stdout, NULL);
         freopen(TEMPORARY_LOG_FILE, "a", stderr); setbuf(stderr, NULL);
     } else {
-	    printf("start debug recovery...\n");
+        printf("\n\n");
+        printf("*********************************************************\n");
+        printf("            ROCKCHIP recovery system                     \n");
+        printf("*********************************************************\n");
     }
     printf("Starting recovery on %s\n", ctime(&start));
 
@@ -905,6 +910,22 @@ main(int argc, char **argv) {
                     if(access(update_package, F_OK) == 0)
                         remove(update_package);
                 }
+
+                if (ensure_path_unmounted("/userdata") != 0)
+                {
+                    LOGE("\n === umount userdata fail === \n");
+                } else {
+                    if (resize_volume("/userdata"))
+                        LOGE("\n ---resize_volume userdata error ---\n");
+                }
+
+                if (access("/dev/block/by-name/rootfs", F_OK) == 0) {
+                    if (rk_check_and_resizefs("/dev/block/by-name/rootfs") != 0)
+                        status = INSTALL_ERROR;
+                    if (status != INSTALL_SUCCESS)
+                        LOGE("resizefs failed on /dev/block/by-name/rootfs\n");
+                }
+
                 strlcpy(text, "update images success!", 127);
 	        } else {
                 strlcpy(text, "update images failed!", 127);
@@ -1023,7 +1044,9 @@ main(int argc, char **argv) {
     }
 
     // Otherwise, get ready to boot the main system...
-    finish_recovery(send_intent);
+	if (!bSDBootUpdate){
+        finish_recovery(send_intent);
+	}
     ui_print("Rebooting...\n");
     printf("Reboot...\n");
     fflush(stdout);

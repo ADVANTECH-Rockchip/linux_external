@@ -90,7 +90,13 @@ bool CRKImage::SaveBootFile(tstring filename)
 	DWORD dwBufferSize=1024;
 	DWORD dwBootSize=m_bootSize;
 	DWORD dwReadSize;
-	fseek(m_pFile,m_bootOffset,SEEK_SET);
+	int ret;
+	ret = fseek(m_pFile,m_bootOffset,SEEK_SET);
+	if (ret < 0)
+	{
+		printf("%s: fseek fail\n", __func__);
+	}
+
 	do
 	{
 		dwReadSize = (dwBootSize>=1024)?dwBufferSize:dwBootSize;
@@ -126,6 +132,7 @@ bool CRKImage::SaveFWFile(tstring filename)
 }
 bool CRKImage::GetData(long long dwOffset,DWORD dwSize,PBYTE lpBuffer)
 {
+	int ret;
 	if ( dwOffset<0 || dwSize==0 )
 	{
 		return false;
@@ -135,7 +142,13 @@ bool CRKImage::GetData(long long dwOffset,DWORD dwSize,PBYTE lpBuffer)
 		return false;
 	}
 
-	fseeko64(m_pFile,dwOffset,SEEK_SET);
+	ret = fseeko64(m_pFile,dwOffset,SEEK_SET);
+	if (ret < 0)
+	{
+		printf("%s:%d fseeko64 fail!\n", __func__, __LINE__);
+		return false;
+	}
+
 	UINT uiActualRead;
 	uiActualRead = fread(lpBuffer,1,dwSize,m_pFile);
 	if (dwSize!=uiActualRead)
@@ -202,6 +215,7 @@ CRKImage::CRKImage(tstring filename,bool &bCheck)
 		return;
 	}
 	m_fileSize = statBuf.st_size;
+	printf("CRKImage : updateimg size %llu \n", m_fileSize);
 
 	bool bOnlyBootFile=false;
 	transform(filename.begin(),filename.end(),filename.begin(),(int(*)(int))tolower);
@@ -240,7 +254,13 @@ CRKImage::CRKImage(tstring filename,bool &bCheck)
 	STRUCT_RKIMAGE_HEAD imageHead;
 	if (!bOnlyBootFile)
 	{
-		fseeko64(m_pFile,0,SEEK_SET);
+		int ret;
+		ret = fseeko64(m_pFile,0,SEEK_SET);
+		if (ret < 0)
+		{
+			printf("%s:%d fseeko64 fail!\n", __func__, __LINE__);
+			return;
+		}
 		fread((PBYTE)(&imageHead),1,sizeof(STRUCT_RKIMAGE_HEAD),m_pFile);
 
 		if ( imageHead.uiTag!=0x57464B52 )
@@ -261,15 +281,27 @@ CRKImage::CRKImage(tstring filename,bool &bCheck)
 		nMd5DataSize = GetImageSize()-ulFwSize;
 		if (nMd5DataSize>=160)
 		{//sign image
+			int ret;
 			m_bSignFlag = true;
 			m_signMd5Size = nMd5DataSize-32;
-			fseeko64(m_pFile,ulFwSize,SEEK_SET);
+			ret = fseeko64(m_pFile,ulFwSize,SEEK_SET);
+			if (ret < 0)
+			{
+				printf("%s:%d fseeko64 fail!\n", __func__, __LINE__);
+				return;
+			}
 			fread(m_md5,1,32,m_pFile);
 			fread(m_signMd5,1,nMd5DataSize-32,m_pFile);
 		}
 		else
 		{
-			fseeko64(m_pFile,-32,SEEK_END);
+			int ret;
+			ret = fseeko64(m_pFile,-32,SEEK_END);
+			if (ret < 0)
+			{
+				printf("%s:%d fseeko64 fail!\n", __func__, __LINE__);
+				return;
+			}
 			fread(m_md5,1,32,m_pFile);
 		}
 		if (bDoMdb5Check)
@@ -308,7 +340,13 @@ CRKImage::CRKImage(tstring filename,bool &bCheck)
 
 	PBYTE lpBoot;
 	lpBoot = new BYTE[m_bootSize];
-	fseeko64(m_pFile,m_bootOffset,SEEK_SET);
+	int ret;
+	ret = fseeko64(m_pFile,m_bootOffset,SEEK_SET);
+	if (ret < 0)
+	{
+		printf("%s:%d fseeko64 fail!\n", __func__, __LINE__);
+		return;
+	}
 	fread(lpBoot,1,m_bootSize,m_pFile);
 	bool bRet;
 	m_bootObject = new CRKBoot(lpBoot,m_bootSize,bRet);

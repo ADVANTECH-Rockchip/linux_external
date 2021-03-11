@@ -659,15 +659,27 @@ int CRKAndroidDevice::WriteIDBlock(PBYTE lpIDBlock,DWORD dwSectorNum,bool bErase
 	UINT uiBufferSize=16*1024;
 	int iRet,i,nTryCount=3;
 	UINT uiTotal;
+	UINT bakCnt = IDB_BLOCKS;
+
 	uiTotal = dwSectorNum*SECTOR_SIZE;
 
 	while (nTryCount > 0)
 	{
 		m_pLog->Record(_T("dwSectorNum=%d"),dwSectorNum);
-		m_pLog->Record(_T("uiTotal=%d\n"),uiTotal);
+		m_pLog->Record(_T("uiTotal=%d"),uiTotal);
 
 		//iRet = m_pComm->RKU_EndWriteSector((BYTE*)&end_write_sector_data);
-		for(i = 0; i <= 4; i++)
+		int ubootOffset = GetUbootPartOffset();
+		if (ubootOffset < 0x2000)
+		{
+			bakCnt = (ubootOffset - 0x40) / 1024;
+			if (bakCnt > IDB_BLOCKS)
+				bakCnt =IDB_BLOCKS;
+		}
+
+		m_pLog->Record(_T("loader bak cnt = %d"), bakCnt);
+
+		for(i = 0; i < bakCnt; i++)
 		{
 			iRet = m_pComm->RKU_LoaderWriteLBA(64 + i * 1024, dwSectorNum, lpIDBlock);
 			if (iRet != ERR_SUCCESS)
@@ -693,8 +705,7 @@ int CRKAndroidDevice::WriteIDBlock(PBYTE lpIDBlock,DWORD dwSectorNum,bool bErase
 	return 0;
 }
 
-int CRKAndroidDevice::
-	PrepareIDB()
+int CRKAndroidDevice::PrepareIDB()
 {
 	int i;
 	generate_gf();
@@ -834,6 +845,38 @@ int CRKAndroidDevice::
 		}
 		m_pLog->Record(_T("ERROR:PrepareIDB-->New IDblock offset=%s."),strInfo.c_str());
 	}
+
+	return 0;
+}
+
+int CRKAndroidDevice::GetUbootPartOffset()
+{
+	long long dwFwOffset;
+	bool  bRet;
+	dwFwOffset = m_pImage->FWOffset;
+	STRUCT_RKIMAGE_HDR rkImageHead;
+	int iHeadSize, i;
+
+	iHeadSize = sizeof(STRUCT_RKIMAGE_HDR);
+
+	bRet = m_pImage->GetData(dwFwOffset, iHeadSize, (PBYTE)&rkImageHead);
+	if (!bRet)
+	{
+		if (m_pLog)
+		{
+			m_pLog->Record(_T("ERROR:DownloadImage-->GetData failed"));
+		}
+		return -1;
+	}
+
+	for ( i = 0; i < rkImageHead.item_count; i++)
+	{
+		if (!strcmp(rkImageHead.item[i].name, PARTNAME_UBOOT))
+			break;
+	}
+
+	if (i < rkImageHead.item_count)
+		return rkImageHead.item[i].flash_offset;
 
 	return 0;
 }
@@ -1004,6 +1047,7 @@ int CRKAndroidDevice::DownloadImage()
 	{
 		if (m_pProcessCallback)
 			m_pProcessCallback((double)uiCurrentByte/(double)uiTotalSize,0);
+
 		if ( rkImageHead.item[i].flash_offset==0xFFFFFFFF )
 		{
 			continue;
@@ -1027,6 +1071,7 @@ int CRKAndroidDevice::DownloadImage()
 					}
 					return -4;
 				}
+				m_pLog->Record(_T("########### Gpt Download OK! #########"));
 			}
 			else
 			{
@@ -1093,6 +1138,7 @@ int CRKAndroidDevice::DownloadImage()
 	m_pComm->RKU_ReopenLBAHandle();
 	if (m_pProcessCallback)
 		m_pProcessCallback(1,0);
+
 	if (m_pProcessCallback)
 		m_pProcessCallback(0.4,60);
 	uiCurrentByte = 0;
@@ -1178,6 +1224,7 @@ int CRKAndroidDevice::DownloadImage()
 
 		}
 	}
+
 	if (m_pProcessCallback)
 		m_pProcessCallback(1,0);
 	return 0;
@@ -1807,7 +1854,9 @@ bool CRKAndroidDevice::RKA_File_Download(STRUCT_RKIMAGE_ITEM &entry,long long &c
 			uiWriteByte = uiBufferSize;
 			uiLen = uiLBASector;
 		}
-		bRet = m_pImage->GetData(dwFWOffset+entry.offset+uiEntryOffset,uiWriteByte,pBuffer);
+
+		//bRet = m_pImage->GetData(dwFWOffset+entry.offset+uiEntryOffset,uiWriteByte,pBuffer);
+		bRet = m_pImage->GetData(ulEntryStartOffset + uiEntryOffset, uiWriteByte, pBuffer);
 		if ( !bRet )
 		{
 			if (m_pLog)
@@ -2016,7 +2065,7 @@ bool CRKAndroidDevice::RKA_File_Check(STRUCT_RKIMAGE_ITEM &entry,long long &curr
 			delete []pBufferFromFlash;
 			return false;
 		}
-		bRet = m_pImage->GetData(dwFWOffset+entry.offset+uiEntryOffset,uiWriteByte,pBufferFromFile);
+		bRet = m_pImage->GetData(ulEntryStartOffset + uiEntryOffset, uiWriteByte, pBufferFromFile);
 		if ( !bRet )
 		{
 			if (m_pLog)

@@ -119,6 +119,7 @@ const BYTE Wipe_All[]={0x72,0x65,0x63,0x6F,0x76,0x65,
 #define PARTNAME_BACKUP			"backup"
 #define PARTNAME_USERDATA		"userdata"
 #define PARTNAME_USER			"user"
+#define PARTNAME_UBOOT			"uboot"
 
 #define MAX_MANUFACTURER		60
 #define MAX_MACHINE_INFO		30
@@ -182,6 +183,7 @@ public:
 	virtual ~CRKAndroidDevice();
 	int UpgradePartition();
 	bool GetPublicKey(unsigned char *pKey,unsigned int &nKeySize);
+	int GetUbootPartOffset();
 	UpgradeCallbackFunc m_pCallback;
 	UpgradeProgressCallbackFunc m_pProcessCallback;
 protected:

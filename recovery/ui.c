@@ -321,7 +321,7 @@ static void *input_thread(void *cookie)
 }
 
 void ui_init(void)
-{	
+{
     drm_fd=gr_init();
     if(drm_fd < 0) {
         return;
