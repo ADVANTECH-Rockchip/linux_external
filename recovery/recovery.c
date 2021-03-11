@@ -1044,7 +1044,9 @@ main(int argc, char **argv) {
     }
 
     // Otherwise, get ready to boot the main system...
-    finish_recovery(send_intent);
+	if (!bSDBootUpdate){
+        finish_recovery(send_intent);
+	}
     ui_print("Rebooting...\n");
     printf("Reboot...\n");
     fflush(stdout);
