@@ -20,7 +20,7 @@
 #define WIFI_PRELOAD_INF	"/sys/class/rkwifi/preload"
 
 #define UNKKOWN_DRIVER_MODULE_ARG ""
-#define MRL_DRIVER_MODULE_ARG "cal_data_cfg=none sta_name=wlan wfd_name=p2p drv_mode=1"
+#define MRL_DRIVER_MODULE_ARG "cal_data_cfg=none sta_name=wlan wfd_name=p2p drv_mode=1 auto_ds=2 ps_mode=2"
 
 #define BT_TTY_DEV "/dev/ttyS0"
 #define RKWIFIBT_DEBUG
